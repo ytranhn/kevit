@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
+    QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
     QPushButton, QSpinBox, QVBoxLayout, QWidget)
 
 from . import char_gen, llm, models, settings
@@ -44,12 +44,19 @@ class CharGenDialog(QDialog):
         self.btn_analyze.clicked.connect(self.analyze)
         self.status = ElidedLabel()                  # một dòng, tự cắt "…" khi dài: không làm đổi chiều cao
         self.status.setProperty("caption", True)
+        self.backend = QComboBox()                # nơi tạo ảnh: Flow (mặc định, dùng tài khoản Flow đã đăng nhập) hoặc Gemini API
+        self.backend.addItem("Google Flow (Nano Banana)", "flow")
+        self.backend.addItem("Gemini API (cần bật billing)", "gemini")
+        self.backend.setCurrentIndex(max(0, self.backend.findData(settings.image_backend())))
+        self.backend.currentIndexChanged.connect(lambda *_: settings.set_image_backend(self.backend.currentData()))
         top = QHBoxLayout()
         top.setSpacing(SP.s)
         top.addWidget(QLabel("Số nhân vật tối đa"))
         top.addWidget(self.max_n)
         top.addWidget(self.btn_analyze)
         top.addWidget(self.status, 1)
+        top.addWidget(QLabel("Tạo ảnh bằng"))
+        top.addWidget(self.backend)
 
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self.select)
@@ -63,7 +70,7 @@ class CharGenDialog(QDialog):
         self.preview.setFixedSize(150, 200)
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setProperty("avatarph", True)
-        self.btn_img = QPushButton("Tạo ảnh bằng Gemini")
+        self.btn_img = QPushButton("Tạo ảnh")
         self.btn_copy = QPushButton("Copy prompt ảnh")
         self.btn_img.clicked.connect(self.make_image_current)
         self.btn_copy.clicked.connect(self.copy_prompt)
@@ -233,24 +240,20 @@ class CharGenDialog(QDialog):
             self.store()
             p = models.Project.load(self.project_name)
             QGuiApplication.clipboard().setText(char_gen.image_prompt(p, self.cands[self._row]["appearance_en"]))
-            self.status.set_full("Đã copy prompt ảnh. Dán vào công cụ tạo ảnh bạn dùng (Flow, Gemini…), rồi gắn ảnh vào nhân vật ở tab Nhân vật.")
+            self.status.set_full("Đã copy prompt ảnh. Dán vào công cụ tạo ảnh bạn dùng, rồi gắn ảnh vào nhân vật ở tab Nhân vật.")
 
     # ---------- tạo ảnh ----------
     def _gen(self, rows: list[int]):
         self.store()
         p = models.Project.load(self.project_name)
-        prompts = {r: char_gen.image_prompt(p, self.cands[r]["appearance_en"]) for r in rows}
+        names = [self.cands[r]["name"] for r in rows]
+        prompts = {self.cands[r]["name"]: char_gen.image_prompt(p, self.cands[r]["appearance_en"]) for r in rows}
+        backend = self.backend.currentData()
         self.busy(True, f"Đang tạo ảnh 0/{len(rows)}…")
 
         def job(log):
-            out, errs = {}, []
-            for k, r in enumerate(rows, 1):
-                log(f"Đang tạo ảnh {k}/{len(rows)}: {self.cands[r]['name']}…")
-                try:
-                    out[r] = char_gen.generate_image(prompts[r], None, log)
-                except Exception as e:  # noqa: BLE001 - một ảnh lỗi không làm hỏng cả lô
-                    errs.append(f"{self.cands[r]['name']}: {e}")
-            return out, errs
+            out, errs = char_gen.generate_images(self.project_name, prompts, backend, log)
+            return {rows[names.index(n)]: data for n, data in out.items()}, errs
         self.worker = Worker(job)
         self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
         self.worker.done.connect(self.on_images)
@@ -273,9 +276,14 @@ class CharGenDialog(QDialog):
 
     def make_images_checked(self):
         rows = self.checked()
-        if rows and QMessageBox.question(
-                self, "Tạo ảnh bằng Gemini", f"Tạo ảnh cho {len(rows)} nhân vật bằng model {settings.image_model()}? "
-                "Mỗi ảnh tính phí theo bảng giá Gemini API của bạn.") == QMessageBox.Yes:
+        if not rows:
+            return
+        if self.backend.currentData() == "flow":
+            msg = (f"Tạo ảnh cho {len(rows)} nhân vật bằng Google Flow (model Nano Banana)? Cần Chrome Flow đã đăng nhập; "
+                   "ảnh được tạo trong dự án Flow của bạn, thường không tốn tín dụng (giá hiện trong nhật ký).")
+        else:
+            msg = f"Tạo ảnh cho {len(rows)} nhân vật bằng Gemini API (model {settings.image_model()})? Mỗi ảnh tính phí theo bảng giá Gemini API của bạn."
+        if QMessageBox.question(self, "Tạo ảnh nhân vật", msg) == QMessageBox.Yes:
             self._gen(rows)
 
     # ---------- thêm vào dự án ----------

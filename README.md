@@ -79,7 +79,12 @@ Bấm **Nhập gói…** (hoặc kéo-thả thư mục / file `.zip` vào tab Nh
 
 ### Tạo nhân vật từ truyện (AI)
 
-Tab Nhân vật → **Tạo nhân vật từ truyện (AI)…**: AI đề xuất nhân vật chưa có trong dự án, bạn duyệt/sửa mô tả ngoại hình (prompt tiếng Anh), tuỳ chọn **tạo ảnh bằng Gemini** (cần Gemini API key, chọn model ở Cài đặt) hoặc **Copy prompt ảnh** để tạo bằng công cụ khác, rồi thêm vào dự án.
+Tab Nhân vật → **Tạo nhân vật từ truyện (AI)…**: AI đọc bối cảnh và các chương, đề xuất nhân vật **chưa có** trong dự án kèm mô tả ngoại hình (prompt tiếng Anh) theo phong cách dự án. Để kết quả ổn định, truyện dài được đọc từng đoạn rồi gộp; mỗi mục được phân loại (chỉ giữ người/thần/yêu thú, bỏ địa danh, tổ chức, vật phẩm, chức danh), đối chiếu số lần nhắc và câu trích trong truyện, xếp theo số lần nhắc.
+
+Tạo ảnh tham chiếu cho nhân vật, chọn nơi tạo ở hộp thoại:
+- **Google Flow (Nano Banana)** (mặc định): dùng chính tài khoản Flow đã đăng nhập, ảnh nằm trong dự án Flow của bạn, thường **0 tín dụng**. Không cần key riêng.
+- **Gemini API**: cần key đã bật thanh toán (gói miễn phí không có hạn mức tạo ảnh). Model chọn ở Cài đặt.
+- Hoặc **Copy prompt ảnh** để tạo bằng công cụ khác rồi gắn ảnh vào nhân vật.
 
 ## Dữ liệu và bảo mật
 

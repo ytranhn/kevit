@@ -262,15 +262,14 @@ class FlowAuto:
             c = chars.get(n)
             if c and c.image and Path(c.image).exists():
                 self.add_ingredient(Path(c.image))
-        pg.locator(S.PROMPT_EDITOR).click()
-        pg.keyboard.insert_text(build_prompt(p, s, chars))
-        pg.wait_for_timeout(800)
         if self.dry_run:
+            pg.locator(S.PROMPT_EDITOR).click()
+            pg.keyboard.press("ControlOrMeta+A")
+            pg.keyboard.insert_text(build_prompt(p, s, chars))
             self.log(f"[dry-run] scene {s.index}: đã điền sẵn, không bấm tạo.")
             return -1
+        self._type_prompt(build_prompt(p, s, chars))
         gen = pg.get_by_role("button", name=S.BTN_GENERATE)
-        if not gen.is_enabled():
-            raise FlowError("Nút tạo bị khoá (prompt trống hoặc hết credit?)")
         gen.click()
         if not self._wait_new_tile(n0):
             why = self._overload_text()
@@ -395,6 +394,128 @@ class FlowAuto:
         if cancelled():
             for s, _ in inflight:
                 fail(s, "Đã huỷ khi đang chờ render (chưa thấy clip). Bấm ⟳ Đồng bộ Flow để lấy clip nếu Flow đã render xong.")
+
+    def _type_prompt(self, text: str) -> None:
+        """Nhập prompt (thay hẳn chữ cũ nếu có) rồi chờ nút 'Bắt đầu tạo' sáng lên (Flow cần vài giây để nhận prompt)."""
+        pg = self.page
+        pg.locator(S.PROMPT_EDITOR).click()
+        pg.keyboard.press("ControlOrMeta+A")
+        pg.keyboard.insert_text(text)
+        gen = pg.get_by_role("button", name=S.BTN_GENERATE)
+        for _ in range(16):
+            pg.wait_for_timeout(500)
+            if gen.is_enabled():
+                return
+        raise FlowError("Nút tạo bị khoá (prompt trống hoặc hết credit?)")
+
+    # ---- tạo ảnh (chế độ "Hình ảnh" của Flow: Nano Banana, thường 0 tín dụng) ----
+    def _radio(self, text: str):
+        return self.page.locator("[role=radio]").filter(has_text=text).first
+
+    def _set_image_mode(self, aspect: str = "3:4") -> str:
+        """Mở bảng cài đặt, chọn Hình ảnh + khổ + x1. Trả về dòng giá hiện trên Flow."""
+        pg = self.page
+        if not pg.locator("[role=radio]").count():
+            pg.get_by_role("button", name=S.BTN_SETTINGS_PILL).click()
+            pg.wait_for_timeout(800)
+        self._radio(S.RADIO_IMAGE).click()
+        pg.wait_for_timeout(1000)
+        self._radio(aspect).click()
+        self._radio("x1").click()
+        pg.wait_for_timeout(500)
+        cost = self._stable_cost()
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(400)
+        return cost
+
+    def generate_image(self, p: Project, prompt: str, aspect: str = "3:4", timeout: int = 240) -> bytes:
+        """Tạo 1 ảnh trong dự án Flow bằng chế độ Hình ảnh rồi tải về, trả về dữ liệu ảnh. Không dùng Gemini API nên không cần key riêng."""
+        pg = self.page
+        url = self.ensure_project(p)
+        self._goto(url)
+        n0 = pg.locator(S.IMAGE_TILE).count()
+        cost = self._set_image_mode(aspect)
+        self.log(f"Tạo ảnh trên Flow ({aspect}). {cost}")
+        self._type_prompt(prompt)
+        pg.get_by_role("button", name=S.BTN_GENERATE).click()
+        t0, seen_new = time.time(), False
+        while time.time() - t0 < timeout:
+            pg.wait_for_timeout(4000)
+            self._check_login()
+            now = pg.locator(S.IMAGE_TILE).count()
+            pending = pg.locator(S.PENDING_TILE).count()
+            seen_new = seen_new or now > n0 or pending > 0
+            if now > n0 and not pending:
+                break
+            if not seen_new and time.time() - t0 > 30:          # 30s mà Flow không hiện ô mới: không nhận yêu cầu
+                why = self._overload_text()
+                raise FlowError("Flow đang quá tải (high demand) nên không nhận yêu cầu; thử lại sau ít phút." if why else
+                                "Flow không nhận yêu cầu tạo ảnh (không thấy ô mới). Kiểm tra cửa sổ Chrome Flow xem có thông báo lỗi không.")
+        else:
+            raise FlowError(f"Quá {timeout}s chưa có ảnh trên Flow.")
+        # mở ảnh mới nhất rồi tải bản gốc
+        pg.locator(S.IMAGE_TILE).first.click()
+        pg.wait_for_url(re.compile(r"/edit/"), timeout=20000)
+        pg.wait_for_timeout(2000)
+        data = self._download_image()
+        self._goto(url)                                             # thoát màn hình ảnh về dự án
+        return data
+
+    def _image_bytes_from_page(self) -> bytes | None:
+        """Lấy thẳng dữ liệu ảnh đang hiển thị ở màn hình ảnh (địa chỉ CDN đã ký của Flow): không cần tải xuống nên không bị Chrome
+        hỏi quyền tải/hộp thoại lưu file. Trả None nếu không lấy được."""
+        import urllib.request
+        pg = self.page
+        try:
+            imgs = pg.evaluate("""() => [...document.images].map(i => ({src: i.currentSrc || i.src, area: i.naturalWidth * i.naturalHeight}))
+                                  .filter(i => i.area > 200 * 200 && i.src.startsWith('http')).sort((a, b) => b.area - a.area)""")
+            ua = pg.evaluate("navigator.userAgent")
+        except Exception:  # noqa: BLE001
+            return None
+        for im in imgs[:2]:
+            try:
+                with urllib.request.urlopen(urllib.request.Request(im["src"], headers={"User-Agent": ua}), timeout=30) as r:
+                    data = r.read()
+                if len(data) > 2000:
+                    return data
+            except Exception as e:  # noqa: BLE001
+                self.log(f"Lấy ảnh trực tiếp chưa được ({type(e).__name__}), dùng cách tải xuống...")
+        return None
+
+    def _download_image(self) -> bytes:
+        """Đang ở màn hình ảnh (/edit/): lấy ảnh. Ưu tiên lấy thẳng từ địa chỉ ảnh; không được thì dùng nút tải xuống (mở menu cỡ ảnh,
+        chọn 'Kích thước gốc'; cần Chrome cho phép tải tự động nên chỉ là phương án dự phòng)."""
+        import tempfile
+        pg = self.page
+        for _ in range(5):                       # ảnh vừa tạo đôi khi cần vài giây để hiện đủ độ phân giải
+            data = self._image_bytes_from_page()
+            if data:
+                return data
+            pg.wait_for_timeout(2000)
+        tmp = Path(tempfile.mkdtemp(prefix="kevit-img-")) / "image"
+        last = None
+        for attempt in range(1, 3):
+            try:
+                if pg.locator("[role=menu]").count():
+                    pg.keyboard.press("Escape")
+                    pg.wait_for_timeout(500)
+                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD)
+                btn.wait_for(state="visible", timeout=15000)
+                with pg.expect_download(timeout=25000) as d:
+                    btn.first.click()
+                    pg.wait_for_timeout(1200)
+                    item = pg.locator("[role=menuitem]").filter(has_text=S.MENU_IMAGE_ORIGINAL)
+                    if item.count():
+                        item.first.click()
+                d.value.save_as(str(tmp))
+                data = tmp.read_bytes()
+                if data:
+                    return data
+                last = "file tải về rỗng"
+            except Exception as e:  # noqa: BLE001
+                last = f"{type(e).__name__}: {str(e)[:120]}"
+            self.log(f"Tải ảnh lần {attempt} chưa được ({last}), thử lại...")
+        raise FlowError(f"Không lấy được ảnh vừa tạo: {last}. Nếu Chrome hiện hộp thoại xin phép tải nhiều tệp, hãy bấm Cho phép.")
 
     def _open_first_tile(self):
         pg = self.page

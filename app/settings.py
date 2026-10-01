@@ -21,6 +21,16 @@ def set_api_key(key: str) -> None:
 IMAGE_DEFAULT_MODEL = "gemini-2.5-flash-image"
 
 
+def image_backend() -> str:
+    """Nơi tạo ảnh nhân vật: 'flow' (Google Flow, dùng tài khoản Flow đã đăng nhập) hoặc 'gemini' (Gemini API)."""
+    v = str(_s.value("image_backend", "flow") or "flow")
+    return v if v in ("flow", "gemini") else "flow"
+
+
+def set_image_backend(v: str) -> None:
+    _s.setValue("image_backend", v if v in ("flow", "gemini") else "flow")
+
+
 def image_model() -> str:
     return str(_s.value("image_model", IMAGE_DEFAULT_MODEL) or IMAGE_DEFAULT_MODEL)
 

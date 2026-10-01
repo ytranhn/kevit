@@ -23,9 +23,13 @@ TXT_UPLOADING = "Đang tải lên"
 BTN_GENERATE = "Bắt đầu tạo"
 TXT_COST = "Quá trình tạo sẽ tốn"
 TILE = "flow-video-tile"
+IMAGE_TILE = "flow-image-tile"
+PENDING_TILE = "flow-pending-tile"       # ô đang render (cả ảnh lẫn video)
+RADIO_IMAGE = "Hình ảnh"                 # chế độ tạo ảnh (model Nano Banana, thường 0 tín dụng)
 
 # Màn hình clip
 BTN_DOWNLOAD = "Tải nội dung nghe nhìn xuống"
+MENU_IMAGE_ORIGINAL = "Kích thước gốc"   # ảnh: 1K gốc; 2K/4K là bản nâng độ phân giải
 MENU_ORIGINAL = "720p"       # bản gốc, không tốn credit; 1080p/4K là bản upscale
 
 MODELS = ["Omni 1.1 Flash", "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"]
