@@ -90,6 +90,7 @@ def set_data_dir(path: Path) -> None:
     fa = sys.modules.get("app.flow_auto")
     if fa is not None:
         fa.PROFILE_DIR = DATA_DIR / "flow_profile"
+        fa.DOWNLOAD_DIR = DATA_DIR / "flow_downloads"
 
 
 def remember_dev_data_dir() -> None:

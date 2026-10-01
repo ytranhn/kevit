@@ -21,6 +21,7 @@ from .veo_client import build_prompt
 
 PROFILE_DIR = DATA_DIR / "flow_profile"
 FLOW_URL = "https://labs.google/fx/tools/flow"
+DOWNLOAD_DIR = DATA_DIR / "flow_downloads"      # nơi Chrome Flow tự lưu file tải, không bật hộp thoại chọn chỗ lưu
 
 
 ERROR_RE = r"(lỗi|không thành công|thất bại|failed)"
@@ -89,7 +90,11 @@ def seed_download_prefs(profile: Path | None = None) -> bool:
         ex = d.setdefault("profile", {}).setdefault("content_settings", {}).setdefault("exceptions", {}).setdefault("automatic_downloads", {})
         for o in FLOW_ORIGINS:
             ex[o] = {"setting": 1}
-        d.setdefault("download", {})["prompt_for_download"] = False
+        dl = d.setdefault("download", {})
+        dl["prompt_for_download"] = False
+        DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        dl["default_directory"] = str(DOWNLOAD_DIR)
+        d.setdefault("savefile", {})["default_directory"] = str(DOWNLOAD_DIR)
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
         return True
@@ -120,6 +125,11 @@ class FlowAuto:
         self.pw = sync_playwright().start()
         self.browser = self.pw.chromium.connect_over_cdp(S.CDP_URL)
         ctx = self.browser.contexts[0]
+        try:   # trang không được gọi hộp thoại lưu file của hệ điều hành: buộc dùng đường tải xuống thường để tool nhận file
+            ctx.add_init_script("try { delete window.showSaveFilePicker; } catch (e) {} "
+                                "try { Object.defineProperty(window, 'showSaveFilePicker', {value: undefined, configurable: true}); } catch (e) {}")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Không đặt được chặn hộp thoại lưu file: {e}")
         self.page = next((p for p in ctx.pages if "flow.google.com" in p.url), None) or ctx.new_page()
         self.page.set_default_timeout(30000)
         return self
