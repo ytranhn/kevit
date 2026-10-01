@@ -678,6 +678,26 @@ class ProjectTab(QWidget):
                  lambda: self.flow_auto_run("pending"), enabled=pend > 0)
         pop.item(f"Gen lại tất cả  ·  {len(sc)}", "Ghi đè cả scene đã xong, tốn nhiều credit",
                  lambda: self.flow_auto_run("all"), enabled=bool(sc), danger=True)
+        pop.separator()
+        pop.section("Số scene gửi cùng lúc lên Flow")
+        seg = Segmented()
+        for k in (1, 2, 3, 4):
+            seg.addItem(str(k), k)
+        seg.setCurrentIndex(max(0, seg.findData(min(self.flow_parallel.value(), 4))))
+        seg.currentIndexChanged.connect(lambda i: self.set_parallel(seg.currentData()))
+        pop.widget(seg)
+        hint = QLabel("1 = lần lượt từng scene. Số lớn hơn: nhiều scene render cùng lúc trên Flow để đỡ chờ, credit không đổi. Nếu Flow báo lỗi thì giảm xuống.")
+        hint.setProperty("caption", True)
+        hint.setWordWrap(True)
+        pop.widget(hint)
+
+    def set_parallel(self, k: int):
+        """Đổi số scene gửi cùng lúc ngay từ menu Gen video (cùng giá trị với Cài đặt dự án)."""
+        if self.project and k:
+            self.flow_parallel.setValue(int(k))
+            self.project.flow_parallel = int(k)
+            self.project.save()
+            self.log(f"Gen video: gửi {k} scene cùng lúc." if k > 1 else "Gen video: lần lượt từng scene.")
 
     def build_manage_pop(self, pop):
         sel = self.selected_scenes()

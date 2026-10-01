@@ -483,6 +483,15 @@ class Popover(QFrame):
         b.clicked.connect(lambda: self._fire(cb))
         self._targets[-1].addWidget(b)
 
+    def widget(self, w: QWidget) -> None:
+        """Chèn một điều khiển tuỳ ý (vd. nút phân đoạn) vào popover, canh lề như các mục khác."""
+        holder = QWidget()
+        h = QVBoxLayout(holder)
+        h.setContentsMargins(SP.m, SP.xs, SP.m, SP.s)
+        h.setSpacing(SP.xs)
+        h.addWidget(w)
+        self._targets[-1].addWidget(holder)
+
     def begin_scroll(self, max_height: int) -> None:
         """Các mục thêm sau đó nằm trong vùng cuộn có chiều cao tối đa (dành cho danh sách dài); kết thúc bằng end_scroll()."""
         area = QScrollArea()
