@@ -20,7 +20,7 @@ from . import credits, langs, flow, flow_auto, flow_selectors, llm, pipeline, sc
 from .merger import merge
 from . import models
 from .models import Project, nfc, safe_dirname
-from . import theme
+from . import icons, theme
 from .theme import SP
 from .project_settings import ProjectSettingsDialog
 from .widgets import (
@@ -65,8 +65,9 @@ class PreviewPanel(QWidget):
         self._autoplay = False
         self._key = None
 
-        self.btn = QPushButton("▶")
-        self.btn.setFixedWidth(44)
+        self.btn = QPushButton("")
+        icons.attach(self.btn, "play", 20)
+        self.btn.setFixedWidth(48)
         self.slider = QSlider(Qt.Horizontal)
         self.time = QLabel("0:00 / 0:00")
         self.controls = QWidget()                       # được đặt ở chân thẻ "Xem trước"
@@ -86,7 +87,7 @@ class PreviewPanel(QWidget):
         self.player.positionChanged.connect(self._on_pos)
         self.player.durationChanged.connect(lambda d: self.slider.setRange(0, d))
         self.player.playbackStateChanged.connect(
-            lambda s: self.btn.setText("⏸" if s == QMediaPlayer.PlayingState else "▶"))
+            lambda s: icons.attach(self.btn, "pause" if s == QMediaPlayer.PlayingState else "play", 20))
         self.player.mediaStatusChanged.connect(self._on_status)
     def _on_pos(self, pos: int):
         if not self.slider.isSliderDown():
@@ -153,20 +154,26 @@ class ProjectTab(QWidget):
         self.nav_project.setMinimumWidth(200)
         self.nav_chapter = NavButton(with_pill=True)
         self.nav_chapter.setMinimumWidth(240)
-        self.btn_prev = QPushButton("‹")
-        self.btn_next = QPushButton("›")
+        self.btn_prev = QPushButton("")
+        self.btn_next = QPushButton("")
+        icons.attach(self.btn_prev, "left", 20)
+        icons.attach(self.btn_next, "right", 20)
         for b in (self.btn_prev, self.btn_next):
             b.setFixedSize(36, 36)                       # nút vuông có viền như các nút khác: nhìn là biết bấm được
-            b.setProperty("arrow", True)
+            b.setToolTip("Chương trước" if b is self.btn_prev else "Chương sau")
         self.btn_prev.clicked.connect(lambda: self.step_chapter(-1))
         self.btn_next.clicked.connect(lambda: self.step_chapter(+1))
         self.pop_project = popover_button(self.nav_project, self.build_project_pop, side="below", align="left", width=420)
         self.pop_chapter = popover_button(self.nav_chapter, self.build_chapter_pop, side="below", align="left", width=460)
-        self.sync_btn = QPushButton("⟳ Đồng bộ Flow")
+        self.sync_btn = QPushButton("Đồng bộ Flow")
+        icons.attach(self.sync_btn, "refresh")
         self.sync_btn.clicked.connect(self.flow_sync)
-        self.more = QPushButton("Khác ▾")
+        self.more = QPushButton("Khác")
+        icons.attach(self.more, "down", 18)
+        self.more.setLayoutDirection(Qt.RightToLeft)          # mũi tên xổ nằm bên phải chữ
         self.pop_more = popover_button(self.more, self.build_more_pop, side="below", align="right", width=380)
-        self.btn_settings = QPushButton("⚙ Cài đặt")
+        self.btn_settings = QPushButton("Cài đặt")
+        icons.attach(self.btn_settings, "gear")
         self.btn_settings.clicked.connect(self.open_settings)
         self.progress = QLabel("")                       # giữ làm thuộc tính cũ; tiến độ hiển thị ở thanh công cụ của thẻ Scene
         sep = QLabel("›")
@@ -268,7 +275,9 @@ class ProjectTab(QWidget):
         self.sel_label.setFixedWidth(112)                  # cố định: đổi nội dung không làm xê dịch các nút bên cạnh
         self.sel_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sel_bar.addWidget(self.sel_label)
-        self.manage_btn = QPushButton("Quản lý ▾")
+        self.manage_btn = QPushButton("Quản lý")
+        icons.attach(self.manage_btn, "down", 18)
+        self.manage_btn.setLayoutDirection(Qt.RightToLeft)
         self.manage_btn.setFixedSize(112, 36)
         self.pop_manage = popover_button(self.manage_btn, self.build_manage_pop, side="below", align="right", width=380)
         self._busy_widgets.append(self.manage_btn)
@@ -330,9 +339,11 @@ class ProjectTab(QWidget):
         self.b_view_err = QPushButton("Xem lỗi")
         self.b_view_err.setProperty("flat", True)
         self.b_view_err.clicked.connect(self.view_error)
-        b_gen_one = QPushButton("Gen lại scene này")
-        b_voice_one = QPushButton("Áp dụng lại giọng")
+        b_gen_one = QPushButton("Gen lại scene")
+        icons.attach(b_gen_one, "refresh", 18)
+        b_voice_one = QPushButton("Áp dụng giọng")
         b_copy = QPushButton("Copy prompt")
+        icons.attach(b_copy, "copy", 18)
         b_gen_one.clicked.connect(lambda: self.flow_auto_run("current"))
         b_voice_one.clicked.connect(lambda: self.revoice(only_current=True))
         b_copy.clicked.connect(self.flow_copy)
@@ -348,10 +359,12 @@ class ProjectTab(QWidget):
         # ===== ba thẻ cùng cấu trúc: đầu thẻ (56px) / thân thẻ / chân thẻ (68px) =====
         self.preview = PreviewPanel()
         # --- thẻ 1: Scene (danh sách + truyện + bối cảnh) ---
-        self.s1 = QPushButton("① Tạo scene")
-        self.s2 = QPushButton("② Gen video")
+        self.s1 = QPushButton("Tạo scene")
+        self.s2 = QPushButton("Gen video")
         self.pop_gen = popover_button(self.s2, self.build_gen_pop, side="above", align="left", width=400)
-        self.s3 = QPushButton("③ Ghép video")
+        self.s3 = QPushButton("Ghép video")
+        for b, ic in ((self.s1, "step1"), (self.s2, "step2"), (self.s3, "step3")):
+            icons.attach(b, ic, 20)
         for b in (self.s1, self.s2, self.s3):
             b.setFixedHeight(36)
             b.setProperty("primary", True)
@@ -1465,14 +1478,14 @@ class ProjectTab(QWidget):
         sc = self.scenes
         n, done = len(sc), sum(1 for s in sc if s.status == "done")
         nxt = 1 if n == 0 else (2 if done < n else 3)
-        self.s1.setText("① Tạo scene" if n == 0 else "① Tạo lại")
-        self.s2.setText("② Gen video" + (f"  {done}/{n}" if n else "") + "  ▾")
-        self.s3.setText("③ Ghép video" if not n or done == n else f"③ Ghép · còn {n - done}")
+        self.s1.setText("Tạo scene" if n == 0 else "Tạo lại")
+        self.s2.setText("Gen video" + (f"  {done}/{n}" if n else "") + "  ▾")
+        self.s3.setText("Ghép video" if not n or done == n else f"Ghép · còn {n - done}")
         for i, b in ((1, self.s1), (2, self.s2), (3, self.s3)):
             want = i == nxt
             if bool(b.property("primary")) != want:
                 b.setProperty("primary", want)
-                repolish(b)
+                repolish(b)               # (repolish tự vẽ lại icon theo màu chữ mới)
         busy = self._busy
         self.s1.setEnabled(not busy)
         self.s2.setEnabled(n > 0 and not busy)
@@ -1487,7 +1500,7 @@ class ProjectTab(QWidget):
         if words:
             self.empty_title.setText("Chương đã có truyện, chưa có scene")
             self.empty_text.setText(f"Truyện hiện có khoảng {words} từ. Bấm nút dưới để tách thành các scene.")
-            self.empty_btn.setText("① Tạo scene")
+            self.empty_btn.setText("Tạo scene")
         else:
             self.empty_title.setText("Chương này đang trống")
             self.empty_text.setText("Dán nội dung chương vào tab “Truyện (chương)”, sau đó tạo scene.")

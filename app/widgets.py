@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QProgressBar,
     QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyledItemDelegate, QVBoxLayout, QWidget)
 
+from . import icons
 from .models import nfc
 from .theme import SP
 from .scene_planner import _fold
@@ -19,6 +20,7 @@ def repolish(w: QWidget) -> None:
     w.style().unpolish(w)
     w.style().polish(w)
     w.update()
+    icons.refresh(w)             # icon theo màu chữ của trạng thái mới (vd. nút đổi sang/khỏi 'primary')
 
 
 _AV: dict[tuple, QPixmap] = {}
@@ -282,7 +284,9 @@ class StatusStrip(QWidget):
             b.clicked.connect(lambda _=False, k=key: self.chip_clicked.emit(k))
             self.chips[key] = b
             row.addWidget(b)
-        self.log_btn = QPushButton("Nhật ký ▴")
+        self.log_btn = QPushButton("Nhật ký")
+        icons.attach(self.log_btn, "up", 16)
+        self.log_btn.setLayoutDirection(Qt.RightToLeft)
         self.log_btn.setProperty("flat", True)
         self.log_btn.clicked.connect(self.log_toggled.emit)
         row.addWidget(self.log_btn)
@@ -317,7 +321,7 @@ class StatusStrip(QWidget):
             repolish(b)
 
     def set_log_open(self, is_open: bool) -> None:
-        self.log_btn.setText("Nhật ký ▾" if is_open else "Nhật ký ▴")
+        icons.attach(self.log_btn, "down" if is_open else "up", 16)
 
 
 # ---------------------------------------------------------------- điều khiển phân đoạn
@@ -734,8 +738,8 @@ class NavButton(QPushButton):
         self.pill.setVisible(False)
         self._with_pill = with_pill
         row.addWidget(self.pill, 0, Qt.AlignVCenter)        # canh giữa theo chiều dọc: không bị kéo giãn hết chiều cao nút
-        caret = QLabel("▾")
-        caret.setProperty("caption", True)
+        caret = QLabel()
+        icons.attach(caret, "down", 18, role="muted")
         caret.setAttribute(Qt.WA_TransparentForMouseEvents)
         row.addWidget(caret, 0, Qt.AlignVCenter)
 
