@@ -1559,15 +1559,20 @@ class ProjectTab(QWidget):
                         if self._cancel.is_set():
                             log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
                             break
-                        for s in group:
-                            s.status, s.error = "generating", ""
-                        p.save()
-                        got, failed, missing = f.generate_parallel(p, group, chars, out_dir)
+                        def on_event(s, kind, msg):      # giao diện cập nhật từng scene ngay khi gửi / lỗi
+                            if kind == "sent":
+                                s.status, s.error = "generating", ""
+                            else:
+                                s.status, s.error = "error", msg
+                            p.save()
+                        got, failed, missing = f.generate_parallel(p, group, chars, out_dir, on_event, self._cancel)
                         for s in got:
                             finish(s)
                         for s in group:
                             if id(s) in failed:
                                 s.status, s.error = "error", failed[id(s)]
+                            elif s in missing and self._cancel.is_set():
+                                s.status, s.error = "error", "Đã huỷ khi đang chờ render. Bấm ⟳ Đồng bộ Flow để lấy clip nếu Flow đã render xong (chưa thấy clip)."
                             elif s in missing:
                                 s.status = "error"
                                 s.error = ("Đã gửi lên Flow nhưng chưa thấy clip (Flow báo lỗi hoặc quá thời gian chờ). "
@@ -1578,6 +1583,9 @@ class ProjectTab(QWidget):
                             p.save()
                             finished += 1
                             self._prog = (finished, len(todo))
+                        if any("quá tải" in v for v in failed.values()):
+                            log("Flow đang quá tải: dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
+                            break
                 else:
                     for s in [x for x in todo if x not in recovered]:
                         if self._cancel.is_set():
