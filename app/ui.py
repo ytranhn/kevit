@@ -72,12 +72,15 @@ class CharactersTab(QWidget):
 
         top = QHBoxLayout()
         top.setSpacing(SP.l)
-        pic = QVBoxLayout()
+        btn_img.setFixedHeight(36)
+        picbox = QWidget()                      # khối ảnh + nút có kích thước cố định: cửa sổ thấp cũng không bị nén đè lên nhau
+        pic = QVBoxLayout(picbox)
+        pic.setContentsMargins(0, 0, 0, 0)
         pic.setSpacing(SP.s)
         pic.addWidget(self.preview)
         pic.addWidget(btn_img)
-        pic.addStretch()
-        top.addLayout(pic)
+        picbox.setFixedSize(176, 176 + SP.s + 36)
+        top.addWidget(picbox, 0, Qt.AlignTop)
         main = QVBoxLayout()
         main.setSpacing(SP.m)
         main.addWidget(field("Tên chuẩn", self.name))
@@ -118,7 +121,11 @@ class CharactersTab(QWidget):
         lay = QHBoxLayout(self)
         lay.setSpacing(SP.l)
         lay.addLayout(lcol, 4)
-        lay.addWidget(card, 7)
+        scroll = QScrollArea()                  # cửa sổ thấp thì cuộn thay vì nén các ô nhập đè lên nhau
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(card)
+        lay.addWidget(scroll, 7)
         self.list.currentRowChanged.connect(self.show_char)
         self.refresh()
 

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 
 from . import char_gen, llm, models, settings
 from .theme import SP
+from .widgets import ElidedLabel
 from .workers import Worker
 
 
@@ -23,7 +24,8 @@ class CharGenDialog(QDialog):
         self.worker: Worker | None = None
         self._row = -1
         self.setWindowTitle("Tạo nhân vật từ truyện")
-        self.resize(900, 640)
+        self.setMinimumSize(900, 830)
+        self.resize(980, 840)
 
         title = QLabel("Tạo nhân vật từ truyện")
         title.setProperty("heading", True)
@@ -31,6 +33,7 @@ class CharGenDialog(QDialog):
                      "của dự án). Bạn duyệt và sửa, tuỳ chọn tạo ảnh tham chiếu bằng Gemini, rồi thêm vào dự án.")
         sub.setProperty("caption", True)
         sub.setWordWrap(True)
+        sub.setMinimumHeight(sub.fontMetrics().lineSpacing() * 3 + 4)   # nhãn tự xuống dòng: chừa sẵn 3 dòng để Qt không đánh giá thấp chiều cao cửa sổ
 
         self.max_n = QSpinBox()
         self.max_n.setRange(1, 30)
@@ -39,9 +42,8 @@ class CharGenDialog(QDialog):
         self.btn_analyze = QPushButton("Phân tích truyện")
         self.btn_analyze.setProperty("primary", True)
         self.btn_analyze.clicked.connect(self.analyze)
-        self.status = QLabel("")
+        self.status = ElidedLabel()                  # một dòng, tự cắt "…" khi dài: không làm đổi chiều cao
         self.status.setProperty("caption", True)
-        self.status.setWordWrap(True)
         top = QHBoxLayout()
         top.setSpacing(SP.s)
         top.addWidget(QLabel("Số nhân vật tối đa"))
@@ -56,7 +58,7 @@ class CharGenDialog(QDialog):
         self.prompt = QPlainTextEdit()
         self.prompt.setPlaceholderText("Mô tả ngoại hình bằng tiếng Anh (dùng làm prompt ảnh và prompt Flow)")
         self.desc_vi = QPlainTextEdit()
-        self.desc_vi.setFixedHeight(64)
+        self.desc_vi.setFixedHeight(92)
         self.preview = QLabel("Chưa có ảnh")
         self.preview.setFixedSize(150, 200)
         self.preview.setAlignment(Qt.AlignCenter)
@@ -80,12 +82,16 @@ class CharGenDialog(QDialog):
             v.addWidget(c)
             v.addWidget(w)
             return box
-        pic = QVBoxLayout()
+        for b in (self.btn_img, self.btn_copy):
+            b.setFixedHeight(36)
+        picbox = QWidget()                        # khối ảnh + nút có kích thước cố định: không bao giờ bị nén đè lên nhau
+        pic = QVBoxLayout(picbox)
+        pic.setContentsMargins(0, 0, 0, 0)
         pic.setSpacing(SP.s)
-        pic.addWidget(self.preview)
+        pic.addWidget(self.preview, 0, Qt.AlignHCenter)
         pic.addWidget(self.btn_img)
         pic.addWidget(self.btn_copy)
-        pic.addStretch()
+        picbox.setFixedSize(196, 200 + 36 * 2 + SP.s * 2)    # đủ rộng cho nhãn nút dài nhất
         form = QVBoxLayout()
         form.setSpacing(SP.m)
         form.addWidget(field("Tên", self.name))
@@ -93,7 +99,7 @@ class CharGenDialog(QDialog):
         form.addWidget(field("Tên gọi khác (cách nhau dấu phẩy)", self.aliases))
         row = QHBoxLayout()
         row.setSpacing(SP.l)
-        row.addLayout(pic)
+        row.addWidget(picbox, 0, Qt.AlignTop)
         row.addLayout(form, 1)
         card = QFrame()
         card.setProperty("card", True)
@@ -134,7 +140,7 @@ class CharGenDialog(QDialog):
     # ---------- trạng thái ----------
     def busy(self, on: bool, text: str = ""):
         self.btn_analyze.setEnabled(not on)
-        self.status.setText(text)
+        self.status.set_full(text)
         self.update_buttons(on)
 
     def update_buttons(self, busy: bool = False):
@@ -166,7 +172,7 @@ class CharGenDialog(QDialog):
         self.busy(True, f"Đang đọc truyện bằng {llm.describe()}…")
         n = self.max_n.value()
         self.worker = Worker(lambda log: char_gen.suggest_characters(p, existing, n, log))
-        self.worker.log.connect(lambda m: self.status.setText(m[:120]))
+        self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
         self.worker.done.connect(self.on_suggested)
         self.worker.failed.connect(lambda e: (self.busy(False, ""), QMessageBox.warning(self, "Không phân tích được", e)))
         self.worker.start()
@@ -227,7 +233,7 @@ class CharGenDialog(QDialog):
             self.store()
             p = models.Project.load(self.project_name)
             QGuiApplication.clipboard().setText(char_gen.image_prompt(p, self.cands[self._row]["appearance_en"]))
-            self.status.setText("Đã copy prompt ảnh. Dán vào công cụ tạo ảnh bạn dùng (Flow, Gemini…), rồi gắn ảnh vào nhân vật ở tab Nhân vật.")
+            self.status.set_full("Đã copy prompt ảnh. Dán vào công cụ tạo ảnh bạn dùng (Flow, Gemini…), rồi gắn ảnh vào nhân vật ở tab Nhân vật.")
 
     # ---------- tạo ảnh ----------
     def _gen(self, rows: list[int]):
@@ -246,7 +252,7 @@ class CharGenDialog(QDialog):
                     errs.append(f"{self.cands[r]['name']}: {e}")
             return out, errs
         self.worker = Worker(job)
-        self.worker.log.connect(lambda m: self.status.setText(m[:120]))
+        self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
         self.worker.done.connect(self.on_images)
         self.worker.failed.connect(lambda e: (self.busy(False, ""), QMessageBox.warning(self, "Không tạo được ảnh", e)))
         self.worker.start()
