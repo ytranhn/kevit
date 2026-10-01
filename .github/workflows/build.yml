@@ -6,6 +6,9 @@ on:
     branches: [main]
     tags: ["v*"]
 
+permissions:
+  contents: write      # cần để đính kèm file build vào Release
+
 jobs:
   build:
     strategy:
@@ -37,6 +40,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Kevit ${{ github.ref_name }}
+          generate_release_notes: true
           files: |
             dist/*.dmg
             dist/*.zip
