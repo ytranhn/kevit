@@ -1284,26 +1284,14 @@ class ProjectTab(QWidget):
         repolish(self.narr_count)
 
     def view_error(self):
-        """Hiện toàn bộ nội dung lỗi trong hộp thoại (chọn/copy được), thay vì làm phình khung chi tiết."""
+        """Hiện toàn bộ nội dung lỗi trong hộp thoại gọn (chọn/copy được), thay vì làm phình khung chi tiết."""
         if not 0 <= self._row < len(self.scenes):
             return
+        from .error_dialog import ErrorDialog
         s = self.scenes[self._row]
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Lỗi — {self.chapter.name} / Scene {s.index}")
-        dlg.resize(640, 360)
-        box = QPlainTextEdit(s.error)
-        box.setReadOnly(True)
-        btn = QPushButton("Copy")
-        btn.clicked.connect(lambda: QApplication.clipboard().setText(s.error))
-        close = QPushButton("Đóng")
-        close.clicked.connect(dlg.accept)
-        row = QHBoxLayout()
-        row.addStretch()
-        row.addWidget(btn)
-        row.addWidget(close)
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(box, 1)
-        lay.addLayout(row)
+        ctx = f"{self.chapter.name}  ·  Scene {s.index}: {s.title}" if s.title else f"{self.chapter.name}  ·  Scene {s.index}"
+        dlg = ErrorDialog(self, f"Scene {s.index} gặp lỗi", ctx, s.error,
+                          copy_text=f"{self.chapter.name} / Scene {s.index} [{s.status}]\n{s.error}".strip(), sync_cb=self.flow_sync)
         dlg.exec()
 
     def copy_error(self):
