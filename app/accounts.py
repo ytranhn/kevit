@@ -24,6 +24,8 @@ class Account:
     profile: str                 # đường dẫn tương đối so với thư mục dữ liệu (đổi thư mục dữ liệu vẫn đúng)
     credits: int | None = None   # credit Flow còn lại lần đọc gần nhất (None = chưa biết)
     daily: int | None = None     # credit tặng hằng ngày còn lại (nếu đọc được)
+    plan_total: int | None = None    # credit gói cấp mỗi kỳ (vd. 1000 credit/tháng), nếu trang Google One nêu
+    daily_grant: int | None = None   # credit tặng thêm mỗi ngày (vd. 50), nếu trang Google One nêu
     renew: str = ""              # ghi chú thời gian gia hạn/làm mới (vd. "30 Oct 2026" hoặc "làm mới hằng tháng")
     email: str = ""              # email Google của tài khoản (đọc từ Flow)
     checked_at: float = 0.0      # thời điểm đọc credit (epoch giây)
@@ -196,7 +198,8 @@ def set_auto_switch(on: bool) -> None:
     _write(d["accounts"], d["default_new"], bool(on))
 
 
-def save_credits(acc_id: str, credits: int | None, daily: int | None = None, renew: str = "", email: str = "") -> None:
+def save_credits(acc_id: str, credits: int | None, daily: int | None = None, renew: str = "", email: str = "",
+                 plan_total: int | None = None, daily_grant: int | None = None) -> None:
     """Ghi kết quả đọc credit của một tài khoản. Không ghi đè thông tin cũ bằng chỗ trống (vd. lần đọc nhanh không có ngày gia hạn)."""
     d = _read()
     for a in d["accounts"]:
@@ -205,6 +208,10 @@ def save_credits(acc_id: str, credits: int | None, daily: int | None = None, ren
                 a.credits, a.checked_at = int(credits), time.time()
             if daily is not None:
                 a.daily = int(daily)
+            if plan_total is not None:
+                a.plan_total = int(plan_total)
+            if daily_grant is not None:
+                a.daily_grant = int(daily_grant)
             if renew:
                 a.renew = renew
             if email:
@@ -241,6 +248,21 @@ def describe_credits(a: Account) -> str:
         parts.append(f"gia hạn: {a.renew}")
     parts.append(f"cập nhật {fmt_age(a.checked_at)}")
     return " · ".join(parts)
+
+
+def capacity(a: Account) -> int | None:
+    """Mức credit tối đa tham chiếu để vẽ thanh tiến độ (credit gói + credit tặng hằng ngày); chưa biết thì None."""
+    if a.plan_total is None and a.daily_grant is None:
+        return None
+    return (a.plan_total or 0) + (a.daily_grant or 0)
+
+
+def used_percent(a: Account) -> int | None:
+    """% credit đã dùng so với mức tối đa (0-100); không đủ dữ liệu thì None."""
+    cap = capacity(a)
+    if a.credits is None or not cap:
+        return None
+    return max(0, min(100, round(100 * (1 - a.credits / cap))))
 
 
 def split_by_credits(costs: list[int], budget: int | None) -> tuple[list[int], list[int]]:

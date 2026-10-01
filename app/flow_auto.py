@@ -302,7 +302,7 @@ class FlowAuto:
             self.log("Không thấy dòng credit trong hộp thoại tài khoản Flow.")
             return None
         email = (re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", text) or [None])[0] or ""
-        info = {"credits": amount, "email": email, "daily": None, "renew": ""}
+        info = {"credits": amount, "email": email, "daily": None, "renew": "", "plan_total": None, "daily_grant": None}
         if deep:
             info.update(self._read_plan_details())
         return info
@@ -325,7 +325,7 @@ class FlowAuto:
 
     def _read_plan_details(self) -> dict:
         """Trang Google One → Google Flow activity: credit tặng hằng ngày còn lại và thời gian làm mới/gia hạn (nếu trang có ghi). Lỗi thì trả rỗng."""
-        out = {"daily": None, "renew": ""}
+        out = {"daily": None, "renew": "", "plan_total": None, "daily_grant": None}
         page = None
         try:
             page = self.page.context.new_page()
@@ -346,6 +346,12 @@ class FlowAuto:
             or re.search(r"còn\s+(\d[\d.,]*)\s+(?:tín dụng|credit)[^\n]{0,30}(?:hằng ngày|mỗi ngày)", txt, re.I)
         if m:
             out["daily"] = credits.parse_amount(m.group(1))
+        m = re.search(r"(\d[\d.,]*)\s+(?:Google\s+)?Flow\s+credits\s+are\s+included", txt, re.I)
+        if m:
+            out["plan_total"] = credits.parse_amount(m.group(1))
+        m = re.search(r"additional\s+(\d[\d.,]*)\s+(?:Google\s+)?Flow\s+credits\s+daily", txt, re.I)
+        if m:
+            out["daily_grant"] = credits.parse_amount(m.group(1))
         d = re.search(r"(?:renews?|refreshes|resets?|expires?|gia hạn|làm mới)[^\n\d]{0,30}"
                       r"(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})", txt, re.I)
         if d:

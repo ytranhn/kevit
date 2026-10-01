@@ -1897,7 +1897,8 @@ class ProjectTab(QWidget):
                     log(f"«{a.name}»: không đọc được credit ({str(e)[:100]})")
                     continue
                 if info:
-                    accounts.save_credits(a.id, info["credits"], info.get("daily"), info.get("renew", ""), info.get("email", ""))
+                    accounts.save_credits(a.id, info["credits"], info.get("daily"), info.get("renew", ""), info.get("email", ""),
+                                          info.get("plan_total"), info.get("daily_grant"))
                     log(f"«{a.name}»: còn {accounts.fmt_credits(info['credits'])} credit" + (f", gia hạn: {info['renew']}" if info.get("renew") else ""))
                     out.append(a.id)
             return out

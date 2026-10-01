@@ -22,7 +22,7 @@ SECTIONS = (("llm", "Mô hình AI", "Quản lý các mô hình AI", "layers"),
 LOCAL_NOTE = ("Lưu trữ cục bộ", "API key và cấu hình được lưu trên máy của bạn, không đồng bộ lên server. Hãy bảo mật thiết bị của bạn.")
 
 
-def _page(header: QWidget, *blocks: QWidget) -> QScrollArea:
+def _page(header: QWidget, *blocks: QWidget, wide: bool = False) -> QScrollArea:
     """Một trang cài đặt: tiêu đề lớn + các thẻ xếp một cột (rộng tối đa 1000px); dài hơn cửa sổ thì cuộn."""
     col = QVBoxLayout()
     col.setSpacing(SP.l)
@@ -32,7 +32,7 @@ def _page(header: QWidget, *blocks: QWidget) -> QScrollArea:
         col.addWidget(b)
     col.addStretch()
     holder = QWidget()
-    holder.setMaximumWidth(1000)
+    holder.setMaximumWidth(1400 if wide else 1000)
     holder.setLayout(col)
     row = QHBoxLayout()
     row.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
@@ -77,9 +77,7 @@ class SettingsTab(QWidget):
         gem_card.layout().addLayout(foot)
 
         # ---- mục 3: Google Flow (nhiều tài khoản) ----
-        acc_card = card("Tài khoản Google Flow")
         self.accounts_panel = AccountsPanel()
-        acc_card.layout().addWidget(self.accounts_panel)
         self.accounts_changed = self.accounts_panel.changed
 
         # ---- mục 4: dữ liệu ----
@@ -112,8 +110,9 @@ class SettingsTab(QWidget):
                                    self.llm_panel, info_banner("lock", *LOCAL_NOTE)))
         self.stack.addWidget(_page(PageHeader("Gemini", "Khoá Gemini API cho gen video (Veo), giọng đọc Gemini TTS và tạo ảnh nhân vật."),
                                    gem_card, info_banner("lock", *LOCAL_NOTE)))
-        self.stack.addWidget(_page(PageHeader("Google Flow", "Quản lý tài khoản Google Flow, theo dõi credit và tự động chuyển tài khoản khi hết credit."),
-                                   acc_card))
+        self.stack.addWidget(_page(PageHeader("Google Flow", "Quản lý tài khoản Google Flow, theo dõi credit và tự động chuyển tài khoản khi hết credit.",
+                                              self.accounts_panel.b_add, self.accounts_panel.b_open),
+                                   self.accounts_panel, wide=True))
         self.stack.addWidget(_page(PageHeader("Dữ liệu", "Nơi lưu dự án, nhân vật, clip và đăng nhập Chrome Flow."), data_card))
         self.seg.currentIndexChanged.connect(self.stack.setCurrentIndex)
         outer = QHBoxLayout(self)

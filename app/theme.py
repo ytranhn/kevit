@@ -125,6 +125,8 @@ QMenu { background: $surface; border: 1px solid $border; border-radius: 10px; pa
 QMenu::item { padding: 8px 18px; border-radius: 7px; color: $text; }
 QMenu::item:selected { background: $sel; }
 QMenu::item:disabled { color: $faint; }
+QProgressBar[acctbar="true"] { background: $surface2; border: none; border-radius: 4px; min-height: 8px; max-height: 8px; }
+QProgressBar[acctbar="true"]::chunk { background: $accent; border-radius: 4px; }
 QPushButton[iconbtn="true"] { padding: 0; min-height: 36px; min-width: 36px; max-width: 36px; border-radius: 10px; }
 
 /* ---- popover ---- */
