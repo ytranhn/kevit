@@ -568,7 +568,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Kevit")
         scr = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1360, int(scr.width() * 0.94)), min(900, int(scr.height() * 0.88)))
-        self.setMinimumSize(1200, 640)
+        self.setMinimumSize(1216, 640)
         self.logbox = QPlainTextEdit(readOnly=True)  # chọn/copy được
         self.logbox.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         self.logbox.setPlaceholderText("Nhật ký hoạt động")

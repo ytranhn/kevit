@@ -340,10 +340,8 @@ class ProjectTab(QWidget):
         self.b_view_err.setProperty("flat", True)
         self.b_view_err.clicked.connect(self.view_error)
         b_gen_one = QPushButton("Gen lại scene")
-        icons.attach(b_gen_one, "refresh", 18)
         b_voice_one = QPushButton("Áp dụng giọng")
         b_copy = QPushButton("Copy prompt")
-        icons.attach(b_copy, "copy", 18)
         b_gen_one.clicked.connect(lambda: self.flow_auto_run("current"))
         b_voice_one.clicked.connect(lambda: self.revoice(only_current=True))
         b_copy.clicked.connect(self.flow_copy)
@@ -363,6 +361,7 @@ class ProjectTab(QWidget):
         self.s2 = QPushButton("Gen video")
         self.pop_gen = popover_button(self.s2, self.build_gen_pop, side="above", align="left", width=400)
         self.s3 = QPushButton("Ghép video")
+        self.s2.setToolTip("Bấm để chọn cách gen: scene đang chọn, các scene đã chọn, chưa xong hoặc tất cả")
         for b, ic in ((self.s1, "step1"), (self.s2, "step2"), (self.s3, "step3")):
             icons.attach(b, ic, 20)
         for b in (self.s1, self.s2, self.s3):
@@ -370,17 +369,10 @@ class ProjectTab(QWidget):
             b.setProperty("primary", True)
             self._busy_widgets.append(b)
 
-        def arrow() -> QLabel:
-            a = QLabel("›")
-            a.setProperty("caption", True)
-            a.setAlignment(Qt.AlignCenter)
-            a.setFixedWidth(14)
-            return a
         f1 = QHBoxLayout()
+        f1.setSpacing(SP.s)                              # vòng tròn số ①②③ trên mỗi nút đã chỉ rõ thứ tự, không cần mũi tên giữa các nút
         f1.addWidget(self.s1, 3)
-        f1.addWidget(arrow())
-        f1.addWidget(self.s2, 4)
-        f1.addWidget(arrow())
+        f1.addWidget(self.s2, 5)
         f1.addWidget(self.s3, 3)
         h1 = QHBoxLayout()
         h1.addWidget(self.left_tabs.seg)
@@ -429,9 +421,9 @@ class ProjectTab(QWidget):
         self.view_seg.addItems(["Scene", "Ghép"])               # ngắn để chừa chỗ cho nút Thư mục trong thẻ hẹp
         self.view_seg.setToolTip("Scene: xem clip của scene đang chọn  ·  Ghép: xem video ghép của cả chương")
         self.view_seg.currentIndexChanged.connect(self.on_view_changed)
-        self.btn_reveal = QPushButton("Thư mục")
-        self.btn_reveal.setFixedHeight(32)
-        self.btn_reveal.setMinimumWidth(78)
+        self.btn_reveal = QPushButton("")
+        icons.attach(self.btn_reveal, "folder", 20)
+        self.btn_reveal.setFixedSize(40, 32)               # chỉ icon (thẻ hẹp); tooltip nói rõ tác dụng
         self.btn_reveal.clicked.connect(self.reveal_current)
         self.view_seg.setMinimumWidth(self.view_seg.sizeHint().width())     # không để nút bên cạnh bóp cụt chữ của bộ chuyển
         h3 = QHBoxLayout()
@@ -442,7 +434,7 @@ class ProjectTab(QWidget):
         f3.addWidget(self.preview.controls)
         card3 = make_card(card_bar(h3, HEADER_H), card_body(self.preview.stack), card_bar(f3, FOOTER_H))
         QShortcut(QKeySequence(Qt.Key_Space), card3, activated=self.preview.toggle, context=Qt.WidgetWithChildrenShortcut)
-        for c, w in ((card1, 440), (card2, 430), (card3, 290)):
+        for c, w in ((card1, 456), (card2, 430), (card3, 290)):
             c.setMinimumWidth(w)
 
         main = QSplitter(Qt.Horizontal)
@@ -1529,7 +1521,7 @@ class ProjectTab(QWidget):
         n, done = len(sc), sum(1 for s in sc if s.status == "done")
         nxt = 1 if n == 0 else (2 if done < n else 3)
         self.s1.setText("Tạo scene" if n == 0 else "Tạo lại")
-        self.s2.setText("Gen video" + (f"  {done}/{n}" if n else "") + "  ▾")
+        self.s2.setText("Gen video" + (f" {done}/{n}" if n else ""))
         self.s3.setText("Ghép video" if not n or done == n else f"Ghép · còn {n - done}")
         for i, b in ((1, self.s1), (2, self.s2), (3, self.s3)):
             want = i == nxt
