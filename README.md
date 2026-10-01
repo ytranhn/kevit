@@ -29,7 +29,7 @@
 <table>
   <tr>
     <td width="50%"><img src="docs/images/chao-mung.png" alt="Màn hình chào mừng lần đầu mở"><br><sub><b>Lần đầu mở:</b> các bước thiết lập có trạng thái thật.</sub></td>
-    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Quản lý nhân vật"><br><sub><b>Nhân vật:</b> ảnh, tên Hán, vai trò, mô tả prompt.</sub></td>
+    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Quản lý nhân vật"><br><sub><b>Nhân vật:</b> ảnh, tên Hán, vai trò, mô tả prompt. (Dự án mẫu tự viết, ảnh nhân vật là hình minh hoạ vẽ bằng mã.)</sub></td>
   </tr>
   <tr>
     <td colspan="2"><img src="docs/images/tong-quan-toi.png" alt="Chế độ tối"><br><sub><b>Chế độ tối.</b></sub></td>
