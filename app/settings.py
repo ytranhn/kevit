@@ -17,6 +17,18 @@ def set_api_key(key: str) -> None:
     _s.setValue("api_key", key.strip())
 
 
+# ---- tạo ảnh nhân vật bằng Gemini ----
+IMAGE_DEFAULT_MODEL = "gemini-2.5-flash-image"
+
+
+def image_model() -> str:
+    return str(_s.value("image_model", IMAGE_DEFAULT_MODEL) or IMAGE_DEFAULT_MODEL)
+
+
+def set_image_model(model: str) -> None:
+    _s.setValue("image_model", model.strip() or IMAGE_DEFAULT_MODEL)
+
+
 # ---- LLM cho bước tách scene / viết lại thuyết minh: gemini | claude ----
 CLAUDE_DEFAULT_MODEL = "claude-sonnet-5-5"
 

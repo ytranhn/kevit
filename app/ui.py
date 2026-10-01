@@ -25,6 +25,7 @@ class CharactersTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setAcceptDrops(True)
         self.usage_counter = None   # callable(names) -> {tên: số scene đang dùng}, do cửa sổ chính gắn vào
         self.project_name = ""
         self._chars: list[Character] = []
@@ -111,6 +112,9 @@ class CharactersTab(QWidget):
         lr.addWidget(btn_new, 1)
         lr.addWidget(btn_pack, 1)
         lcol.addLayout(lr)
+        btn_gen = QPushButton("Tạo nhân vật từ truyện (AI)…")
+        btn_gen.clicked.connect(self.generate_from_story)
+        lcol.addWidget(btn_gen)
         lay = QHBoxLayout(self)
         lay.setSpacing(SP.l)
         lay.addLayout(lcol, 4)
@@ -254,36 +258,57 @@ class CharactersTab(QWidget):
         self.chars_changed.emit()
         self.deleted.emit(names)
 
-    def import_pack(self):
-        """Hướng dẫn -> chọn thư mục -> xem trước -> xác nhận -> nhập."""
+    def import_pack(self, source=None):
+        """Hướng dẫn -> chọn thư mục/zip (hoặc kéo-thả) -> xem trước -> xác nhận -> nhập."""
         if not self.project_name:
             QMessageBox.warning(self, "Thiếu dự án", "Chọn hoặc tạo dự án trước.")
             return
-        guide = PackGuideDialog(self)
-        if guide.exec() != QDialog.Accepted or not guide.folder:
-            return
-        folder = guide.folder
+        if source is None:
+            guide = PackGuideDialog(self)
+            if guide.exec() != QDialog.Accepted or not guide.source:
+                return
+            source = guide.source
         try:
-            pv = characters_pack.preview_pack(self.project_name, folder)
-        except FileNotFoundError:
-            QMessageBox.warning(self, "Chưa đúng cấu trúc gói", f"Không thấy file character_index.csv trong:\n{folder}\n\n"
-                                "Chọn đúng thư mục chứa file đó (không phải thư mục con). Bấm “Nhập gói…” lại để xem hướng dẫn.")
-            return
+            pv = characters_pack.preview_pack(self.project_name, source)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Không đọc được gói", f"{e}\n\nKiểm tra file character_index.csv: UTF-8, đủ cột No, Tên, Tên Trung, Vai trò, Folder.")
+            QMessageBox.warning(self, "Không đọc được gói", f"{e}\n\nBấm “Nhập gói…” lại để xem hướng dẫn chuẩn bị gói.")
             return
         if not pv["update"] and not pv["new"]:
-            QMessageBox.warning(self, "Gói không có nhân vật hợp lệ", confirm_text(pv).split("\n\n")[0])
+            QMessageBox.warning(self, "Gói không có nhân vật hợp lệ", confirm_text(pv).rsplit("\n\n", 1)[0])
             return
         if QMessageBox.question(self, "Xem trước gói nhân vật", confirm_text(pv)) != QMessageBox.Yes:
             return
         try:
-            report = characters_pack.import_pack(self.project_name, folder)
+            report = characters_pack.import_pack(self.project_name, source)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Nhập gói lỗi", str(e))
             return
         self._reload()
-        QMessageBox.information(self, "Nhập gói nhân vật", "\n".join(report))
+        QMessageBox.information(self, "Nhập gói nhân vật", "\n".join(report[:30]) + ("\n…" if len(report) > 30 else ""))
+
+    def generate_from_story(self):
+        """AI đọc truyện của dự án, đề xuất nhân vật + mô tả ngoại hình, tuỳ chọn tạo ảnh bằng Gemini."""
+        if not self.project_name:
+            QMessageBox.warning(self, "Thiếu dự án", "Chọn hoặc tạo dự án trước.")
+            return
+        from .char_gen_dialog import CharGenDialog
+        dlg = CharGenDialog(self.project_name, self)
+        if dlg.exec() == QDialog.Accepted and dlg.added:
+            self._reload()
+            QMessageBox.information(self, "Đã thêm nhân vật", f"Đã thêm {len(dlg.added)} nhân vật: {', '.join(dlg.added[:8])}"
+                                    + ("…" if len(dlg.added) > 8 else "") + ".\nBạn có thể sửa mô tả hoặc đổi ảnh từng nhân vật ở đây.")
+
+    # kéo-thả thư mục hoặc .zip thẳng vào tab Nhân vật
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for u in e.mimeData().urls():
+            p = Path(u.toLocalFile())
+            if p.is_dir() or p.suffix.lower() == ".zip":
+                self.import_pack(p)
+                return
 
 
 class SettingsTab(QWidget):
@@ -348,6 +373,10 @@ class SettingsTab(QWidget):
         # --- thẻ 2: Gemini API ---
         gem_card = self._card("Gemini API", "Dùng khi chọn Gemini làm mô hình, hoặc khi gen video và giọng trực tiếp qua API.")
         gem_card.layout().addWidget(self._field("API key", "Lấy từ Google AI Studio.", self.gemini_key))
+        self.image_model = QLineEdit(settings.image_model())
+        self.image_model.setPlaceholderText(settings.IMAGE_DEFAULT_MODEL)
+        gem_card.layout().addWidget(self._field("Model tạo ảnh nhân vật", "Dùng cho “Tạo nhân vật từ truyện”. Ví dụ gemini-2.5-flash-image "
+                                                "hoặc gemini-3.1-flash-image (giá khác nhau theo bảng giá Gemini API).", self.image_model))
 
         # --- thẻ 3: nơi lưu dữ liệu ---
         data_card = self._card("Dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
@@ -482,6 +511,7 @@ class SettingsTab(QWidget):
         settings.save_llm(self.provider.currentData(), self.claude_key.edit.text(), self.base_url.text(),
                           self.model.text(), self.proxy.text())
         settings.set_api_key(self.gemini_key.edit.text())
+        settings.set_image_model(self.image_model.text())
         self.show_status("Đã lưu.", "ok")
 
     def test(self) -> None:

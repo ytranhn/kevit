@@ -16,7 +16,9 @@
 ## Tính năng
 
 - **Tách scene bằng AI.** Claude (qua proxy hoặc API chính thức) hoặc Gemini chia chương thành các scene ~8 giây, **thuyết minh giữ ít nhất 70% nội dung truyện gốc**. Scene nào quá dài thì tự tách nhỏ.
-- **Nhân vật nhất quán.** Mỗi nhân vật có ảnh và mô tả riêng, tự nhận diện trong từng scene rồi gửi ảnh tham chiếu cùng prompt. Nhập hàng loạt từ một "gói nhân vật".
+- **Nhân vật nhất quán.** Mỗi nhân vật có ảnh và mô tả riêng, tự nhận diện trong từng scene rồi gửi ảnh tham chiếu cùng prompt.
+- **Nhập nhân vật theo lô dễ tính.** Chỉ cần một thư mục ảnh (hoặc file .zip), có hoặc không có bảng CSV (dấu phẩy/chấm phẩy, cột linh hoạt); một nhân vật lỗi không làm hỏng cả lô, tool báo rõ lý do. Kéo-thả thẳng vào tab Nhân vật.
+- **Tạo nhân vật từ truyện (AI).** AI đọc bối cảnh và các chương, đề xuất nhân vật kèm mô tả ngoại hình theo phong cách dự án; tuỳ chọn tạo ảnh tham chiếu bằng Gemini.
 - **Tự động hoá Google Flow.** Điều khiển Chrome của chính bạn: tạo hoặc dùng lại dự án Flow, tải ảnh nhân vật, tạo clip, tải bản gốc về. Đồng bộ lại các clip đã render mà không tốn thêm credit.
 - **Một giọng đọc xuyên suốt.** Edge TTS (miễn phí) hoặc Gemini TTS, giọng được lưu bộ nhớ đệm và khớp độ dài với clip.
 - **Gen song song:** gửi nhiều scene lên Flow cùng một lượt (*Cài đặt dự án → Google Flow → Số scene gửi cùng lúc*) rồi thu clip về, đỡ chờ từng scene. Credit không đổi.
@@ -67,11 +69,17 @@ py -m venv .venv
 4. **Dự án:** tạo dự án, dán truyện từng chương vào tab *Truyện*, rồi đi lần lượt ba bước:
    **① Tạo scene → ② Gen video → ③ Ghép video.**
 
-### Gói nhân vật
+### Nhập nhân vật theo lô
 
-Bấm **Nhập gói…** sẽ mở hộp thoại hướng dẫn từng bước (cấu trúc thư mục, ví dụ CSV, mô tả), có nút **Tạo gói mẫu…** để xem tận mắt và bước **xem trước** trước khi ghi vào dự án.
+Bấm **Nhập gói…** (hoặc kéo-thả thư mục / file `.zip` vào tab Nhân vật). Hộp thoại hướng dẫn có nút **Tạo gói mẫu…** và bước **xem trước** trước khi ghi.
 
-Thư mục chứa `character_index.csv` (UTF-8, cột `No`, `Tên`, `Tên Trung`, `Vai trò`, `Folder`) và mỗi nhân vật một thư mục `NN_Tên/` gồm ảnh và `description.md` (mục `## Mô tả ngoại hình`). Tool ghép theo tên: cập nhật ảnh, vai trò, tên Hán, mô tả gốc; **giữ nguyên** mô tả prompt và tên gọi khác bạn đã chỉnh.
+- **Đơn giản nhất:** một thư mục ảnh (PNG/JPG/WEBP), mỗi ảnh một nhân vật, tên lấy từ tên file (bỏ số thứ tự đầu như `01_`). Mô tả tuỳ chọn trong file `.txt` cùng tên.
+- **Thêm vai trò, tên Hán, tên khác:** đặt một file `.csv` bất kỳ tên vào thư mục. Dấu phẩy, chấm phẩy hay tab đều được, UTF-8 hoặc Excel. Chỉ cột **Tên** là bắt buộc; các cột Vai trò, Tên Trung, Ảnh, Mô tả, Tên khác có thể thiếu, tên cột tiếng Việt hoặc Anh.
+- Ghép theo tên với nhân vật đang có: cập nhật ảnh và dữ liệu, **giữ nguyên** mô tả prompt và tên gọi khác bạn đã chỉnh.
+
+### Tạo nhân vật từ truyện (AI)
+
+Tab Nhân vật → **Tạo nhân vật từ truyện (AI)…**: AI đề xuất nhân vật chưa có trong dự án, bạn duyệt/sửa mô tả ngoại hình (prompt tiếng Anh), tuỳ chọn **tạo ảnh bằng Gemini** (cần Gemini API key, chọn model ở Cài đặt) hoặc **Copy prompt ảnh** để tạo bằng công cụ khác, rồi thêm vào dự án.
 
 ## Dữ liệu và bảo mật
 
