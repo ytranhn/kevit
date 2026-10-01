@@ -2,7 +2,9 @@ import os
 
 from PySide6.QtCore import QSettings
 
-_s = QSettings("veo-story-studio", "veo-story-studio")
+# KEVIT_SETTINGS_FILE: dùng file .ini riêng thay cho cấu hình thật của người dùng (dành cho kiểm thử, không ghi vào plist/registry thật)
+_s = (QSettings(os.environ["KEVIT_SETTINGS_FILE"], QSettings.IniFormat) if os.environ.get("KEVIT_SETTINGS_FILE")
+      else QSettings("veo-story-studio", "veo-story-studio"))
 
 LLM_MODEL = "gemini-3.8-flash"
 VEO_MODEL = "veo-3.1-generate-preview"  # hỗ trợ reference images + audio
