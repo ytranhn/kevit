@@ -5,12 +5,25 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit,
-    QPushButton, QSpinBox, QVBoxLayout, QWidget)
+    QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
-from . import char_gen, llm, models, settings
+from . import char_gen, icons, llm, models, settings
 from .theme import SP
-from .widgets import ElidedLabel
+from .widgets import ElidedLabel, NavButton
 from .workers import Worker
+
+
+class _ScopeProxy:
+    """Giữ tên cũ `scope.set_full(text)` cho nút chọn chương (NavButton)."""
+
+    def __init__(self, btn):
+        self.btn = btn
+
+    def set_full(self, text: str) -> None:
+        self.btn.set_title(text)
+
+    def full_text(self) -> str:
+        return getattr(self.btn.title, "_full", "")
 
 
 class ChapterPicker(QDialog):
@@ -123,145 +136,179 @@ class CharGenDialog(QDialog):
         self.worker: Worker | None = None
         self._row = -1
         self.setWindowTitle("Tạo nhân vật từ truyện")
-        self.setMinimumSize(900, 880)
-        self.resize(980, 900)
+        self.setMinimumSize(820, 560)
+        self.resize(940, 660)
 
         title = QLabel("Tạo nhân vật từ truyện")
         title.setProperty("heading", True)
-        sub = QLabel("AI đọc bối cảnh và các chương bạn chọn, đề xuất nhân vật kèm mô tả ngoại hình (prompt tiếng Anh, theo phong cách hình ảnh "
-                     "của dự án). Bạn duyệt và sửa, tuỳ chọn tạo ảnh tham chiếu bằng Google Flow hoặc Gemini, rồi thêm vào dự án.")
+        sub = QLabel("AI đọc các chương bạn chọn và đề xuất nhân vật kèm mô tả ngoại hình. Duyệt, sửa, tạo ảnh rồi thêm vào dự án.")
         sub.setProperty("caption", True)
-        sub.setWordWrap(True)
-        sub.setMinimumHeight(sub.fontMetrics().lineSpacing() * 3 + 4)   # nhãn tự xuống dòng: chừa sẵn 3 dòng để Qt không đánh giá thấp chiều cao cửa sổ
 
+        # ---- thanh điều khiển một hàng: chương · số lượng · phân tích ----
+        self.btn_scope = NavButton()                 # hiện chương đang chọn; bấm để đổi (có ô tìm)
+        self.btn_scope.setToolTip("Chọn các chương để AI phân tích")
+        self.btn_scope.clicked.connect(self.pick_chapters)
+        self.scope = _ScopeProxy(self.btn_scope)     # giữ tên cũ: set_full(text)
         self.max_n = QSpinBox()
         self.max_n.setRange(1, 30)
         self.max_n.setValue(10)
-        self.max_n.setFixedWidth(80)
-        self.btn_analyze = QPushButton("Phân tích truyện")
+        self.max_n.setFixedSize(72, 36)
+        self.max_n.setToolTip("Số nhân vật tối đa AI đề xuất")
+        self.btn_analyze = QPushButton("Phân tích")
         self.btn_analyze.setProperty("primary", True)
+        self.btn_analyze.setFixedHeight(36)
         self.btn_analyze.clicked.connect(self.analyze)
         self.status = ElidedLabel()                  # một dòng, tự cắt "…" khi dài: không làm đổi chiều cao
         self.status.setProperty("caption", True)
-        self.backend = QComboBox()                # nơi tạo ảnh: Flow (mặc định, dùng tài khoản Flow đã đăng nhập) hoặc Gemini API
-        self.backend.addItem("Google Flow (Nano Banana)", "flow")
-        self.backend.addItem("Gemini API (cần bật billing)", "gemini")
+        bar = QHBoxLayout()
+        bar.setSpacing(SP.s)
+        bar.addWidget(self.btn_scope, 1)
+        bar.addWidget(QLabel("Tối đa"))
+        bar.addWidget(self.max_n)
+        bar.addWidget(self.btn_analyze)
+
+        # ---- nơi tạo ảnh (chân hộp thoại) ----
+        self.backend = QComboBox()                # Flow (mặc định, dùng tài khoản Flow đã đăng nhập) hoặc Gemini API
+        self.backend.addItem("Google Flow", "flow")
+        self.backend.addItem("Gemini API", "gemini")
+        self.backend.setToolTip("Google Flow: Nano Banana, thường 0 credit. Gemini API: cần bật billing.")
         self.backend.setCurrentIndex(max(0, self.backend.findData(settings.image_backend())))
         self.backend.currentIndexChanged.connect(lambda *_: settings.set_image_backend(self.backend.currentData()))
-        top = QHBoxLayout()
-        top.setSpacing(SP.s)
-        top.addWidget(QLabel("Số nhân vật tối đa"))
-        top.addWidget(self.max_n)
-        top.addWidget(self.btn_analyze)
-        top.addWidget(self.status, 1)
-        top.addWidget(QLabel("Tạo ảnh bằng"))
-        top.addWidget(self.backend)
-
-        self.scope = ElidedLabel()                   # tóm tắt chương đang được chọn để phân tích
-        self.btn_scope = QPushButton("Chọn chương…")
-        self.btn_scope.setFixedHeight(36)
-        self.btn_scope.clicked.connect(self.pick_chapters)
+        self.backend.setFixedHeight(36)
         self.img_target = ElidedLabel()              # nơi ảnh Flow sẽ được tạo (project nào)
         self.img_target.setProperty("caption", True)
-        scope_row = QHBoxLayout()
-        scope_row.setSpacing(SP.s)
-        scope_row.addWidget(QLabel("Chương phân tích"))
-        scope_row.addWidget(self.scope, 1)
-        scope_row.addWidget(self.btn_scope)
         pick_default = [c.id for c in char_gen.pick_chapters(self.proj)]
         self.chapter_ids = [self.current_chapter_id] if self.current_chapter_id in pick_default else list(pick_default)
         self.backend.currentIndexChanged.connect(lambda *_: self.update_scope())
 
+        # ---- danh sách + chi tiết ----
         self.list = QListWidget()
+        self.list.setMinimumWidth(230)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)      # tên dài tự cắt '…' thay vì hiện thanh cuộn ngang
+        self.list.setTextElideMode(Qt.ElideRight)
         self.list.currentRowChanged.connect(self.select)
         self.list.itemChanged.connect(lambda *_: self.update_buttons())
         self.name, self.role, self.aliases = QLineEdit(), QLineEdit(), QLineEdit()
+        self.name.setPlaceholderText("Tên")
+        self.role.setPlaceholderText("Vai trò (vd. nam chính)")
+        self.aliases.setPlaceholderText("Tên gọi khác, cách nhau dấu phẩy")
         self.gender = QComboBox()                 # giới tính: AI đoán + đối chiếu truyện, bạn chỉnh được; đổi là mô tả ngoại hình đổi theo
-        for label, val in (("Không rõ", "unknown"), ("Nam", "male"), ("Nữ", "female")):
+        for label, val in (("Giới tính: không rõ", "unknown"), ("Nam", "male"), ("Nữ", "female")):
             self.gender.addItem(label, val)
         self.gender.currentIndexChanged.connect(self.on_gender)
         self.prompt = QPlainTextEdit()
-        self.prompt.setPlaceholderText("Mô tả ngoại hình bằng tiếng Anh (dùng làm prompt ảnh và prompt Flow)")
+        self.prompt.setPlaceholderText("Ngoại hình bằng tiếng Anh (dùng làm prompt ảnh và prompt Flow)")
         self.desc_vi = QPlainTextEdit()
-        self.desc_vi.setFixedHeight(92)
+        self.desc_vi.setPlaceholderText("Mô tả tiếng Việt (tham khảo)")
+        self.desc_vi.setFixedHeight(64)
         self.preview = QLabel("Chưa có ảnh")
-        self.preview.setFixedSize(154, 204)
+        self.preview.setFixedSize(120, 160)
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setProperty("avatarph", True)
         self.btn_img = QPushButton("Tạo ảnh")
-        self.btn_copy = QPushButton("Copy prompt ảnh")
+        icons.attach(self.btn_img, "sparkle", 18)
+        self.btn_copy = QPushButton("Copy prompt")
+        icons.attach(self.btn_copy, "copy", 18)
         self.btn_img.clicked.connect(self.make_image_current)
         self.btn_copy.clicked.connect(self.copy_prompt)
         for w in (self.name, self.role, self.aliases):
             w.editingFinished.connect(self.store)
+            w.setFixedHeight(36)
+        self.gender.setFixedHeight(36)
         self.prompt.textChanged.connect(self.store)
         self.desc_vi.textChanged.connect(self.store)
-
-        def field(label, w):
-            box = QWidget()
-            v = QVBoxLayout(box)
-            v.setContentsMargins(0, 0, 0, 0)
-            v.setSpacing(SP.xs)
-            c = QLabel(label)
-            c.setProperty("caption", True)
-            v.addWidget(c)
-            v.addWidget(w)
-            return box
         for b in (self.btn_img, self.btn_copy):
-            b.setFixedHeight(36)
-        picbox = QWidget()                        # khối ảnh + nút có kích thước cố định: không bao giờ bị nén đè lên nhau
+            b.setFixedHeight(34)
+        picbox = QWidget()                        # khối ảnh + nút: kích thước cố định, không bị nén đè lên nhau
         pic = QVBoxLayout(picbox)
         pic.setContentsMargins(0, 0, 0, 0)
         pic.setSpacing(SP.s)
         pic.addWidget(self.preview, 0, Qt.AlignHCenter)
         pic.addWidget(self.btn_img)
         pic.addWidget(self.btn_copy)
-        picbox.setFixedSize(196, 204 + 36 * 2 + SP.s * 2)    # đủ rộng cho nhãn nút dài nhất
-        form = QVBoxLayout()
-        form.setSpacing(SP.m)
-        form.addWidget(field("Tên", self.name))
-        form.addWidget(field("Vai trò", self.role))
-        form.addWidget(field("Giới tính (quyết định hình tượng khi tạo ảnh)", self.gender))
-        form.addWidget(field("Tên gọi khác (cách nhau dấu phẩy)", self.aliases))
-        row = QHBoxLayout()
-        row.setSpacing(SP.l)
-        row.addWidget(picbox, 0, Qt.AlignTop)
-        row.addLayout(form, 1)
+        picbox.setFixedWidth(150)
+        fields = QVBoxLayout()
+        fields.setSpacing(SP.s)
+        fields.addWidget(self.name)
+        row2 = QHBoxLayout()
+        row2.setSpacing(SP.s)
+        row2.addWidget(self.role, 1)
+        row2.addWidget(self.gender)
+        fields.addLayout(row2)
+        fields.addWidget(self.aliases)
+        fields.addWidget(self.prompt, 1)
+        top_detail = QHBoxLayout()
+        top_detail.setSpacing(SP.l)
+        top_detail.addWidget(picbox, 0, Qt.AlignTop)
+        top_detail.addLayout(fields, 1)
         card = QFrame()
         card.setProperty("card", True)
         cv = QVBoxLayout(card)
         cv.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
-        cv.setSpacing(SP.m)
-        cv.addLayout(row)
-        cv.addWidget(field("Ngoại hình (prompt, tiếng Anh)", self.prompt), 1)
-        cv.addWidget(field("Mô tả tiếng Việt", self.desc_vi))
-        body = QHBoxLayout()
-        body.setSpacing(SP.l)
-        body.addWidget(self.list, 3)
+        cv.setSpacing(SP.s)
+        cv.addLayout(top_detail, 1)
+        cv.addWidget(self.desc_vi)
+        results = QWidget()
+        body = QHBoxLayout(results)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(SP.m)
+        body.addWidget(self.list, 2)
         body.addWidget(card, 5)
 
+        # ---- trạng thái trống (chưa phân tích): thay cho khung danh sách + biểu mẫu trống ----
+        self.empty_title = QLabel("Chưa có nhân vật nào")
+        self.empty_title.setProperty("subheading", True)
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        self.empty_text = QLabel("Chọn chương ở trên rồi bấm “Phân tích”: AI đọc truyện và đề xuất các nhân vật chưa có trong dự án.")
+        self.empty_text.setProperty("caption", True)
+        self.empty_text.setAlignment(Qt.AlignCenter)
+        self.empty_text.setWordWrap(True)
+        empty = QWidget()
+        ev = QVBoxLayout(empty)
+        ev.setContentsMargins(SP.xl, 0, SP.xl, 0)
+        ev.addStretch(2)
+        ev.addWidget(self.empty_title)
+        ev.addWidget(self.empty_text)
+        ev.addStretch(3)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(empty)
+        self.pages.addWidget(results)
+
+        # ---- chân: nơi tạo ảnh (trái) + nút (phải) ----
         self.btn_close = QPushButton("Đóng")
-        self.btn_imgs = QPushButton("Tạo ảnh cho các mục đã chọn")
+        self.btn_imgs = QPushButton("Tạo ảnh cho mục đã chọn")
         self.btn_add = QPushButton("Thêm vào dự án")
         self.btn_add.setProperty("primary", True)
+        for b in (self.btn_close, self.btn_imgs, self.btn_add):
+            b.setFixedHeight(36)
         self.btn_close.clicked.connect(self.reject)
         self.btn_imgs.clicked.connect(self.make_images_checked)
         self.btn_add.clicked.connect(self.add)
+        where = QVBoxLayout()
+        where.setSpacing(SP.xs)
+        wrow = QHBoxLayout()
+        wrow.setSpacing(SP.s)
+        wrow.addWidget(QLabel("Tạo ảnh bằng"))
+        wrow.addWidget(self.backend)
+        wrow.addStretch()
+        where.addLayout(wrow)
         foot = QHBoxLayout()
-        foot.addStretch()
-        foot.addWidget(self.btn_close)
-        foot.addWidget(self.btn_imgs)
-        foot.addWidget(self.btn_add)
+        foot.setSpacing(SP.s)
+        foot.addLayout(where, 1)
+        foot.addWidget(self.btn_close, 0, Qt.AlignTop)
+        foot.addWidget(self.btn_imgs, 0, Qt.AlignTop)
+        foot.addWidget(self.btn_add, 0, Qt.AlignTop)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
-        lay.setSpacing(SP.m)
-        for item in (title, sub):
-            lay.addWidget(item)
-        lay.addLayout(scope_row)
-        lay.addWidget(self.img_target)
-        lay.addLayout(top)
-        lay.addLayout(body, 1)
+        lay.setContentsMargins(SP.xl, SP.l, SP.xl, SP.l)
+        lay.setSpacing(SP.s)
+        lay.addWidget(title)
+        lay.addWidget(sub)
+        lay.addSpacing(SP.xs)
+        lay.addLayout(bar)
+        lay.addWidget(self.status)
+        lay.addWidget(self.pages, 1)
         lay.addLayout(foot)
+        lay.addWidget(self.img_target)
         self.update_buttons()
         self.set_editor_enabled(False)
         self.update_scope()
@@ -286,11 +333,10 @@ class CharGenDialog(QDialog):
         if self.backend.currentData() != "flow":
             self.img_target.set_full("")
         elif self.image_chapter_id():
-            self.img_target.set_full(f"Ảnh tạo trên Flow sẽ nằm trong project «{self.proj.name} · {self.chapter_name(self.image_chapter_id())}» "
-                                     "(cùng project với clip video của chương, tự tạo nếu chưa có).")
+            self.img_target.set_full(f"Ảnh Flow nằm trong project «{self.proj.name} · {self.chapter_name(self.image_chapter_id())}», "
+                                     "cùng project với clip video của chương.")
         else:
-            self.img_target.set_full(f"Nhiều chương được chọn: ảnh tạo trên Flow nằm trong project chung của dự án «{self.proj.name}». "
-                                     "Chọn đúng một chương để tạo ảnh ngay trong project của chương.")
+            self.img_target.set_full("Nhiều chương: ảnh Flow nằm trong project chung của dự án. Chọn một chương để tạo trong project của chương.")
 
     def pick_chapters(self):
         self.proj = models.Project.load(self.project_name)
@@ -302,6 +348,7 @@ class CharGenDialog(QDialog):
     # ---------- trạng thái ----------
     def busy(self, on: bool, text: str = ""):
         self.btn_analyze.setEnabled(not on)
+        self.btn_scope.setEnabled(not on)
         self.status.set_full(text)
         self.update_buttons(on)
 
@@ -333,6 +380,10 @@ class CharGenDialog(QDialog):
         existing = models.load_characters(self.project_name)
         ids = [c for c in self.chapter_ids if any(x.id == c for x in p.chapters)] or None
         self.busy(True, f"Đang đọc {len(ids) if ids else 'mọi'} chương bằng {llm.describe()}…")
+        if not self.cands:
+            self.empty_title.setText("Đang phân tích…")
+            self.empty_text.setText("AI đang đọc truyện, thường mất 20–60 giây.")
+            self.pages.setCurrentIndex(0)
         n = self.max_n.value()
         self.worker = Worker(lambda log: char_gen.suggest_characters(p, existing, n, log, chapters=ids))
         self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
@@ -350,10 +401,14 @@ class CharGenDialog(QDialog):
             it.setCheckState(Qt.Checked)
             self.list.addItem(it)
         self.list.blockSignals(False)
-        self.busy(False, f"Đề xuất {len(self.cands)} nhân vật mới." if self.cands else
-                  "Không có nhân vật mới nào để đề xuất (các nhân vật chính đã có trong dự án).")
+        self.busy(False, f"Đề xuất {len(self.cands)} nhân vật mới." if self.cands else "")
         if self.cands:
+            self.pages.setCurrentIndex(1)
             self.list.setCurrentRow(0)
+        else:
+            self.empty_title.setText("Không có nhân vật mới để đề xuất")
+            self.empty_text.setText("Các nhân vật chính trong chương đã có trong dự án. Thử chọn chương khác.")
+            self.pages.setCurrentIndex(0)
 
     @staticmethod
     def _label(c: dict) -> str:
@@ -406,7 +461,7 @@ class CharGenDialog(QDialog):
         data = c.get("image_bytes")
         img = QImage()
         if data and img.loadFromData(data):
-            self.preview.setPixmap(QPixmap.fromImage(img).scaled(150, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.preview.setPixmap(QPixmap.fromImage(img).scaled(self.preview.width(), self.preview.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             self.preview.setPixmap(QPixmap())
             self.preview.setText("Chưa có ảnh")
