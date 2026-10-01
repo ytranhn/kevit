@@ -209,7 +209,8 @@ class FlowAuto:
             self.log("Project Flow đã lưu không còn truy cập được, tìm lại theo tên...")
         self._goto(S.HOME_URL)
         for link in pg.get_by_role("link", name=S.LINK_OPEN_PROJECT).all():
-            card = link.locator(f"xpath=ancestor::*[.//button[@aria-label='{S.BTN_EDIT_TITLE}']][1]")
+            cond = " or ".join(f"@aria-label='{a}'" for a in S.EDIT_TITLE_LABELS)
+            card = link.locator(f"xpath=ancestor::*[.//button[{cond}]][1]")
             if not card.count():
                 continue
             text = card.first.inner_text()
@@ -235,23 +236,53 @@ class FlowAuto:
         return pg.url
 
     # ---- cấu hình tạo video ----
+    def _ensure_classic_mode(self) -> None:
+        """Giao diện Flow mới mở sẵn chế độ 'Agent' trong ô nhập: nút cài đặt tạo clip bị ẩn. Bấm vào nhãn Agent để tắt rồi mới cấu hình."""
+        pg = self.page
+        trigger = pg.get_by_role("button", name=S.BTN_SETTINGS_PILL)
+        for _ in range(2):
+            if trigger.count() and trigger.first.is_visible():
+                return
+            chip = pg.locator(S.BTN_AGENT_CHIP)
+            if not chip.count():
+                break
+            self.log("Tắt chế độ Agent trong ô nhập để dùng tạo clip thông thường...")
+            chip.first.click()
+            pg.wait_for_timeout(1200)
+
+    def _open_settings(self) -> None:
+        """Mở bảng cài đặt trong ô nhập (nếu chưa mở). Bảng đang đóng dở (hiệu ứng) thì lần bấm đầu có thể không mở: thử lại một lần."""
+        pg = self.page
+        self._ensure_classic_mode()
+        for attempt in range(2):
+            if pg.locator("[role=radio]:visible").count():       # đã mở sẵn: bấm nữa sẽ ĐÓNG bảng
+                break
+            pg.get_by_role("button", name=S.BTN_SETTINGS_PILL).click()
+            try:
+                pg.locator("[role=radio]").first.wait_for(state="visible", timeout=5000)
+                break
+            except Exception:  # noqa: BLE001
+                if attempt:
+                    raise FlowError("Không mở được bảng cài đặt tạo clip trên Flow (giao diện Flow có thể đã đổi).")
+                pg.wait_for_timeout(800)
+        pg.wait_for_timeout(400)
+
     def configure(self, model: str, aspect: str, res: str = "720p", dur: int = 8):
         pg = self.page
-        pg.get_by_role("button", name=S.BTN_SETTINGS_PILL).click()
-        pg.wait_for_timeout(800)
-        pg.get_by_role("radio", name=S.RADIO_VIDEO, exact=True).click()
+        self._open_settings()
+        self._radio(S.RADIO_VIDEO).click()
         pg.wait_for_timeout(600)
-        pg.get_by_role("radio", name=S.RADIO_INGREDIENTS, exact=True).click()
+        self._radio(S.RADIO_INGREDIENTS).click()
         if aspect != "flow":   # "flow": giữ nguyên khổ đang chọn trong Flow
-            pg.get_by_role("radio", name=aspect, exact=True).click()
+            self._radio(aspect).click()
         pg.get_by_role("button", name=S.BTN_MODEL).click()
         pg.wait_for_timeout(400)
         pg.locator("[role=menuitem]").filter(has_text=model).first.click()
         pg.wait_for_timeout(600)
-        pg.get_by_role("radio", name="x1", exact=True).click()
+        self._radio(re.compile(r"^\s*x1\s*$")).click()
         pg.wait_for_timeout(500)
-        for opt in (res, f"{dur} giây"):  # chỉ Omni có tuỳ chọn này; Veo cố định
-            r = pg.get_by_role("radio", name=re.compile(rf"^{opt}"))
+        for opt in (rf"{res}", rf"{dur}\s*{S.DURATION_UNIT}"):  # chỉ Omni có tuỳ chọn này; Veo cố định
+            r = pg.locator("[role=radio]").filter(has_text=re.compile(rf"^\s*{opt}"))
             if r.count():
                 r.first.click()
                 pg.wait_for_timeout(600)   # chờ Flow cập nhật giá sau mỗi lần đổi
@@ -288,7 +319,7 @@ class FlowAuto:
             pg.wait_for_timeout(2000)
             for _ in range(40):
                 o = ov.get_by_role("option").filter(has_text=img.name)
-                if o.count() and S.TXT_UPLOADING not in o.first.inner_text() and ov.get_by_role("progressbar").count() == 0:
+                if o.count() and not S.text_in(S.UPLOADING_LABELS, o.first.inner_text()) and ov.get_by_role("progressbar").count() == 0:
                     break
                 pg.wait_for_timeout(1500)
             opt = ov.get_by_role("option").filter(has_text=img.name)
@@ -476,19 +507,18 @@ class FlowAuto:
             except Exception:  # noqa: BLE001
                 return
 
-    def _radio(self, text: str):
+    def _radio(self, text):
+        """Nút chọn (radio) theo chữ hiển thị (chuỗi hoặc biểu thức đa ngôn ngữ). Bên trong có tên icon (vd. 'videocam Video') nên khớp theo has_text."""
         return self.page.locator("[role=radio]").filter(has_text=text).first
 
     def _set_image_mode(self, aspect: str = "3:4") -> str:
         """Mở bảng cài đặt, chọn Hình ảnh + khổ + x1. Trả về dòng giá hiện trên Flow."""
         pg = self.page
-        if not pg.locator("[role=radio]").count():
-            pg.get_by_role("button", name=S.BTN_SETTINGS_PILL).click()
-            pg.wait_for_timeout(800)
+        self._open_settings()
         self._radio(S.RADIO_IMAGE).click()
         pg.wait_for_timeout(1000)
         self._radio(aspect).click()
-        self._radio("x1").click()
+        self._radio(re.compile(r"^\s*x1\s*$")).click()
         pg.wait_for_timeout(500)
         cost = self._stable_cost()
         pg.keyboard.press("Escape")
@@ -599,7 +629,7 @@ class FlowAuto:
                 if pg.locator("[role=menu]").count():
                     pg.keyboard.press("Escape")
                     pg.wait_for_timeout(500)
-                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD)
+                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD).first
                 btn.wait_for(state="visible", timeout=15000)
                 with pg.expect_download(timeout=25000) as d:
                     btn.first.click()
@@ -635,7 +665,7 @@ class FlowAuto:
                 if pg.locator("[role=menu]").count():
                     pg.keyboard.press("Escape")
                     pg.wait_for_timeout(500)
-                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD)
+                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD).first
                 btn.wait_for(state="visible", timeout=20000)
                 btn.click()
                 pg.wait_for_timeout(1200)
