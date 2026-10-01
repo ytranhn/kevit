@@ -25,8 +25,9 @@ CHAR_ITEM = {
         "description_vi": {"type": "string"},
         "kind": {"type": "string"},
         "evidence": {"type": "string"},
+        "gender": {"type": "string"},
     },
-    "required": ["name", "aliases", "role", "appearance_en", "description_vi", "kind", "evidence"],
+    "required": ["name", "aliases", "role", "appearance_en", "description_vi", "kind", "evidence", "gender"],
 }
 KINDS = {"person", "creature", "deity"}      # chỉ giữ thực thể có thể xuất hiện trong ảnh như một nhân vật
 SCHEMA = {"type": "object", "properties": {"characters": {"type": "array", "items": CHAR_ITEM}}, "required": ["characters"]}
@@ -97,6 +98,86 @@ def name_hints(text: str, k: int = 40) -> list[tuple[str, int]]:
     return sorted(((n, c) for n, c in count.items() if c >= 3), key=lambda x: -x[1])[:k]
 
 
+_MALE_TITLES = {"ong", "anh", "cau", "chang", "ngai", "chu", "bac", "thay", "cha", "bo", "vua", "lao", "huynh", "hoang tu", "thieu gia", "cong tu", "su huynh", "su phu", "su thuc", "hoang de"}
+_FEMALE_TITLES = {"ba", "co", "chi", "nang", "me", "nu", "su ty", "su muoi", "cong chua", "thieu nu", "tieu thu", "di", "thim", "hoang hau", "ni co", "ma ma"}
+_MALE_ALONE = {"chua", "ngai", "vua", "cha", "thien chua", "duc chua", "chua giesu", "dang cuu the"}
+_MALE_PRON = {"han", "y", "ong", "anh", "chang", "ngai", "lao"}
+_FEMALE_PRON = {"nang", "ba", "co", "chi", "nu"}
+
+
+def detect_gender(text: str, names: list[str]) -> tuple[int, int]:
+    """(điểm nam, điểm nữ) từ truyện: danh xưng đứng ngay trước tên (Thầy Hạc, Cô Hến, Bà Lụa) tính mạnh; đại từ/danh xưng ngay sau tên tính nhẹ."""
+    f = " ".join(_fold(text).split())
+    m_score = f_score = 0
+    for nm in names:
+        key = _fold(nm).strip()
+        if len(key) < 2:
+            continue
+        for mt in re.finditer(rf"(?<![a-z0-9]){re.escape(key)}(?![a-z0-9])", f):
+            before = f[max(0, mt.start() - 14):mt.start()].split()
+            if before:
+                for t in (" ".join(before[-2:]), before[-1]):
+                    if t in _MALE_TITLES:
+                        m_score += 4
+                        break
+                    if t in _FEMALE_TITLES:
+                        f_score += 4
+                        break
+            if key in _MALE_ALONE:                                  # tên là danh xưng nam đứng một mình: Chúa, Ngài, Vua, Cha
+                m_score += 4
+            first = key.split()[0]                                  # tên tự mang danh xưng: "Thầy Hạc", "Cô Hến", "Bà Lụa"
+            if " " in key and first in _MALE_TITLES:
+                m_score += 4
+            elif " " in key and first in _FEMALE_TITLES:
+                f_score += 4
+            after = re.split(r"[.!?;:]", f[mt.end():mt.end() + 40])[0].replace(",", " ").split()[:5]   # chỉ trong cùng câu
+            for w in after:
+                if w in _MALE_PRON:
+                    m_score += 1
+                elif w in _FEMALE_PRON:
+                    f_score += 1
+    return m_score, f_score
+
+
+_SWAP = {"woman": "man", "women": "men", "female": "male", "girl": "boy", "lady": "gentleman", "she": "he", "her": "his", "hers": "his", "herself": "himself", "feminine": "masculine"}
+_SWAP_BACK = {v: k for k, v in _SWAP.items() if v not in ("his",)} | {"his": "her", "him": "her"}
+_GENDER_WORDS = re.compile(r"\b(man|men|woman|women|male|female|boy|girl|lady|gentleman|he|she|his|her|him)\b", re.I)
+
+
+def apply_gender(appearance: str, gender: str) -> str:
+    """Bảo đảm mô tả ngoại hình nói đúng giới tính: thiếu thì thêm "A man,"/"A woman,"; sai (vd. viết woman cho nhân vật nam) thì đổi từ."""
+    text = appearance.strip()
+    if gender not in ("male", "female") or not text:
+        return text
+    want_male = gender == "male"
+    noun = "man" if want_male else "woman"
+    found = [m.group(0).lower() for m in _GENDER_WORDS.finditer(text)]
+    male_w = {"man", "men", "male", "boy", "gentleman", "he", "his", "him"}
+    female_w = {"woman", "women", "female", "girl", "lady", "she", "her"}
+    wrong = female_w if want_male else male_w
+    if any(w in wrong for w in found):
+        mapping = _SWAP if want_male else _SWAP_BACK
+        def sub(m):
+            w = m.group(0)
+            r = mapping.get(w.lower(), w)
+            return r.capitalize() if w[:1].isupper() else r
+        text = _GENDER_WORDS.sub(sub, text)
+    elif not found:
+        text = f"A {noun}, " + (text[0].lower() + text[1:] if text[:1].isupper() and not text[:2].isupper() else text)
+    return text
+
+
+def decide_gender(llm_gender: str, text: str, names: list[str]) -> str:
+    """Giới tính cuối cùng: bằng chứng từ truyện (danh xưng/đại từ) thắng AI khi đủ mạnh, nếu không thì theo AI (hoặc 'unknown')."""
+    m, f = detect_gender(text, names)
+    llm_g = (llm_gender or "unknown").strip().lower()
+    if m >= f + 3:
+        return "male"
+    if f >= m + 3:
+        return "female"
+    return llm_g if llm_g in ("male", "female") else "unknown"
+
+
 def count_mentions(text_folded: str, names: list[str]) -> int:
     n = 0
     for nm in names:
@@ -114,6 +195,8 @@ Yêu cầu:
 - "kind": phân loại thực thể, CHỈ một trong: "person" (người), "creature" (yêu thú/linh thú/quái vật có hành động), "deity" (thần, tiên, Chúa...),
   "place" (địa danh), "organization" (môn phái, triều đình, tổ chức), "object" (vật, thảo dược, pháp bảo), "title" (chức danh chung chung, không chỉ một người cụ thể), "other".
   CHỈ những mục có kind person/creature/deity mới là nhân vật. Địa danh, tổ chức, vật phẩm, chức danh chung KHÔNG phải nhân vật: đừng liệt kê chúng.
+- "gender": giới tính nhân vật, CHỈ một trong "male", "female", "unknown", căn cứ đại từ và cách gọi trong truyện (ông/anh/cậu/ngài/cha/thầy... là nam; bà/cô/chị/nàng/mẹ/sư tỷ... là nữ). Chúa, Ngài, Cha (Thiên Chúa, Chúa Giêsu) là nam.
+  "appearance_en" PHẢI mở đầu bằng "A man" hoặc "A woman" (hoặc "A boy"/"A girl" nếu là trẻ em) khớp với "gender"; nếu gender là "unknown" thì mô tả trung tính nhưng đừng đoán bừa.
 - "evidence": chép NGUYÊN VĂN một câu hoặc cụm từ ngắn (tối đa 20 từ) trong truyện cho thấy nhân vật này hành động hoặc nói.
 - Nếu truyện không còn nhân vật mới đáng kể nào ngoài danh sách đã có, trả về mảng rỗng. Đừng cố đủ số lượng.
 - NHÂN VẬT KHÔNG CÓ TÊN RIÊNG vẫn được chọn nếu quan trọng và lặp lại, đặt tên theo cách truyện gọi (vd. "Người đàn ông", "Chúa", "Cô gái"); đừng bịa tên mới.
@@ -134,7 +217,7 @@ def _clean(items: list[dict], taken: set[str]) -> list[dict]:
         if (it.get("kind") or "person").strip().lower() not in KINDS:
             continue                                   # địa danh / tổ chức / vật phẩm / chức danh chung: không phải nhân vật
         seen.add(key)
-        out.append({"name": name, "evidence": it.get("evidence", "").strip(),
+        out.append({"name": name, "evidence": it.get("evidence", "").strip(), "gender": it.get("gender", "unknown"),
                     "aliases": [nfc(a).strip() for a in it.get("aliases", []) if a.strip() and _fold(nfc(a)) not in taken],
                     "role": it.get("role", "").strip(), "appearance_en": it.get("appearance_en", "").strip(),
                     "description_vi": it.get("description_vi", "").strip()})
@@ -201,7 +284,9 @@ def suggest_characters(p: Project, existing: list[Character], max_n: int = 10, l
             merged.append(c)
     for c in merged:
         c["mentions"] = count_mentions(folded, [c["name"]] + c["aliases"])
-        c["_rank"] = count_mentions(folded, [c["name"]])          # thứ tự chỉ dựa vào tên chuẩn: bí danh AI chọn mỗi lần một khác
+        c["_rank"] = count_mentions(folded, [c["name"]])
+        c["gender"] = decide_gender(c.get("gender", ""), text, [c["name"]] + c["aliases"])
+        c["appearance_en"] = apply_gender(c["appearance_en"], c["gender"])          # thứ tự chỉ dựa vào tên chuẩn: bí danh AI chọn mỗi lần một khác
     def verified(c) -> bool:
         words = _fold(c.get("evidence", "")).split()
         return bool(words) and " ".join(words[:6]) in " ".join(folded.split())          # câu trích có thật trong truyện
@@ -216,10 +301,11 @@ def suggest_characters(p: Project, existing: list[Character], max_n: int = 10, l
     return kept[:max_n]
 
 
-def image_prompt(p: Project, appearance: str) -> str:
+def image_prompt(p: Project, appearance: str, gender: str = "unknown") -> str:
     """Prompt tạo ảnh tham chiếu: một nhân vật, nền trơn, đúng phong cách dự án (để ảnh dùng được làm 'ingredient' cho Flow)."""
     style = (p.style or "").strip().rstrip(".")
-    return (f"Character reference portrait: {appearance.strip().rstrip('.')}. "
+    who = {"male": "The character is a man (male). ", "female": "The character is a woman (female). "}.get(gender, "")
+    return (f"Character reference portrait: {appearance.strip().rstrip('.')}. {who}"
             + (f"Visual style: {style}. " if style else "")
             + "Single character, upper body, facing the camera, centered, plain neutral background, soft even lighting, "
               "highly detailed face, no text, no watermark, no other people. Vertical 3:4 composition.")

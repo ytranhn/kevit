@@ -44,7 +44,7 @@ class CharactersTab(QWidget):
         self.desc_vi.setPlaceholderText("Mô tả gốc tiếng Việt")
         self.desc_vi.setMaximumHeight(92)
         self.img_path, self.preview = "", QLabel("Chưa có ảnh")
-        self.preview.setFixedSize(176, 176)
+        self.preview.setFixedSize(178, 178)       # +2px viền của khung giữ chỗ
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setProperty("avatarph", True)
         self.desc_vi.setFixedHeight(88)
@@ -73,13 +73,17 @@ class CharactersTab(QWidget):
         top = QHBoxLayout()
         top.setSpacing(SP.l)
         btn_img.setFixedHeight(36)
+        btn_ai = QPushButton("Tạo ảnh (AI)…")
+        btn_ai.setFixedHeight(36)
+        btn_ai.clicked.connect(self.make_image_ai)
         picbox = QWidget()                      # khối ảnh + nút có kích thước cố định: cửa sổ thấp cũng không bị nén đè lên nhau
         pic = QVBoxLayout(picbox)
         pic.setContentsMargins(0, 0, 0, 0)
         pic.setSpacing(SP.s)
         pic.addWidget(self.preview)
         pic.addWidget(btn_img)
-        picbox.setFixedSize(176, 176 + SP.s + 36)
+        pic.addWidget(btn_ai)
+        picbox.setFixedSize(178, 178 + (SP.s + 36) * 2)
         top.addWidget(picbox, 0, Qt.AlignTop)
         main = QVBoxLayout()
         main.setSpacing(SP.m)
@@ -292,6 +296,19 @@ class CharactersTab(QWidget):
             return
         self._reload()
         QMessageBox.information(self, "Nhập gói nhân vật", "\n".join(report[:30]) + ("\n…" if len(report) > 30 else ""))
+
+    def make_image_ai(self):
+        """Tạo (lại) ảnh cho nhân vật đang chọn bằng AI: chọn giới tính, chỉnh mô tả, xem trước rồi dùng."""
+        row = self.list.currentRow()
+        if not self.project_name or not (0 <= row < len(self.chars)):
+            QMessageBox.information(self, "Chưa chọn nhân vật", "Chọn một nhân vật trong danh sách (hoặc lưu nhân vật mới) trước.")
+            return
+        from .char_image_dialog import CharImageDialog
+        c = self.chars[row]
+        dlg = CharImageDialog(self.project_name, c, self)
+        if dlg.exec() == QDialog.Accepted and dlg.saved:
+            self._reload()
+            self.list.setCurrentRow(row)
 
     def generate_from_story(self):
         """AI đọc truyện của dự án, đề xuất nhân vật + mô tả ngoại hình, tuỳ chọn tạo ảnh bằng Gemini."""

@@ -24,8 +24,8 @@ class CharGenDialog(QDialog):
         self.worker: Worker | None = None
         self._row = -1
         self.setWindowTitle("Tạo nhân vật từ truyện")
-        self.setMinimumSize(900, 830)
-        self.resize(980, 840)
+        self.setMinimumSize(900, 880)
+        self.resize(980, 900)
 
         title = QLabel("Tạo nhân vật từ truyện")
         title.setProperty("heading", True)
@@ -62,12 +62,16 @@ class CharGenDialog(QDialog):
         self.list.currentRowChanged.connect(self.select)
         self.list.itemChanged.connect(lambda *_: self.update_buttons())
         self.name, self.role, self.aliases = QLineEdit(), QLineEdit(), QLineEdit()
+        self.gender = QComboBox()                 # giới tính: AI đoán + đối chiếu truyện, bạn chỉnh được; đổi là mô tả ngoại hình đổi theo
+        for label, val in (("Không rõ", "unknown"), ("Nam", "male"), ("Nữ", "female")):
+            self.gender.addItem(label, val)
+        self.gender.currentIndexChanged.connect(self.on_gender)
         self.prompt = QPlainTextEdit()
         self.prompt.setPlaceholderText("Mô tả ngoại hình bằng tiếng Anh (dùng làm prompt ảnh và prompt Flow)")
         self.desc_vi = QPlainTextEdit()
         self.desc_vi.setFixedHeight(92)
         self.preview = QLabel("Chưa có ảnh")
-        self.preview.setFixedSize(150, 200)
+        self.preview.setFixedSize(154, 204)
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setProperty("avatarph", True)
         self.btn_img = QPushButton("Tạo ảnh")
@@ -98,11 +102,12 @@ class CharGenDialog(QDialog):
         pic.addWidget(self.preview, 0, Qt.AlignHCenter)
         pic.addWidget(self.btn_img)
         pic.addWidget(self.btn_copy)
-        picbox.setFixedSize(196, 200 + 36 * 2 + SP.s * 2)    # đủ rộng cho nhãn nút dài nhất
+        picbox.setFixedSize(196, 204 + 36 * 2 + SP.s * 2)    # đủ rộng cho nhãn nút dài nhất
         form = QVBoxLayout()
         form.setSpacing(SP.m)
         form.addWidget(field("Tên", self.name))
         form.addWidget(field("Vai trò", self.role))
+        form.addWidget(field("Giới tính (quyết định hình tượng khi tạo ảnh)", self.gender))
         form.addWidget(field("Tên gọi khác (cách nhau dấu phẩy)", self.aliases))
         row = QHBoxLayout()
         row.setSpacing(SP.l)
@@ -158,7 +163,7 @@ class CharGenDialog(QDialog):
         self.btn_copy.setEnabled(0 <= self._row < len(self.cands))
 
     def set_editor_enabled(self, on: bool):
-        for w in (self.name, self.role, self.aliases, self.prompt, self.desc_vi):
+        for w in (self.name, self.role, self.aliases, self.prompt, self.desc_vi, self.gender):
             w.setEnabled(on)
 
     def checked(self) -> list[int]:
@@ -189,7 +194,7 @@ class CharGenDialog(QDialog):
         self.list.blockSignals(True)
         self.list.clear()
         for c in self.cands:
-            it = QListWidgetItem(f"{c['name']}  ·  {c['role']}" if c["role"] else c["name"])
+            it = QListWidgetItem(self._label(c))
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked)
             self.list.addItem(it)
@@ -198,6 +203,11 @@ class CharGenDialog(QDialog):
                   "Không có nhân vật mới nào để đề xuất (các nhân vật chính đã có trong dự án).")
         if self.cands:
             self.list.setCurrentRow(0)
+
+    @staticmethod
+    def _label(c: dict) -> str:
+        g = {"male": "nam", "female": "nữ"}.get(c.get("gender", ""), "")
+        return "  ·  ".join(x for x in (c["name"], c.get("role", ""), g) if x)
 
     # ---------- chỉnh từng nhân vật ----------
     def select(self, row: int):
@@ -209,6 +219,9 @@ class CharGenDialog(QDialog):
             c = self.cands[row]
             for w, v in ((self.name, c["name"]), (self.role, c["role"]), (self.aliases, ", ".join(c["aliases"]))):
                 w.blockSignals(True); w.setText(v); w.blockSignals(False)
+            self.gender.blockSignals(True)
+            self.gender.setCurrentIndex(max(0, self.gender.findData(c.get("gender", "unknown"))))
+            self.gender.blockSignals(False)
             for w, v in ((self.prompt, c["appearance_en"]), (self.desc_vi, c["description_vi"])):
                 w.blockSignals(True); w.setPlainText(v); w.blockSignals(False)
             self.show_image(c)
@@ -223,8 +236,20 @@ class CharGenDialog(QDialog):
         c["role"] = self.role.text().strip()
         c["aliases"] = [models.nfc(a.strip()) for a in self.aliases.text().split(",") if a.strip()]
         c["appearance_en"] = self.prompt.toPlainText().strip()
+        c["gender"] = self.gender.currentData()
         c["description_vi"] = self.desc_vi.toPlainText().strip()
-        self.list.item(r).setText(f"{c['name']}  ·  {c['role']}" if c["role"] else c["name"])
+        self.list.item(r).setText(self._label(c))
+
+    def on_gender(self, *_):
+        """Đổi giới tính -> sửa luôn mô tả ngoại hình cho khớp (man/woman, he/she)."""
+        if not (0 <= self._row < len(self.cands)):
+            return
+        g = self.gender.currentData()
+        txt = char_gen.apply_gender(self.prompt.toPlainText(), g)
+        self.prompt.blockSignals(True)
+        self.prompt.setPlainText(txt)
+        self.prompt.blockSignals(False)
+        self.store()
 
     def show_image(self, c: dict):
         data = c.get("image_bytes")
@@ -239,7 +264,8 @@ class CharGenDialog(QDialog):
         if 0 <= self._row < len(self.cands):
             self.store()
             p = models.Project.load(self.project_name)
-            QGuiApplication.clipboard().setText(char_gen.image_prompt(p, self.cands[self._row]["appearance_en"]))
+            c = self.cands[self._row]
+            QGuiApplication.clipboard().setText(char_gen.image_prompt(p, c["appearance_en"], c.get("gender", "unknown")))
             self.status.set_full("Đã copy prompt ảnh. Dán vào công cụ tạo ảnh bạn dùng, rồi gắn ảnh vào nhân vật ở tab Nhân vật.")
 
     # ---------- tạo ảnh ----------
@@ -247,7 +273,7 @@ class CharGenDialog(QDialog):
         self.store()
         p = models.Project.load(self.project_name)
         names = [self.cands[r]["name"] for r in rows]
-        prompts = {self.cands[r]["name"]: char_gen.image_prompt(p, self.cands[r]["appearance_en"]) for r in rows}
+        prompts = {self.cands[r]["name"]: char_gen.image_prompt(p, self.cands[r]["appearance_en"], self.cands[r].get("gender", "unknown")) for r in rows}
         backend = self.backend.currentData()
         self.busy(True, f"Đang tạo ảnh 0/{len(rows)}…")
 
