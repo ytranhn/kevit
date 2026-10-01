@@ -153,7 +153,8 @@ class FlowAuto:
         pg.get_by_role("radio", name=S.RADIO_VIDEO, exact=True).click()
         pg.wait_for_timeout(600)
         pg.get_by_role("radio", name=S.RADIO_INGREDIENTS, exact=True).click()
-        pg.get_by_role("radio", name=aspect, exact=True).click()
+        if aspect != "flow":   # "flow": giữ nguyên khổ đang chọn trong Flow
+            pg.get_by_role("radio", name=aspect, exact=True).click()
         pg.get_by_role("button", name=S.BTN_MODEL).click()
         pg.wait_for_timeout(400)
         pg.locator("[role=menuitem]").filter(has_text=model).first.click()
@@ -168,7 +169,7 @@ class FlowAuto:
         cost = self._stable_cost()
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(500)
-        self.log(f"Cấu hình: {model}, {aspect}, x1" + (f", {res}, {dur}s" if model == credits.OMNI else "") + f". {cost}")
+        self.log(f"Cấu hình: {model}, {'khổ theo Flow' if aspect == 'flow' else aspect}, x1" + (f", {res}, {dur}s" if model == credits.OMNI else "") + f". {cost}")
 
     def _stable_cost(self) -> str:
         """Đọc dòng giá khi nó đã ổn định (Flow cập nhật chậm sau khi đổi tuỳ chọn, đọc sớm sẽ ra giá cũ)."""

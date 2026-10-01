@@ -193,7 +193,8 @@ class ProjectTab(QWidget):
         self.max_scenes.setValue(16)
         self.max_scenes.setFixedWidth(100)
         self.aspect = Segmented()
-        self.aspect.addItems(["9:16", "16:9"])
+        for label, val in (("9:16 dọc", "9:16"), ("16:9 ngang", "16:9"), ("Theo Flow", "flow")):
+            self.aspect.addItem(label, val)
         self.provider = Segmented()
         for k in tts.PROVIDERS:
             self.provider.addItem(PROVIDER_LABELS.get(k, k), k)
@@ -501,7 +502,7 @@ class ProjectTab(QWidget):
             p.save()
         self.synopsis.setPlainText(p.synopsis)
         self.style.setText(p.style)
-        self.aspect.setCurrentText(p.aspect_ratio)
+        self.aspect.setCurrentIndex(max(0, self.aspect.findData(p.aspect_ratio)))
         self.provider.setCurrentIndex(max(0, self.provider.findData(p.tts_provider)))
         self.fill_voices(p.voice)
         self.voice_style.setText(p.voice_style)
@@ -1175,7 +1176,7 @@ class ProjectTab(QWidget):
         self.commit_chapter()
         p = self.project
         p.synopsis = self.synopsis.toPlainText().strip()
-        p.style, p.aspect_ratio = self.style.text().strip(), self.aspect.currentText()
+        p.style, p.aspect_ratio = self.style.text().strip(), self.aspect.currentData() or "9:16"
         p.tts_provider, p.voice = self.provider.currentData(), self.voice.currentText()
         p.voice_style = self.voice_style.text().strip()
         p.flow_model = self.flow_model.currentText()

@@ -67,7 +67,7 @@ class Welcome(QWidget):
         title = QLabel("Chào mừng đến Veo Story Studio")
         title.setProperty("heading", True)
         title.setAlignment(Qt.AlignCenter)
-        sub = QLabel("Biến truyện chữ thành video kể chuyện 9:16 có người dẫn truyện.\nLàm lần lượt các bước dưới đây, chỉ cần một lần.")
+        sub = QLabel("Biến truyện chữ thành video kể chuyện (9:16, 16:9 hoặc theo Flow) có người dẫn truyện.\nLàm lần lượt các bước dưới đây, chỉ cần một lần.")
         sub.setProperty("caption", True)
         sub.setAlignment(Qt.AlignCenter)
         self.s_llm = Step(1, "Kết nối mô hình AI", "Claude (qua proxy) hoặc Gemini, dùng để tách truyện thành scene.", "Mở Cài đặt", on_settings)

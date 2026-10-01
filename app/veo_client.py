@@ -19,6 +19,8 @@ def build_prompt(project: Project, scene: Scene, chars: dict[str, Character]) ->
     parts = [f"{scene.visual}", f"Style: {project.style}."]
     if project.aspect_ratio == "9:16":
         parts.append("Vertical 9:16 framing, subjects centered, composed for a phone screen.")
+    elif project.aspect_ratio == "16:9":
+        parts.append("Horizontal 16:9 widescreen framing.")
     if cast:
         parts.append("Characters (keep their appearance identical to the reference images):\n" + cast)
     parts.append("Audio: NO speech, NO dialogue, NO narration, NO music, characters do not speak. "
@@ -38,7 +40,7 @@ def generate_clip(project: Project, scene: Scene, chars: dict[str, Character],
                                   mime_type=MIME.get(Path(img).suffix.lower(), "image/png")),
                 reference_type=types.VideoGenerationReferenceType.ASSET))
     prompt = build_prompt(project, scene, chars)
-    ar = project.aspect_ratio
+    ar = project.aspect_ratio if project.aspect_ratio in ("9:16", "16:9") else "16:9"
     base = dict(aspect_ratio=ar, number_of_videos=1)
 
     # Ưu tiên: ảnh tham chiếu ở đúng tỉ lệ dự án (video dọc). Veo bắt buộc 8s khi dùng ảnh tham chiếu.

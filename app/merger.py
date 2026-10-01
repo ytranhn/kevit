@@ -1,5 +1,6 @@
 """Ghép các clip thành 1 video bằng ffmpeg (re-encode để tránh lệch codec/timebase)."""
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,15 +16,25 @@ def _quote(path: Path) -> str:
     return "file '" + path.resolve().as_posix().replace("'", "'\\''") + "'\n"
 
 
+def _size(ffmpeg: str, path: Path) -> tuple[int, int] | None:
+    out = subprocess.run([ffmpeg, "-i", str(path)], **RUN).stderr
+    m = re.search(r"Video:.*?, (\d{2,5})x(\d{2,5})", out)
+    return (int(m[1]) // 2 * 2, int(m[2]) // 2 * 2) if m else None
+
+
 def merge(clips: list[Path], output: Path) -> Path:
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    size = _size(ffmpeg, clips[0]) if clips else None
+    # clip khác khổ (vd. đổi 9:16 <-> 16:9 giữa chừng): co vào khổ clip đầu, có viền đen, thay vì làm ffmpeg lỗi
+    vf = ["-vf", f"scale={size[0]}:{size[1]}:force_original_aspect_ratio=decrease,"
+                 f"pad={size[0]}:{size[1]}:(ow-iw)/2:(oh-ih)/2,setsar=1"] if size else []
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         f.writelines(_quote(c) for c in clips)
         listfile = f.name
     output.parent.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
         [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(output)], **RUN)
+         *vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(output)], **RUN)
     os.unlink(listfile)
     if r.returncode:
         raise RuntimeError(f"ffmpeg lỗi: {_ffmpeg_error(r.stderr)}")

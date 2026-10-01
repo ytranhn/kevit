@@ -83,7 +83,7 @@ class ProjectSettingsDialog(QDialog):
         visual = _card(
             "Hình ảnh & video", "Áp dụng cho mọi prompt gửi Flow trong dự án này.",
             _field("Phong cách hình ảnh", "Được gắn vào cuối mọi prompt. Viết bằng tiếng Anh sẽ cho kết quả ổn định nhất.", tab.style),
-            _row("Khổ video", "9:16 cho điện thoại, 16:9 cho màn ngang.", tab.aspect))
+            _row("Khổ video", "9:16 cho điện thoại, 16:9 cho màn ngang; “Theo Flow” giữ nguyên khổ đang chọn trong Flow (tool không đổi).", tab.aspect))
         scenes = _card(
             "Tách scene", "",
             _row("Cảnh báo khi chương vượt số scene", "Chỉ để cảnh báo chi phí. Tool luôn tách đủ scene để thuyết minh giữ ≥70% nội dung truyện.", tab.max_scenes))
@@ -154,13 +154,13 @@ class ProjectSettingsDialog(QDialog):
     # ---- mở / đóng ----
     def snapshot(self) -> dict:
         t = self.tab
-        return dict(style=t.style.text(), aspect=t.aspect.currentText(), scenes=t.max_scenes.value(),
+        return dict(style=t.style.text(), aspect=t.aspect.currentIndex(), scenes=t.max_scenes.value(),
                     model=t.flow_model.currentText(), res=t.flow_res.currentText(), auto=t.flow_auto_dur.isChecked(),
                     provider=t.provider.currentIndex(), voice=t.voice.currentText(), vstyle=t.voice_style.text())
 
     def restore(self, s: dict) -> None:
         t = self.tab
-        t.style.setText(s["style"]); t.aspect.setCurrentText(s["aspect"]); t.max_scenes.setValue(s["scenes"])
+        t.style.setText(s["style"]); t.aspect.setCurrentIndex(s["aspect"]); t.max_scenes.setValue(s["scenes"])
         t.flow_model.setCurrentText(s["model"]); t.flow_res.setCurrentText(s["res"]); t.flow_auto_dur.setChecked(s["auto"])
         t.provider.setCurrentIndex(s["provider"]); t.voice.setCurrentText(s["voice"]); t.voice_style.setText(s["vstyle"])
 

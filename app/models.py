@@ -113,7 +113,7 @@ class Project:
     name: str
     synopsis: str = ""             # tóm tắt/bối cảnh truyện, đưa vào ngữ cảnh khi tách scene
     style: str = "cinematic, soft lighting, 35mm film look"
-    aspect_ratio: str = "9:16"     # video dọc
+    aspect_ratio: str = "9:16"     # "9:16" (dọc) | "16:9" (ngang) | "flow" (giữ nguyên khổ đang chọn trong Flow)
     tts_provider: str = "edge"     # edge (miễn phí) | gemini
     voice: str = "vi-VN-HoaiMyNeural"  # 1 giọng đọc duy nhất cho cả dự án
     flow_project_url: str = ""     # project Google Flow gắn với dự án này (dùng chung mọi chương)

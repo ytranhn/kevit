@@ -5,7 +5,7 @@
 <h1 align="center">Veo Story Studio</h1>
 
 <p align="center">
-  Biến truyện chữ thành <b>video kể chuyện 9:16</b> có người dẫn truyện, chỉ với vài thao tác.<br>
+  Biến truyện chữ thành <b>video kể chuyện</b> (9:16, 16:9 hoặc theo Flow) có người dẫn truyện, chỉ với vài thao tác.<br>
   Tách chương thành scene · giữ nhân vật nhất quán · tạo clip trên Google Flow · lồng một giọng đọc duy nhất · ghép thành video hoàn chỉnh.
 </p>
 
@@ -21,6 +21,7 @@
 - **Một giọng đọc xuyên suốt.** Edge TTS (miễn phí) hoặc Gemini TTS, giọng được lưu bộ nhớ đệm và khớp độ dài với clip.
 - **Quản lý theo cấu trúc** Dự án → Chương → Scene → Video: chọn một, nhiều hoặc tất cả scene để tạo; xoá scene, xoá video, xoá chương; gộp scene thông minh; thùng rác để khôi phục.
 - **Tiết kiệm.** Ước tính credit trước khi tạo, chọn độ dài clip theo thuyết minh, chỉ gửi những nhân vật có trong chương cho AI.
+- **Chọn khổ video:** 9:16 dọc, 16:9 ngang, hoặc **Theo Flow** (giữ nguyên khổ đang chọn trong Flow). Đổi trong *Cài đặt dự án → Hình ảnh & video*.
 - **Giao diện sáng và tối**, tự theo hệ điều hành. Chạy trên macOS và Windows.
 
 ## Giao diện
