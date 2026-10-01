@@ -21,6 +21,7 @@ from .widgets import Popover, StatusStrip, avatar, repolish, rounded_pixmap
 
 class CharactersTab(QWidget):
     deleted = Signal(list)          # tên các nhân vật vừa bị xoá (để dọn khỏi scene)
+    flow_state_changed = Signal()   # vừa tạo ảnh trên Flow: địa chỉ project Flow (của chương) có thể mới, tab Dự án cần nạp lại
     added = Signal(list)            # tên các nhân vật MỚI vừa thêm (AI, nhập gói, tạo tay): để gắn vào các scene đã tạo trước đó
     chars_changed = Signal()        # danh sách nhân vật vừa được nạp/đổi (để nơi khác vẽ lại ảnh)
 
@@ -28,6 +29,7 @@ class CharactersTab(QWidget):
         super().__init__()
         self.setAcceptDrops(True)
         self.usage_counter = None   # callable(names) -> {tên: số scene đang dùng}, do cửa sổ chính gắn vào
+        self.chapter_provider = None   # callable() -> id chương đang mở ở tab Dự án (để tạo ảnh trong project Flow của chương)
         self.project_name = ""
         self._chars: list[Character] = []
         self._mtime = 0.0
@@ -317,10 +319,18 @@ class CharactersTab(QWidget):
             return
         from .char_image_dialog import CharImageDialog
         c = self.chars[row]
-        dlg = CharImageDialog(self.project_name, c, self)
-        if dlg.exec() == QDialog.Accepted and dlg.saved:
+        dlg = CharImageDialog(self.project_name, c, self, chapter_id=self.current_chapter_id())
+        accepted = dlg.exec() == QDialog.Accepted
+        self.flow_state_changed.emit()
+        if accepted and dlg.saved:
             self._reload()
             self.list.setCurrentRow(row)
+
+    def current_chapter_id(self) -> str:
+        try:
+            return str(self.chapter_provider() or "") if callable(self.chapter_provider) else ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     def generate_from_story(self):
         """AI đọc truyện của dự án, đề xuất nhân vật + mô tả ngoại hình, tuỳ chọn tạo ảnh bằng Gemini."""
@@ -328,8 +338,10 @@ class CharactersTab(QWidget):
             QMessageBox.warning(self, "Thiếu dự án", "Chọn hoặc tạo dự án trước.")
             return
         from .char_gen_dialog import CharGenDialog
-        dlg = CharGenDialog(self.project_name, self)
-        if dlg.exec() == QDialog.Accepted and dlg.added:
+        dlg = CharGenDialog(self.project_name, self, current_chapter_id=self.current_chapter_id())
+        accepted = dlg.exec() == QDialog.Accepted
+        self.flow_state_changed.emit()
+        if accepted and dlg.added:
             self._reload()
             QMessageBox.information(self, "Đã thêm nhân vật", f"Đã thêm {len(dlg.added)} nhân vật: {', '.join(dlg.added[:8])}"
                                     + ("…" if len(dlg.added) > 8 else "") + ".\nBạn có thể sửa mô tả hoặc đổi ảnh từng nhân vật ở đây.")
@@ -363,6 +375,8 @@ class MainWindow(QMainWindow):
         self.proj = proj = ProjectTab(chars, self.logbox.appendPlainText)
         proj.opened.connect(chars.set_project)
         chars.usage_counter = proj.character_usage
+        chars.chapter_provider = lambda: proj.chapter.id if proj.chapter else ""
+        chars.flow_state_changed.connect(proj.reload_flow_state)
         chars.deleted.connect(proj.on_characters_deleted)
         chars.added.connect(proj.on_characters_added)
         chars.chars_changed.connect(proj.update_empty_state)

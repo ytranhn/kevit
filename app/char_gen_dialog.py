@@ -13,12 +13,111 @@ from .widgets import ElidedLabel
 from .workers import Worker
 
 
+class ChapterPicker(QDialog):
+    """Chọn các chương để AI phân tích (có ô tìm, chọn nhanh). Chương chưa có truyện bị khoá. self.selected = id các chương đã chọn."""
+
+    def __init__(self, project: models.Project, selected: list[str], current_id: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Chọn chương để phân tích")
+        self.setMinimumSize(520, 560)
+        self.current_id = current_id
+        self.selected: list[str] = list(selected)
+        head = QLabel("Chỉ đọc các chương bạn chọn: AI tập trung hơn nên nhận diện nhân vật chính xác hơn, và tạo ảnh trên Flow sẽ nằm trong "
+                      "project của chương nếu chỉ chọn một chương.")
+        head.setProperty("caption", True)
+        head.setWordWrap(True)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Tìm chương (tên hoặc số)…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.filter)
+        self.list = QListWidget()
+        for c in project.chapters:
+            words = len(c.story.split())
+            it = QListWidgetItem(f"{c.name}   ·   " + (f"{words:,} từ".replace(",", ".") if words else "chưa có truyện"))
+            it.setData(Qt.UserRole, c.id)
+            flags = it.flags() | Qt.ItemIsUserCheckable
+            if not words:
+                flags &= ~Qt.ItemIsEnabled
+            it.setFlags(flags)
+            it.setCheckState(Qt.Checked if c.id in selected and words else Qt.Unchecked)
+            self.list.addItem(it)
+        self.count = QLabel("")
+        self.count.setProperty("caption", True)
+        self.list.itemChanged.connect(lambda *_: self.update_count())
+        b_cur, b_all, b_none = QPushButton("Chương đang mở"), QPushButton("Tất cả"), QPushButton("Bỏ chọn")
+        b_cur.setEnabled(any(c.id == current_id and c.story.strip() for c in project.chapters))
+        b_cur.clicked.connect(lambda: self.set_only(current_id))
+        b_all.clicked.connect(lambda: self.set_all(True))
+        b_none.clicked.connect(lambda: self.set_all(False))
+        quick = QHBoxLayout()
+        quick.setSpacing(SP.s)
+        for b in (b_cur, b_all, b_none):
+            b.setFixedHeight(36)
+            quick.addWidget(b)
+        quick.addStretch()
+        self.btn_ok = QPushButton("Dùng các chương đã chọn")
+        self.btn_ok.setProperty("primary", True)
+        self.btn_ok.setFixedHeight(36)
+        self.btn_ok.clicked.connect(self.accept_selection)
+        btn_cancel = QPushButton("Huỷ")
+        btn_cancel.setFixedHeight(36)
+        btn_cancel.clicked.connect(self.reject)
+        foot = QHBoxLayout()
+        foot.addWidget(self.count)
+        foot.addStretch()
+        foot.addWidget(btn_cancel)
+        foot.addWidget(self.btn_ok)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
+        lay.setSpacing(SP.m)
+        for w in (head, self.search):
+            lay.addWidget(w)
+        lay.addLayout(quick)
+        lay.addWidget(self.list, 1)
+        lay.addLayout(foot)
+        self.update_count()
+
+    def _items(self):
+        return [self.list.item(i) for i in range(self.list.count())]
+
+    def filter(self, q: str):
+        import unicodedata
+        norm = lambda t: "".join(c for c in unicodedata.normalize("NFD", t.replace("đ", "d").replace("Đ", "D").lower()) if unicodedata.category(c) != "Mn")
+        nq = norm(q.strip())
+        for it in self._items():
+            it.setHidden(bool(nq) and nq not in norm(it.text()))
+
+    def set_all(self, on: bool):
+        for it in self._items():
+            if it.flags() & Qt.ItemIsEnabled and not it.isHidden():
+                it.setCheckState(Qt.Checked if on else Qt.Unchecked)
+
+    def set_only(self, cid: str):
+        for it in self._items():
+            it.setCheckState(Qt.Checked if it.data(Qt.UserRole) == cid and it.flags() & Qt.ItemIsEnabled else Qt.Unchecked)
+
+    def checked_ids(self) -> list[str]:
+        return [it.data(Qt.UserRole) for it in self._items() if it.checkState() == Qt.Checked]
+
+    def update_count(self):
+        n = len(self.checked_ids())
+        self.count.setText(f"Đã chọn {n}/{self.list.count()} chương")
+        self.btn_ok.setEnabled(n > 0)
+
+    def accept_selection(self):
+        self.selected = self.checked_ids()
+        self.accept()
+
+
 class CharGenDialog(QDialog):
     """self.added = tên các nhân vật vừa thêm vào dự án (rỗng nếu đóng mà không thêm)."""
 
-    def __init__(self, project_name: str, parent=None):
+    def __init__(self, project_name: str, parent=None, current_chapter_id: str = ""):
         super().__init__(parent)
         self.project_name = project_name
+        self.current_chapter_id = current_chapter_id
+        self.chapter_ids: list[str] = []
+        self.proj = models.Project.load(project_name)
         self.added: list[str] = []
         self.cands: list[dict] = []
         self.worker: Worker | None = None
@@ -29,8 +128,8 @@ class CharGenDialog(QDialog):
 
         title = QLabel("Tạo nhân vật từ truyện")
         title.setProperty("heading", True)
-        sub = QLabel("AI đọc bối cảnh và các chương của dự án, đề xuất nhân vật kèm mô tả ngoại hình (prompt tiếng Anh, theo phong cách hình ảnh "
-                     "của dự án). Bạn duyệt và sửa, tuỳ chọn tạo ảnh tham chiếu bằng Gemini, rồi thêm vào dự án.")
+        sub = QLabel("AI đọc bối cảnh và các chương bạn chọn, đề xuất nhân vật kèm mô tả ngoại hình (prompt tiếng Anh, theo phong cách hình ảnh "
+                     "của dự án). Bạn duyệt và sửa, tuỳ chọn tạo ảnh tham chiếu bằng Google Flow hoặc Gemini, rồi thêm vào dự án.")
         sub.setProperty("caption", True)
         sub.setWordWrap(True)
         sub.setMinimumHeight(sub.fontMetrics().lineSpacing() * 3 + 4)   # nhãn tự xuống dòng: chừa sẵn 3 dòng để Qt không đánh giá thấp chiều cao cửa sổ
@@ -57,6 +156,21 @@ class CharGenDialog(QDialog):
         top.addWidget(self.status, 1)
         top.addWidget(QLabel("Tạo ảnh bằng"))
         top.addWidget(self.backend)
+
+        self.scope = ElidedLabel()                   # tóm tắt chương đang được chọn để phân tích
+        self.btn_scope = QPushButton("Chọn chương…")
+        self.btn_scope.setFixedHeight(36)
+        self.btn_scope.clicked.connect(self.pick_chapters)
+        self.img_target = ElidedLabel()              # nơi ảnh Flow sẽ được tạo (project nào)
+        self.img_target.setProperty("caption", True)
+        scope_row = QHBoxLayout()
+        scope_row.setSpacing(SP.s)
+        scope_row.addWidget(QLabel("Chương phân tích"))
+        scope_row.addWidget(self.scope, 1)
+        scope_row.addWidget(self.btn_scope)
+        pick_default = [c.id for c in char_gen.pick_chapters(self.proj)]
+        self.chapter_ids = [self.current_chapter_id] if self.current_chapter_id in pick_default else list(pick_default)
+        self.backend.currentIndexChanged.connect(lambda *_: self.update_scope())
 
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self.select)
@@ -143,11 +257,47 @@ class CharGenDialog(QDialog):
         lay.setSpacing(SP.m)
         for item in (title, sub):
             lay.addWidget(item)
+        lay.addLayout(scope_row)
+        lay.addWidget(self.img_target)
         lay.addLayout(top)
         lay.addLayout(body, 1)
         lay.addLayout(foot)
         self.update_buttons()
         self.set_editor_enabled(False)
+        self.update_scope()
+
+    # ---------- chọn chương ----------
+    def chapter_name(self, cid: str) -> str:
+        c = next((c for c in self.proj.chapters if c.id == cid), None)
+        return c.name if c else cid
+
+    def image_chapter_id(self) -> str | None:
+        """Chương có project Flow riêng để tạo ảnh: chỉ khi phân tích đúng MỘT chương; nhiều chương thì dùng project chung của dự án."""
+        return self.chapter_ids[0] if len(self.chapter_ids) == 1 else None
+
+    def update_scope(self):
+        n, total = len(self.chapter_ids), len(char_gen.pick_chapters(self.proj))
+        if n == 1:
+            self.scope.set_full(f"{self.chapter_name(self.chapter_ids[0])}" + ("  (đang mở)" if self.chapter_ids[0] == self.current_chapter_id else ""))
+        elif n and n == total:
+            self.scope.set_full(f"Tất cả {n} chương có truyện")
+        else:
+            self.scope.set_full(f"{n}/{total} chương: " + ", ".join(self.chapter_name(c) for c in self.chapter_ids[:3]) + ("…" if n > 3 else ""))
+        if self.backend.currentData() != "flow":
+            self.img_target.set_full("")
+        elif self.image_chapter_id():
+            self.img_target.set_full(f"Ảnh tạo trên Flow sẽ nằm trong project «{self.proj.name} · {self.chapter_name(self.image_chapter_id())}» "
+                                     "(cùng project với clip video của chương, tự tạo nếu chưa có).")
+        else:
+            self.img_target.set_full(f"Nhiều chương được chọn: ảnh tạo trên Flow nằm trong project chung của dự án «{self.proj.name}». "
+                                     "Chọn đúng một chương để tạo ảnh ngay trong project của chương.")
+
+    def pick_chapters(self):
+        self.proj = models.Project.load(self.project_name)
+        dlg = ChapterPicker(self.proj, self.chapter_ids, self.current_chapter_id, self)
+        if dlg.exec() == QDialog.Accepted and dlg.selected:
+            self.chapter_ids = dlg.selected
+            self.update_scope()
 
     # ---------- trạng thái ----------
     def busy(self, on: bool, text: str = ""):
@@ -181,9 +331,10 @@ class CharGenDialog(QDialog):
             QMessageBox.warning(self, "Chưa cấu hình mô hình AI", why)
             return
         existing = models.load_characters(self.project_name)
-        self.busy(True, f"Đang đọc truyện bằng {llm.describe()}…")
+        ids = [c for c in self.chapter_ids if any(x.id == c for x in p.chapters)] or None
+        self.busy(True, f"Đang đọc {len(ids) if ids else 'mọi'} chương bằng {llm.describe()}…")
         n = self.max_n.value()
-        self.worker = Worker(lambda log: char_gen.suggest_characters(p, existing, n, log))
+        self.worker = Worker(lambda log: char_gen.suggest_characters(p, existing, n, log, chapters=ids))
         self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
         self.worker.done.connect(self.on_suggested)
         self.worker.failed.connect(lambda e: (self.busy(False, ""), QMessageBox.warning(self, "Không phân tích được", e)))
@@ -275,10 +426,11 @@ class CharGenDialog(QDialog):
         names = [self.cands[r]["name"] for r in rows]
         prompts = {self.cands[r]["name"]: char_gen.image_prompt(p, self.cands[r]["appearance_en"], self.cands[r].get("gender", "unknown")) for r in rows}
         backend = self.backend.currentData()
+        chap = self.image_chapter_id()
         self.busy(True, f"Đang tạo ảnh 0/{len(rows)}…")
 
         def job(log):
-            out, errs = char_gen.generate_images(self.project_name, prompts, backend, log)
+            out, errs = char_gen.generate_images(self.project_name, prompts, backend, log, chapter_id=chap)
             return {rows[names.index(n)]: data for n, data in out.items()}, errs
         self.worker = Worker(job)
         self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
@@ -306,7 +458,8 @@ class CharGenDialog(QDialog):
             return
         if self.backend.currentData() == "flow":
             msg = (f"Tạo ảnh cho {len(rows)} nhân vật bằng Google Flow (model Nano Banana)? Cần Chrome Flow đã đăng nhập; "
-                   "ảnh được tạo trong dự án Flow của bạn, thường không tốn tín dụng (giá hiện trong nhật ký).")
+                   "ảnh được tạo trong " + (f"project Flow của {self.chapter_name(self.image_chapter_id())}" if self.image_chapter_id() else "project chung của dự án")
+                   + ", thường không tốn tín dụng (giá hiện trong nhật ký).")
         else:
             msg = f"Tạo ảnh cho {len(rows)} nhân vật bằng Gemini API (model {settings.image_model()})? Mỗi ảnh tính phí theo bảng giá Gemini API của bạn."
         if QMessageBox.question(self, "Tạo ảnh nhân vật", msg) == QMessageBox.Yes:

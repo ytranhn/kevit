@@ -1597,14 +1597,26 @@ class ProjectTab(QWidget):
                  + ("" if flow_auto.cdp_state(0) else " Chrome của tài khoản này chưa mở: bấm chip Flow để mở và đăng nhập."))
         self.account_changed.emit(acc.id)
 
+    def reload_flow_state(self):
+        """Nạp lại từ đĩa các thông tin Flow do tiến trình nền khác ghi (địa chỉ project Flow của dự án/chương, tài khoản): nếu không, lần lưu
+        kế tiếp của tab này sẽ ghi đè chúng bằng bản cũ trong bộ nhớ (vd. sau khi tạo ảnh nhân vật trong project Flow của chương)."""
+        if not self.project or self._busy:
+            return
+        try:
+            fresh = Project.load(self.project.name)
+        except Exception:  # noqa: BLE001
+            return
+        self.project.flow_account, self.project.flow_stash = fresh.flow_account, fresh.flow_stash
+        self.project.flow_project_url = fresh.flow_project_url
+        by_id = {c.id: c for c in fresh.chapters}
+        for c in self.project.chapters:
+            if c.id in by_id:
+                c.flow_project_url = by_id[c.id].flow_project_url
+
     def on_accounts_changed(self):
         """Danh sách tài khoản đổi (thêm/đổi tên/gỡ): nạp lại ô chọn và kích hoạt lại tài khoản của dự án (có thể đã bị chuyển về chính)."""
         if self.project:
-            fresh = Project.load(self.project.name)
-            self.project.flow_account, self.project.flow_stash = fresh.flow_account, fresh.flow_stash
-            self.project.flow_project_url = fresh.flow_project_url
-            for c, f in zip(self.project.chapters, fresh.chapters):
-                c.flow_project_url = f.flow_project_url
+            self.reload_flow_state()
             accounts.activate(self.project.account_id)
         self.account_changed.emit(self.project.account_id if self.project else "")
 

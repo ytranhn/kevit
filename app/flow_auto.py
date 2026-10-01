@@ -704,10 +704,11 @@ class FlowAuto:
         self._close_overlays()
         return cost
 
-    def generate_image(self, p: Project, prompt: str, aspect: str = "3:4", timeout: int = 240) -> bytes:
-        """Tạo 1 ảnh trong dự án Flow bằng chế độ Hình ảnh rồi tải về, trả về dữ liệu ảnh. Không dùng Gemini API nên không cần key riêng."""
+    def generate_image(self, p: Project, prompt: str, aspect: str = "3:4", timeout: int = 240, ch: Chapter | None = None) -> bytes:
+        """Tạo 1 ảnh trong dự án Flow bằng chế độ Hình ảnh rồi tải về, trả về dữ liệu ảnh. Không dùng Gemini API nên không cần key riêng.
+        ch: tạo trong project Flow RIÊNG của chương này (cùng project với clip video của chương); None = project chung của dự án."""
         pg = self.page
-        url = self.ensure_project(p)
+        url = self.ensure_project(p, ch)
         self._goto(url)
         n0 = pg.locator(S.IMAGE_TILE).count()
         before = {self._url_key(u) for u in self._tile_image_urls()}      # ảnh có sẵn: để nhận ra đâu là ảnh MỚI

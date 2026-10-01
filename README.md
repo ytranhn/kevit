@@ -165,11 +165,11 @@ Bấm **Nhập gói…** (hoặc kéo-thả thư mục / file `.zip` vào tab Nh
 <details>
 <summary><b>Tạo nhân vật từ truyện (AI)</b></summary>
 
-Tab Nhân vật → **Tạo nhân vật từ truyện (AI)…**: AI đọc bối cảnh và các chương, đề xuất nhân vật **chưa có** trong dự án kèm mô tả ngoại hình (prompt tiếng Anh) theo phong cách dự án. Để kết quả ổn định, truyện dài được đọc từng đoạn rồi gộp; mỗi mục được phân loại (chỉ giữ người, thần, yêu thú; bỏ địa danh, tổ chức, vật phẩm, chức danh), đối chiếu số lần nhắc và câu trích trong truyện, xếp theo số lần nhắc.
+Tab Nhân vật → **Tạo nhân vật từ truyện (AI)…**: bạn **chọn chương cần phân tích** (mặc định là chương đang mở; có ô tìm và chọn nhanh), AI đọc bối cảnh và các chương đó, đề xuất nhân vật **chưa có** trong dự án kèm mô tả ngoại hình (prompt tiếng Anh) theo phong cách dự án. Để kết quả ổn định, truyện dài được đọc từng đoạn rồi gộp; mỗi mục được phân loại (chỉ giữ người, thần, yêu thú; bỏ địa danh, tổ chức, vật phẩm, chức danh), đối chiếu số lần nhắc và câu trích trong truyện, xếp theo số lần nhắc.
 
 Chọn nơi tạo ảnh tham chiếu ở hộp thoại:
 
-- **Google Flow (Nano Banana)** (mặc định): dùng chính tài khoản Flow đã đăng nhập, ảnh nằm trong dự án Flow của bạn, thường **0 tín dụng**, không cần key riêng.
+- **Google Flow (Nano Banana)** (mặc định): dùng chính tài khoản Flow đã đăng nhập, thường **0 tín dụng**, không cần key riêng. Phân tích đúng **một chương** thì ảnh được tạo ngay trong **project Flow của chương** («Dự án · Chương», cùng project với clip video, tự tạo nếu chưa có); nhiều chương thì dùng project chung của dự án.
 - **Gemini API:** cần key đã bật thanh toán (gói miễn phí không có hạn mức tạo ảnh). Model chọn ở Cài đặt.
 - Hoặc **Copy prompt ảnh** để tạo bằng công cụ khác rồi gắn ảnh vào nhân vật.
 
