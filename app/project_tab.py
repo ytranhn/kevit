@@ -496,6 +496,12 @@ class ProjectTab(QWidget):
     def open_project(self, name):
         if not name:
             self.project = None
+            self._row, self._chap_idx = -1, -1
+            self.table.setRowCount(0)
+            self.update_empty_state()
+            self.opened.emit("")            # tab Nhân vật cũng về trạng thái chưa có dự án
+            self.refresh_nav()
+            self.update_steps()
             return
         self._row, self._chap_idx = -1, -1
         self.project = p = Project.load(name)
@@ -736,6 +742,53 @@ class ProjectTab(QWidget):
         pop.end_scroll()
         pop.separator()
         pop.item("+ Dự án mới…", "Tạo dự án trống với một chương", self.new_project)
+        pop.separator()
+        pop.section("Dự án đang mở")
+        pop.item("Xoá dự án…", "Chuyển vào thùng rác, khôi phục được", self.delete_project, enabled=bool(self.project), danger=True)
+        n_trash = len(trash.list_trashed_projects())
+        pop.item("Dự án đã xoá…", f"{n_trash} dự án trong thùng rác" if n_trash else "Thùng rác dự án đang trống",
+                 self.restore_projects_dialog, enabled=n_trash > 0)
+
+    def delete_project(self):
+        """Xoá cả dự án: chuyển nguyên thư mục (chương, scene, clip, giọng, nhân vật) vào thùng rác dự án, khôi phục được."""
+        p = self.project
+        if not p:
+            return
+        if self._busy:
+            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong (hoặc bấm Dừng) rồi xoá dự án.")
+            return
+        scenes = sum(len(c.scenes) for c in p.chapters)
+        files, size = trash.dir_size(p.dir)
+        nchars = len(self.chars_tab.chars)
+        box = QMessageBox(self)
+        box.setWindowTitle("Xoá dự án")
+        box.setIcon(QMessageBox.Warning)
+        box.setText(f"Xoá dự án '{p.name}'?")
+        box.setInformativeText(
+            f"{len(p.chapters)} chương · {scenes} scene · {nchars} nhân vật · {files} file ({size / 1_048_576:.0f} MB) "
+            "sẽ được chuyển vào thùng rác dự án. Bạn khôi phục được bằng mục “Dự án đã xoá…”.\n\n"
+            "Dự án tương ứng trên Google Flow (nếu có) không bị xoá.")
+        b_del = box.addButton("Xoá dự án", QMessageBox.DestructiveRole)
+        b_cancel = box.addButton("Huỷ", QMessageBox.RejectRole)
+        box.setDefaultButton(b_cancel)          # Enter = Huỷ, tránh lỡ tay xoá
+        box.exec()
+        if box.clickedButton() is not b_del:
+            return
+        name = p.name
+        try:
+            trash.trash_project(name)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không xoá được", str(e))
+            return
+        self.log(f"Đã xoá dự án '{name}' (nằm trong thùng rác dự án, khôi phục bằng “Dự án đã xoá…”).")
+        self.reload_projects()
+
+    def restore_projects_dialog(self):
+        from .trash_dialog import TrashedProjectsDialog
+        dlg = TrashedProjectsDialog(self)
+        if dlg.exec() == QDialog.Accepted and dlg.restored:
+            self.log(f"Đã khôi phục dự án '{dlg.restored}'.")
+            self.reload_projects(dlg.restored)
 
     def build_chapter_pop(self, pop):
         p = self.project

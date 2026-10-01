@@ -20,7 +20,7 @@
 - **Tự động hoá Google Flow.** Điều khiển Chrome của chính bạn: tạo hoặc dùng lại dự án Flow, tải ảnh nhân vật, tạo clip, tải bản gốc về. Đồng bộ lại các clip đã render mà không tốn thêm credit.
 - **Một giọng đọc xuyên suốt.** Edge TTS (miễn phí) hoặc Gemini TTS, giọng được lưu bộ nhớ đệm và khớp độ dài với clip.
 - **Gen song song:** gửi nhiều scene lên Flow cùng một lượt (*Cài đặt dự án → Google Flow → Số scene gửi cùng lúc*) rồi thu clip về, đỡ chờ từng scene. Credit không đổi.
-- **Quản lý theo cấu trúc** Dự án → Chương → Scene → Video: chọn một, nhiều hoặc tất cả scene để tạo; xoá scene, xoá video, xoá chương; gộp scene thông minh; thùng rác để khôi phục.
+- **Quản lý theo cấu trúc** Dự án → Chương → Scene → Video: chọn một, nhiều hoặc tất cả scene để tạo; xoá scene, xoá video, xoá chương, **xoá cả dự án**; gộp scene thông minh; thùng rác để khôi phục (xoá dự án rồi vẫn khôi phục được ở mục *Dự án đã xoá…*).
 - **Tiết kiệm.** Ước tính credit trước khi tạo, chọn độ dài clip theo thuyết minh, chỉ gửi những nhân vật có trong chương cho AI.
 - **Chọn khổ video:** 9:16 dọc, 16:9 ngang, hoặc **Theo Flow** (giữ nguyên khổ đang chọn trong Flow). Đổi trong *Cài đặt dự án → Hình ảnh & video*.
 - **Giao diện sáng và tối**, tự theo hệ điều hành. Chạy trên macOS và Windows.
