@@ -47,11 +47,20 @@ def resource_path(rel: str) -> Path:
     return base / rel
 
 
+def _saved_data_dir() -> str:
+    from PySide6.QtCore import QSettings
+    return str(QSettings("veo-story-studio", "veo-story-studio").value("data_dir", "") or "")
+
+
 def _data_dir() -> Path:
-    """Nơi lưu dự án/nhân vật/profile Chrome. Dev: ./data. Bản đóng gói: thư mục dữ liệu người dùng (không nằm trong gói app,
-    nếu không sẽ mất khi cập nhật). Đặt biến môi trường VEO_DATA_DIR để chọn thư mục khác."""
+    """Nơi lưu dự án/nhân vật/profile Chrome. Thứ tự ưu tiên: biến môi trường VEO_DATA_DIR > thư mục người dùng đã chọn
+    (Cài đặt → Dữ liệu) > mặc định. Mặc định khi dev: ./data. Bản đóng gói: thư mục dữ liệu người dùng của hệ điều hành,
+    NẰM NGOÀI gói app nên build/cập nhật app không bao giờ làm mất dữ liệu."""
     if os.environ.get("VEO_DATA_DIR"):
         return Path(os.environ["VEO_DATA_DIR"]).expanduser()
+    saved = _saved_data_dir()
+    if saved and Path(saved).is_dir():
+        return Path(saved)
     if not FROZEN:
         return Path(__file__).resolve().parent.parent / "data"
     if sys.platform == "darwin":
@@ -59,6 +68,37 @@ def _data_dir() -> Path:
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+
+
+def has_projects(data_dir: Path) -> bool:
+    return any((Path(data_dir) / "projects").glob("*/project.json"))
+
+
+def set_data_dir(path: Path) -> None:
+    """Lưu lựa chọn thư mục dữ liệu và cập nhật các đường dẫn đang dùng (cửa sổ đang mở cần khởi động lại để nạp lại)."""
+    from PySide6.QtCore import QSettings
+    global DATA_DIR, PROJ_DIR
+    QSettings("veo-story-studio", "veo-story-studio").setValue("data_dir", str(path))
+    DATA_DIR = Path(path)
+    PROJ_DIR = DATA_DIR / "projects"
+    fa = sys.modules.get("app.flow_auto")
+    if fa is not None:
+        fa.PROFILE_DIR = DATA_DIR / "flow_profile"
+
+
+def remember_dev_data_dir() -> None:
+    """Chạy từ mã nguồn thì ghi nhớ thư mục data đang dùng, để bản đóng gói lần đầu mở có thể đề nghị dùng lại."""
+    if FROZEN:
+        return
+    from PySide6.QtCore import QSettings
+    QSettings("veo-story-studio", "veo-story-studio").setValue("dev_data_dir", str(DATA_DIR))
+
+
+def legacy_data_dir() -> Path | None:
+    """Thư mục data của bản chạy từ mã nguồn (nếu còn và có dự án) mà bản đóng gói chưa dùng."""
+    from PySide6.QtCore import QSettings
+    v = str(QSettings("veo-story-studio", "veo-story-studio").value("dev_data_dir", "") or "")
+    return Path(v) if v and Path(v) != DATA_DIR and has_projects(Path(v)) else None
 
 
 DATA_DIR = _data_dir()

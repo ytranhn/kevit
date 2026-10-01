@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from . import theme, characters_pack, flow_auto, llm, models, settings, trash
+from . import theme, characters_pack, flow, flow_auto, llm, models, settings, trash
 from .models import Character
 from .project_tab import ProjectTab
 from .pack_guide import PackGuideDialog, confirm_text
@@ -349,6 +349,23 @@ class SettingsTab(QWidget):
         gem_card = self._card("Gemini API", "Dùng khi chọn Gemini làm mô hình, hoặc khi gen video và giọng trực tiếp qua API.")
         gem_card.layout().addWidget(self._field("API key", "Lấy từ Google AI Studio.", self.gemini_key))
 
+        # --- thẻ 3: nơi lưu dữ liệu ---
+        data_card = self._card("Dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
+                                          "cập nhật hay build lại app không làm mất.")
+        self.data_path = QLabel(str(models.DATA_DIR))
+        self.data_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.data_path.setWordWrap(True)
+        self.data_path.setProperty("mono", True)
+        b_change, b_open = QPushButton("Đổi thư mục…"), QPushButton("Mở thư mục")
+        b_change.clicked.connect(self.change_data_dir)
+        b_open.clicked.connect(lambda: (models.DATA_DIR.mkdir(parents=True, exist_ok=True), flow.reveal(models.DATA_DIR)))
+        data_card.layout().addWidget(self.data_path)
+        drow = QHBoxLayout()
+        drow.addStretch()
+        drow.addWidget(b_open)
+        drow.addWidget(b_change)
+        data_card.layout().addLayout(drow)
+
         head = QLabel("Cài đặt")
         head.setProperty("heading", True)
         sub = QLabel("Cấu hình dùng chung cho mọi dự án.")
@@ -359,6 +376,7 @@ class SettingsTab(QWidget):
         col.addWidget(sub)
         col.addWidget(llm_card)
         col.addWidget(gem_card)
+        col.addWidget(data_card)
         col.addStretch()
         holder = QWidget()
         holder.setMaximumWidth(680)
@@ -380,6 +398,19 @@ class SettingsTab(QWidget):
         self.provider.currentIndexChanged.connect(self.refresh)
         self.refresh()
         self.worker = None
+
+    def change_data_dir(self):
+        start = str(models.DATA_DIR if models.DATA_DIR.exists() else Path.home())
+        f = QFileDialog.getExistingDirectory(self, "Chọn thư mục dữ liệu (thư mục chứa “projects”)", start)
+        if not f or Path(f) == models.DATA_DIR:
+            return
+        has = models.has_projects(Path(f))
+        models.set_data_dir(Path(f))
+        self.data_path.setText(str(models.DATA_DIR))
+        QMessageBox.information(
+            self, "Đã đổi thư mục dữ liệu",
+            ("Tìm thấy dự án trong thư mục này. " if has else "Thư mục này chưa có dự án nào (sẽ tạo mới khi bạn tạo dự án). ")
+            + "\n\nHãy đóng và mở lại ứng dụng để áp dụng. Dữ liệu ở thư mục cũ không bị xoá hay di chuyển.")
 
     # ---- khối dựng nhỏ ----
     @staticmethod
@@ -599,6 +630,15 @@ def main():
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))   # cửa sổ, Dock (macOS), thanh tác vụ (Windows)
     theme.install(app)
+    models.remember_dev_data_dir()
+    if models.FROZEN and not models.has_projects(models.DATA_DIR):
+        old = models.legacy_data_dir()
+        if old and QMessageBox.question(
+                None, "Tìm thấy dữ liệu cũ",
+                f"Tìm thấy {len(list((old / 'projects').glob('*/project.json')))} dự án đã tạo trước đó tại:\n{old}\n\n"
+                "Dùng thư mục này làm nơi lưu dữ liệu? Dữ liệu giữ nguyên tại chỗ (không sao chép), đăng nhập Flow cũng dùng tiếp, "
+                "và các lần cập nhật app sau này vẫn dùng đúng thư mục này.") == QMessageBox.Yes:
+            models.set_data_dir(old)
     w = MainWindow()
     w.show()
     sys.exit(app.exec())

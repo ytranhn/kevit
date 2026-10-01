@@ -74,7 +74,12 @@ Thư mục chứa `character_index.csv` (UTF-8, cột `No`, `Tên`, `Tên Trung`
 
 ## Dữ liệu và bảo mật
 
-- Chạy từ mã nguồn: dữ liệu ở `data/` (đã nằm trong `.gitignore`). Bản đóng gói: `~/Library/Application Support/Veo Story Studio` (macOS) hoặc `%APPDATA%\Veo Story Studio` (Windows). Đặt biến `VEO_DATA_DIR` để dùng thư mục khác.
+- **Dữ liệu nằm ngoài ứng dụng**, nên build lại hay cập nhật app **không làm mất** dự án, nhân vật, clip hay đăng nhập Flow.
+  Chạy từ mã nguồn: `data/` (đã nằm trong `.gitignore`). Bản đóng gói: `~/Library/Application Support/Veo Story Studio` (macOS)
+  hoặc `%APPDATA%\Veo Story Studio` (Windows).
+- **Dùng lại dữ liệu cũ trong bản đóng gói:** lần đầu mở, nếu thấy dữ liệu của bản chạy từ mã nguồn, app hỏi có dùng thư mục đó
+  không (không sao chép). Hoặc vào *Cài đặt → Dữ liệu → Đổi thư mục…* và chọn thư mục chứa `projects`. Đặt biến `VEO_DATA_DIR`
+  nếu muốn ép một thư mục khác.
 - Key API lưu cục bộ trên máy bạn (QSettings), không nằm trong mã nguồn hay bản build.
 - ffmpeg lấy từ gói `imageio-ffmpeg`, không cần cài riêng.
 
