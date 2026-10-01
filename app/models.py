@@ -156,6 +156,10 @@ class Chapter:
     def name(self) -> str:
         return self.title or f"Chương {int(self.id)}"
 
+    @property
+    def done(self) -> int:
+        return sum(1 for s in self.scenes if s.status == "done")
+
 
 @dataclass
 class Project:
