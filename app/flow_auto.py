@@ -44,10 +44,18 @@ class FlowError(RuntimeError):
     pass
 
 
-def _cdp_up() -> bool:
-    """Chrome Flow có đang mở cổng gỡ lỗi không. CHẶN tới 2s nếu Chrome treo: chỉ gọi ở luồng nền; giao diện dùng cdp_state()."""
+def use_account(acc) -> None:
+    """Chuyển mọi thao tác Flow sang tài khoản `acc` (accounts.Account): cổng debug và hồ sơ Chrome riêng của nó."""
+    global PROFILE_DIR
+    S.CDP_URL = acc.cdp_url
+    PROFILE_DIR = acc.profile_dir
+    _cdp_cache.update(up=False, t=0.0)                # trạng thái Chrome của tài khoản trước không còn đúng
+
+
+def _cdp_up(url: str | None = None) -> bool:
+    """Chrome Flow có đang mở cổng gỡ lỗi không (mặc định: tài khoản đang dùng). CHẶN tới 2s nếu Chrome treo: chỉ gọi ở luồng nền; giao diện dùng cdp_state()."""
     try:
-        urllib.request.urlopen(S.CDP_URL + "/json/version", timeout=2)
+        urllib.request.urlopen((url or S.CDP_URL) + "/json/version", timeout=2)
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -85,9 +93,10 @@ def _chrome_exe() -> str | None:
     return next(filter(None, (shutil.which(n) for n in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"))), None)
 
 
-def chrome_command() -> list[str]:
-    """Lệnh mở Chrome BÌNH THƯỜNG (không qua Playwright) với profile riêng + cổng debug."""
-    flags = [f"--remote-debugging-port={S.CDP_URL.rsplit(':', 1)[-1]}", f"--user-data-dir={PROFILE_DIR}",
+def chrome_command(acc=None) -> list[str]:
+    """Lệnh mở Chrome BÌNH THƯỜNG (không qua Playwright) với profile riêng + cổng debug (của `acc`, mặc định tài khoản đang dùng)."""
+    port = acc.port if acc else S.CDP_URL.rsplit(":", 1)[-1]
+    flags = [f"--remote-debugging-port={port}", f"--user-data-dir={acc.profile_dir if acc else PROFILE_DIR}",
              "--no-first-run", FLOW_URL]
     if sys.platform == "darwin":
         return ["open", "-na", "Google Chrome", "--args", *flags]
@@ -123,16 +132,20 @@ def seed_download_prefs(profile: Path | None = None) -> bool:
         return False
 
 
-def launch_chrome() -> None:
-    if not _cdp_up():
-        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        seed_download_prefs()
-        subprocess.Popen(chrome_command())
+def launch_chrome(acc=None) -> None:
+    """Mở Chrome Flow của tài khoản `acc` (mặc định: tài khoản đang dùng) nếu chưa mở; chờ tới khi cổng debug sẵn sàng."""
+    url = acc.cdp_url if acc else S.CDP_URL
+    prof = Path(acc.profile_dir) if acc else PROFILE_DIR
+    if not _cdp_up(url):
+        prof.mkdir(parents=True, exist_ok=True)
+        seed_download_prefs(prof)
+        subprocess.Popen(chrome_command(acc))
         for _ in range(20):
-            if _cdp_up():
+            if _cdp_up(url):
                 return
             time.sleep(1)
-        raise FlowError("Không mở được Chrome (cổng 9222). Nếu Chrome đang mở sẵn, hãy đóng hết cửa sổ Chrome rồi bấm lại.")
+        raise FlowError(f"Không mở được Chrome (cổng {url.rsplit(':', 1)[-1]}). Nếu Chrome đang mở sẵn bằng hồ sơ khác, "
+                        "hãy đóng hết cửa sổ Chrome của tool rồi bấm lại.")
 
 
 class FlowAuto:

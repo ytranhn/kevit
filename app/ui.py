@@ -9,13 +9,14 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from . import theme, characters_pack, flow, flow_auto, llm, models, settings, trash
+from . import accounts, theme, characters_pack, flow, flow_auto, llm, models, settings, trash
+from .accounts_ui import AccountsPanel
 from .models import Character
 from .project_tab import ProjectTab
 from .pack_guide import PackGuideDialog, confirm_text
 from .welcome import Welcome
 from .theme import SP
-from .widgets import Segmented, StatusStrip, avatar, repolish, rounded_pixmap
+from .widgets import Popover, Segmented, StatusStrip, avatar, repolish, rounded_pixmap
 from .workers import Worker
 
 
@@ -416,6 +417,11 @@ class SettingsTab(QWidget):
                                                 "hoặc gemini-3.1-flash-image (giá khác nhau theo bảng giá Gemini API).", self.image_model))
 
         # --- thẻ 3: nơi lưu dữ liệu ---
+        acc_card = self._card("Tài khoản Google Flow", "")
+        self.accounts_panel = AccountsPanel()
+        acc_card.layout().addWidget(self.accounts_panel)
+        self.accounts_changed = self.accounts_panel.changed
+
         data_card = self._card("Dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
                                           "cập nhật hay build lại app không làm mất.")
         self.data_path = QLabel(str(models.DATA_DIR))
@@ -442,6 +448,7 @@ class SettingsTab(QWidget):
         col.addWidget(sub)
         col.addWidget(llm_card)
         col.addWidget(gem_card)
+        col.addWidget(acc_card)
         col.addWidget(data_card)
         col.addStretch()
         holder = QWidget()
@@ -583,6 +590,8 @@ class MainWindow(QMainWindow):
         chars.chars_changed.connect(proj.d_chars.refresh)     # nối TRƯỚC khi nạp để chip luôn được vẽ lại với ảnh
         chars.set_project(proj.combo.currentText())
         self.settings_tab = SettingsTab()
+        self.settings_tab.accounts_changed.connect(proj.on_accounts_changed)
+        proj.account_changed.connect(lambda *_: (self.refresh_chips(), self.settings_tab.accounts_panel.refresh()))
         proj.welcome = Welcome(proj, lambda: tabs.setCurrentWidget(self.settings_tab), proj.new_project, proj.launch_flow_chrome)
         proj.update_welcome()
         tabs.addTab(proj, "Dự án")
@@ -667,18 +676,34 @@ class MainWindow(QMainWindow):
         ok, _ = llm.is_configured()
         self.strip.set_chip("llm", f"LLM · {llm.short_name()}" if ok else "LLM · chưa cấu hình", ok)
         up = flow_auto.cdp_state()
-        self.strip.set_chip("flow", "Flow ● sẵn sàng" if up else "Flow ○ chưa mở Chrome", up)
+        accs = accounts.all_accounts()
+        who = f" · {accounts.active().name}" if len(accs) > 1 else ""         # chỉ nêu tên tài khoản khi có nhiều hơn một
+        self.strip.set_chip("flow", f"Flow{who} ● sẵn sàng" if up else f"Flow{who} ○ chưa mở Chrome", up)
         voice = self.proj.project.voice.split("-")[-1].replace("Neural", "") if self.proj.project else "—"
         self.strip.set_chip("voice", f"Giọng · {voice}", True)
         if self.proj.welcome.isVisible():
             self.proj.welcome.refresh()
 
+    def build_flow_pop(self, pop):
+        """Chip Flow: chọn tài khoản Flow cho DỰ ÁN đang mở, mở Chrome của tài khoản đó, hoặc vào quản lý tài khoản."""
+        cur = accounts.active().id
+        pop.section("Tài khoản Flow của dự án" if self.proj.project else "Tài khoản Flow")
+        for a in accounts.all_accounts():
+            pop.item(a.name, f"Cổng {a.port}" + ("  ·  mặc định cho dự án mới" if a.id == accounts.default_new_id() else ""),
+                     (lambda i=a.id: self.proj.set_account(i)), shortcut="✓" if a.id == cur else "", enabled=bool(self.proj.project))
+        pop.separator()
+        if not flow_auto.cdp_state(0):
+            pop.item("Mở Chrome cho tài khoản này", "Đăng nhập Google Flow một lần trong cửa sổ đó", self.proj.launch_flow_chrome)
+        pop.item("Quản lý tài khoản…", "Thêm, đổi tên, gỡ, mở Chrome để đăng nhập",
+                 lambda: self.tabs.setCurrentWidget(self.settings_tab))
+
     def on_chip(self, key: str):
         if key == "llm":
             self.tabs.setCurrentWidget(self.settings_tab)
         elif key == "flow":
-            if not flow_auto.cdp_state(0):
-                self.proj.launch_flow_chrome()
+            if not hasattr(self, "flow_pop"):
+                self.flow_pop = Popover(self, self.build_flow_pop, 360)
+            self.flow_pop.show_for(self.strip.chips["flow"], "above", "right")
         elif key == "voice":
             self.tabs.setCurrentWidget(self.proj)
             self.proj.open_settings()

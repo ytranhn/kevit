@@ -66,6 +66,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 
 **Tạo clip trên Google Flow**
 - **Tự động hoá qua Chrome của chính bạn.** Mỗi chương một project Flow riêng (đặt tên «Dự án · Chương»), tải ảnh nhân vật, tạo clip, tải bản gốc về.
+- **Nhiều tài khoản Google Flow.** Mỗi tài khoản có cửa sổ Chrome, đăng nhập và credit riêng (mở song song được); mỗi dự án gắn một tài khoản, đổi nhanh ở chip Flow dưới cùng hoặc trong Cài đặt dự án.
 - **Gen song song.** Gửi nhiều scene một lượt rồi thu clip về, credit không đổi.
 - **Đồng bộ Flow.** Lấy lại clip đã render mà app chưa tải, không tốn credit.
 - **Chọn khổ video:** 9:16 dọc, 16:9 ngang, hoặc **Theo Flow**.
@@ -170,6 +171,15 @@ Chọn nơi tạo ảnh tham chiếu ở hộp thoại:
 - **Google Flow (Nano Banana)** (mặc định): dùng chính tài khoản Flow đã đăng nhập, ảnh nằm trong dự án Flow của bạn, thường **0 tín dụng**, không cần key riêng.
 - **Gemini API:** cần key đã bật thanh toán (gói miễn phí không có hạn mức tạo ảnh). Model chọn ở Cài đặt.
 - Hoặc **Copy prompt ảnh** để tạo bằng công cụ khác rồi gắn ảnh vào nhân vật.
+
+</details>
+
+<details>
+<summary><b>Nhiều tài khoản Google Flow</b></summary>
+
+*Cài đặt → Tài khoản Google Flow* quản lý danh sách tài khoản: thêm, đổi tên, gỡ, đặt tài khoản mặc định cho dự án mới, và **Mở Chrome để đăng nhập** (đăng nhập Google một lần cho từng tài khoản). Mỗi tài khoản dùng một hồ sơ Chrome và một cổng debug riêng (tài khoản chính giữ hồ sơ cũ nên không phải đăng nhập lại).
+
+Mỗi dự án gắn một tài khoản: chọn ở chip **Flow** (thanh dưới cùng) hoặc *Cài đặt dự án → Google Flow → Tài khoản Flow*. Project Flow là của riêng từng tài khoản, nên khi đổi tài khoản, mỗi chương sẽ gen vào project mới trên tài khoản đó; địa chỉ project của tài khoản cũ được cất lại và nạp lại khi bạn đổi về. Clip đã tải về máy không bị ảnh hưởng. Gỡ một tài khoản thì các dự án đang dùng nó chuyển về tài khoản chính.
 
 </details>
 
