@@ -1,5 +1,8 @@
 """Vẽ logo ứng dụng (tam giác phát + sóng giọng đọc trên nền chàm) và xuất assets/icon.{png,ico,icns}.
 Chạy lại khi muốn đổi thiết kế: .venv/bin/python tools/make_icon.py"""
+import sys as _sys
+_sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # console Windows (cp1252) không in được tiếng Việt
+
 import os
 import shutil
 import subprocess

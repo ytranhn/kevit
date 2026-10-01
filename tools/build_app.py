@@ -3,6 +3,9 @@
   Windows: dist/Veo Story Studio/Veo Story Studio.exe  (+ .zip)
 Phải build trên đúng hệ điều hành đích (PyInstaller không build chéo).
 Chạy:  .venv/bin/python tools/build_app.py        (Windows: .venv\\Scripts\\python tools\\build_app.py)"""
+import sys as _sys
+_sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # console Windows (cp1252) không in được tiếng Việt
+
 import shutil
 import subprocess
 import sys

@@ -1,5 +1,8 @@
 """Tạo "Veo Story Studio.app" (macOS) để Dock/Launchpad hiện đúng tên + biểu tượng thay vì "Python".
 Chạy: .venv/bin/python tools/make_mac_app.py   -> tạo ./Veo Story Studio.app (kéo vào Dock hoặc Applications)."""
+import sys as _sys
+_sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # console Windows (cp1252) không in được tiếng Việt
+
 import json
 import plistlib
 import shutil
