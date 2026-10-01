@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QGridLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 from . import accounts, flow_auto, icons
 from .theme import SP
@@ -40,23 +40,26 @@ class AccountsPanel(QWidget):
         self.msg = QLabel("")
         self.msg.setProperty("caption", True)
         self.msg.setWordWrap(True)
-        r1, r2 = QHBoxLayout(), QHBoxLayout()
-        r1.addWidget(self.b_add)
-        r1.addWidget(self.b_open)
-        r1.addStretch()
-        r2.addWidget(self.b_rename)
-        r2.addWidget(self.b_default)
-        r2.addStretch()
-        r2.addWidget(self.b_remove)
-        for r in (r1, r2):
-            r.setSpacing(SP.s)
+        # lưới 3 cột đều nhau, mọi nút cùng chiều cao: hàng 1 = Thêm | Mở Chrome (rộng 2 cột); hàng 2 = Đổi tên | Mặc định | Gỡ
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(SP.s)
+        grid.setVerticalSpacing(SP.s)
+        for col in range(3):
+            grid.setColumnStretch(col, 1)
+        for b in (self.b_add, self.b_open, self.b_rename, self.b_default, self.b_remove):
+            b.setFixedHeight(36)
+        grid.addWidget(self.b_add, 0, 0)
+        grid.addWidget(self.b_open, 0, 1, 1, 2)
+        grid.addWidget(self.b_rename, 1, 0)
+        grid.addWidget(self.b_default, 1, 1)
+        grid.addWidget(self.b_remove, 1, 2)
+        self.grid = grid
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(SP.m)
         v.addWidget(self.note)
         v.addWidget(self.list)
-        v.addLayout(r1)
-        v.addLayout(r2)
+        v.addLayout(grid)
         v.addWidget(self.msg)
         self.b_add.clicked.connect(self.add)
         self.b_open.clicked.connect(self.open_chrome)

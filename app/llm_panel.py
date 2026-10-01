@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                                QVBoxLayout, QWidget)
 
 from . import icons, llm, settings
@@ -83,7 +83,7 @@ class LLMPanel(QWidget):
         self.list = QListWidget()
         self.list.setFixedHeight(190)
         self.list.setSpacing(2)
-        self.b_add = QPushButton("Thêm mô hình")
+        self.b_add = QPushButton("Thêm")
         icons.attach(self.b_add, "plus", 18)
         self.add_menu = QMenu(self.b_add)
         for label, kind, base, model in settings.LLM_PRESETS:
@@ -92,20 +92,20 @@ class LLMPanel(QWidget):
         self.b_dup = QPushButton("Nhân bản")
         self.b_del = QPushButton("Xoá")
         self.b_del.setProperty("danger", True)
-        self.b_use = QPushButton("Dùng mô hình này")
+        self.b_use = QPushButton("Dùng mô hình")
         self.b_use.setProperty("primary", True)
         self.list_card = card("Mô hình AI", "Các mô hình dùng để tách scene, viết lại thuyết minh, dịch và tạo nhân vật. Thêm bao nhiêu tuỳ ý "
                               "(Claude, Gemini, OpenAI và các dịch vụ tương thích), chọn một cái đang dùng; đổi nhanh ở chip LLM dưới cùng.")
         lv = self.list_card.layout()
         lv.addWidget(self.list)
-        r = QHBoxLayout()
-        r.setSpacing(SP.s)
-        r.addWidget(self.b_add)
-        r.addWidget(self.b_dup)
-        r.addWidget(self.b_del)
-        r.addStretch()
-        r.addWidget(self.b_use)
-        lv.addLayout(r)
+        grid = QGridLayout()                       # 4 cột đều nhau, mọi nút cùng cao, thẳng hàng
+        grid.setHorizontalSpacing(SP.s)
+        for col in range(4):
+            grid.setColumnStretch(col, 1)
+        for col, b in enumerate((self.b_add, self.b_dup, self.b_del, self.b_use)):
+            b.setFixedHeight(36)
+            grid.addWidget(b, 0, col)
+        lv.addLayout(grid)
 
         # ---- thẻ chỉnh sửa ----
         self.name = QLineEdit()
