@@ -105,6 +105,9 @@ QPushButton[popitem="true"][popprog="true"] { min-height: 66px; }
 QProgressBar[popbar="true"] { background: $surface2; border-radius: 2px; max-height: 4px; min-height: 4px; }
 QProgressBar[popbar="true"]::chunk { background: $accent; border-radius: 2px; }
 QPushButton[popitem="true"]:hover { background: $surface2; }
+QPushButton[popaction="true"] { border: none; background: transparent; color: $faint; padding: 3px 8px; min-height: 18px;
+    font-size: 12px; border-radius: 7px; }
+QPushButton[popaction="true"]:hover { background: $err_tint; color: $err; }
 QPushButton[popitem="true"]:disabled { background: transparent; }
 QLabel[popsection="true"] { color: $faint; font-size: 11px; font-weight: 600; padding: 12px 12px 4px 12px; }
 QFrame[popsep="true"] { background: $border; max-height: 1px; border: none; margin: 4px 8px; }

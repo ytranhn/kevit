@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from . import credits, flow, flow_auto, flow_selectors, llm, pipeline, scene_ops, scene_planner, trash, tts, veo_client
 from .merger import merge
+from . import models
 from .models import Project, nfc, safe_dirname
 from . import theme
 from .theme import SP
@@ -738,32 +739,38 @@ class ProjectTab(QWidget):
             nch, done, total = Project.summary(name)
             sub = f"{nch} chương  ·  {done}/{total} scene xong" if total else f"{nch} chương  ·  chưa có scene"
             pop.item(name, sub, (lambda n=name: self.switch_project(n)), shortcut="✓" if name == cur else "",
-                     progress=(done, total))
+                     progress=(done, total), action=("Xoá", (lambda n=name: self.delete_project(n))))
         pop.end_scroll()
         pop.separator()
         pop.item("+ Dự án mới…", "Tạo dự án trống với một chương", self.new_project)
         pop.separator()
-        pop.section("Dự án đang mở")
-        pop.item("Xoá dự án…", "Chuyển vào thùng rác, khôi phục được", self.delete_project, enabled=bool(self.project), danger=True)
         n_trash = len(trash.list_trashed_projects())
         pop.item("Dự án đã xoá…", f"{n_trash} dự án trong thùng rác" if n_trash else "Thùng rác dự án đang trống",
                  self.restore_projects_dialog, enabled=n_trash > 0)
 
-    def delete_project(self):
-        """Xoá cả dự án: chuyển nguyên thư mục (chương, scene, clip, giọng, nhân vật) vào thùng rác dự án, khôi phục được."""
-        p = self.project
-        if not p:
+    def delete_project(self, name: str | None = None):
+        """Xoá một dự án (mặc định là dự án đang mở): chuyển nguyên thư mục (chương, scene, clip, giọng, nhân vật) vào thùng rác
+        dự án, khôi phục được. Xoá thẳng từ danh sách, không cần chuyển sang dự án đó trước."""
+        cur = self.combo.currentText()
+        name = name or cur
+        if not name:
             return
-        if self._busy:
-            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong (hoặc bấm Dừng) rồi xoá dự án.")
+        is_open = bool(self.project) and name == cur
+        if is_open and self._busy:
+            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong (hoặc bấm Dừng) rồi xoá dự án đang mở.")
+            return
+        try:
+            p = self.project if is_open else Project.load(name)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không đọc được dự án", str(e))
             return
         scenes = sum(len(c.scenes) for c in p.chapters)
         files, size = trash.dir_size(p.dir)
-        nchars = len(self.chars_tab.chars)
+        nchars = len(models.load_characters(name))
         box = QMessageBox(self)
         box.setWindowTitle("Xoá dự án")
         box.setIcon(QMessageBox.Warning)
-        box.setText(f"Xoá dự án '{p.name}'?")
+        box.setText(f"Xoá dự án '{name}'?")
         box.setInformativeText(
             f"{len(p.chapters)} chương · {scenes} scene · {nchars} nhân vật · {files} file ({size / 1_048_576:.0f} MB) "
             "sẽ được chuyển vào thùng rác dự án. Bạn khôi phục được bằng mục “Dự án đã xoá…”.\n\n"
@@ -774,14 +781,21 @@ class ProjectTab(QWidget):
         box.exec()
         if box.clickedButton() is not b_del:
             return
-        name = p.name
         try:
             trash.trash_project(name)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Không xoá được", str(e))
             return
         self.log(f"Đã xoá dự án '{name}' (nằm trong thùng rác dự án, khôi phục bằng “Dự án đã xoá…”).")
-        self.reload_projects()
+        if is_open:
+            self.reload_projects()
+        else:                                   # xoá dự án khác: giữ nguyên dự án đang mở, chỉ làm mới danh sách
+            self.combo.blockSignals(True)
+            self.combo.clear()
+            self.combo.addItems(Project.list_names())
+            self.combo.setCurrentText(cur)
+            self.combo.blockSignals(False)
+            self.refresh_nav()
 
     def restore_projects_dialog(self):
         from .trash_dialog import TrashedProjectsDialog

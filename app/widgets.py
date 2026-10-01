@@ -394,8 +394,9 @@ class Segmented(QFrame):
 class PopItem(QPushButton):
     """Một dòng hành động: tiêu đề + mô tả phụ (tuỳ chọn) + phím tắt; mục nguy hiểm tô đỏ."""
 
-    def __init__(self, title: str, sub: str = "", danger: bool = False, shortcut: str = "", progress=None):
+    def __init__(self, title: str, sub: str = "", danger: bool = False, shortcut: str = "", progress=None, action: str = ""):
         super().__init__()
+        self.action_btn = None
         self.setProperty("popitem", True)
         self.setCursor(Qt.PointingHandCursor)
         if sub:
@@ -425,11 +426,19 @@ class PopItem(QPushButton):
             bar.setAttribute(Qt.WA_TransparentForMouseEvents)
             col.addWidget(bar)
         row.addLayout(col, 1)
-        if shortcut:
+        if shortcut or action:
             k = QLabel(shortcut)
             k.setProperty("caption", True)
             k.setAttribute(Qt.WA_TransparentForMouseEvents)
+            if action:
+                k.setFixedWidth(16)             # chừa chỗ cố định cho dấu ✓ để các dòng thẳng hàng
+                k.setAlignment(Qt.AlignCenter)
             row.addWidget(k)
+        if action:                                  # nút hành động riêng ngay trên dòng (vd. "Xoá"), không phải chọn dòng trước
+            self.action_btn = QPushButton(action)
+            self.action_btn.setProperty("popaction", True)
+            self.action_btn.setCursor(Qt.PointingHandCursor)
+            row.addWidget(self.action_btn, 0, Qt.AlignVCenter)
 
 
 class Popover(QFrame):
@@ -477,10 +486,13 @@ class Popover(QFrame):
         self.body.addWidget(sep)
 
     def item(self, title: str, sub: str = "", cb=None, enabled: bool = True, danger: bool = False, shortcut: str = "",
-             progress=None) -> None:
-        b = PopItem(title, sub, danger, shortcut, progress)
+             progress=None, action: tuple | None = None) -> None:
+        """action=("Xoá", callback): thêm nút nhỏ bên phải dòng, bấm là chạy callback ngay mà không kích hoạt dòng."""
+        b = PopItem(title, sub, danger, shortcut, progress, action[0] if action else "")
         b.setEnabled(enabled)
         b.clicked.connect(lambda: self._fire(cb))
+        if action:
+            b.action_btn.clicked.connect(lambda: self._fire(action[1]))
         self._targets[-1].addWidget(b)
 
     def widget(self, w: QWidget) -> None:
