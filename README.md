@@ -176,7 +176,7 @@ Chọn nơi tạo ảnh tham chiếu ở hộp thoại:
 <details>
 <summary><b>Project Google Flow theo chương</b></summary>
 
-Mỗi chương gen trên một project Flow riêng, tên «Tên dự án · Tên chương», để Flow không phải lọc quá nhiều clip và việc đối soát nhanh hơn. Chương đã gen từ bản cũ vẫn giữ project cũ của dự án, nên lịch sử clip không bị tách đôi. Ảnh nhân vật dùng project chung của dự án. Nút **Đồng bộ Flow** đối soát lần lượt từng chương trên project của chương đó.
+Mỗi chương gen trên một project Flow riêng, tên «Tên dự án · Tên chương», để Flow không phải lọc quá nhiều clip và việc đối soát nhanh hơn; chương nào cũng vậy, kể cả chương đã gen từ bản cũ. Clip cũ nằm trong project chung của dự án vẫn được **Đồng bộ Flow** tìm lại. Ảnh nhân vật dùng project chung của dự án.
 
 </details>
 
