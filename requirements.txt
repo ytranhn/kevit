@@ -1,0 +1,7 @@
+PySide6>=6.8
+google-genai>=1.30
+imageio-ffmpeg>=0.5
+edge-tts>=7.0
+playwright>=1.48
+anthropic>=0.40
+pyinstaller>=6.10   # chỉ cần khi đóng gói app

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+data/
+.env
+Veo Story Studio.app/
+build/
+dist/
+*.spec
+.DS_Store

@@ -1,0 +1,232 @@
+"""Data models + JSON persistence. Mọi dữ liệu nằm trong data/ (gitignored)."""
+from __future__ import annotations
+
+import json
+import sys
+import os
+import re
+import shutil
+import unicodedata
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+def safe_dirname(name: str) -> str:
+    """Tên thư mục hợp lệ trên mọi hệ điều hành (Windows cấm < > : " / \\ | ? * và dấu chấm/cách ở cuối)."""
+    out = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", nfc(name).strip()).rstrip(" .")
+    if out.upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}:
+        out += "_"
+    return out or "du-an"
+
+
+def nfc(s: str) -> str:
+    """Chuẩn hoá Unicode về NFC. macOS ghi tên file ở dạng NFD còn LLM trả NFC: so sánh tên mà không chuẩn hoá thì
+    'Cố An' != 'Cố An' (cùng hiển thị, khác byte) và nhân vật bị loại nhầm."""
+    return unicodedata.normalize("NFC", s)
+
+
+APP_NAME = "Veo Story Studio"
+FROZEN = bool(getattr(sys, "frozen", False))      # chạy từ bản đóng gói (PyInstaller)
+
+
+def resource_path(rel: str) -> Path:
+    """File đi kèm app (biểu tượng...): trong bản đóng gói nằm ở thư mục giải nén, khi dev nằm cạnh mã nguồn."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return base / rel
+
+
+def _data_dir() -> Path:
+    """Nơi lưu dự án/nhân vật/profile Chrome. Dev: ./data. Bản đóng gói: thư mục dữ liệu người dùng (không nằm trong gói app,
+    nếu không sẽ mất khi cập nhật). Đặt biến môi trường VEO_DATA_DIR để chọn thư mục khác."""
+    if os.environ.get("VEO_DATA_DIR"):
+        return Path(os.environ["VEO_DATA_DIR"]).expanduser()
+    if not FROZEN:
+        return Path(__file__).resolve().parent.parent / "data"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+
+
+DATA_DIR = _data_dir()
+PROJ_DIR = DATA_DIR / "projects"
+
+
+@dataclass
+class Character:
+    name: str
+    description: str = ""          # mô tả ngoại hình/giọng nói, đưa vào prompt
+    aliases: list[str] = field(default_factory=list)  # tên gọi khác trong truyện
+    image: str = ""                # đường dẫn ảnh tham chiếu (đã tạo hình sẵn)
+    role: str = ""                 # vai trò trong truyện (từ gói nhân vật), giúp LLM nhận diện nhân vật
+    zh: str = ""                   # tên Hán
+    description_vi: str = ""       # mô tả gốc tiếng Việt của gói (tham khảo; prompt dùng `description`)
+
+
+@dataclass
+class Scene:
+    index: int
+    title: str = ""
+    visual: str = ""               # mô tả hình ảnh/bối cảnh/hành động
+    source_text: str = ""          # đoạn truyện gốc (nguyên văn) mà scene này diễn tả
+    narration: str = ""            # thuyết minh (người dẫn truyện đọc), rút gọn từ source_text
+    characters: list[str] = field(default_factory=list)
+    duration: int = 8              # giây: 4/6/8
+    raw_clip: str = ""             # clip Veo gốc (chỉ hình + ambient)
+    audio: str = ""                # file wav thuyết minh (TTS)
+    clip: str = ""                 # clip cuối: hình Veo + giọng đọc cố định
+    status: str = "pending"        # pending | generating | done | error
+    error: str = ""
+
+
+@dataclass
+class Chapter:
+    id: str                        # "01", "02"... (cố định, dùng làm tên thư mục)
+    title: str = ""
+    story: str = ""                # nội dung chapter (nguyên văn)
+    scenes: list[Scene] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return self.title or f"Chương {int(self.id)}"
+
+    @property
+    def done(self) -> int:
+        return sum(1 for s in self.scenes if s.status == "done")
+
+
+@dataclass
+class Project:
+    name: str
+    synopsis: str = ""             # tóm tắt/bối cảnh truyện, đưa vào ngữ cảnh khi tách scene
+    style: str = "cinematic, soft lighting, 35mm film look"
+    aspect_ratio: str = "9:16"     # video dọc
+    tts_provider: str = "edge"     # edge (miễn phí) | gemini
+    voice: str = "vi-VN-HoaiMyNeural"  # 1 giọng đọc duy nhất cho cả dự án
+    flow_project_url: str = ""     # project Google Flow gắn với dự án này (dùng chung mọi chương)
+    flow_model: str = "Veo 3.1 - Fast"
+    flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)
+    flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
+    voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
+    chapters: list[Chapter] = field(default_factory=list)
+
+    @property
+    def dir(self) -> Path:
+        return PROJ_DIR / self.name
+
+    def chapter_dir(self, ch: Chapter) -> Path:
+        return self.dir / "chapters" / ch.id
+
+    def merged_path(self, ch: Chapter) -> Path:
+        return self.chapter_dir(ch) / "chapter.mp4"
+
+    @property
+    def full_path(self) -> Path:
+        return self.dir / "full.mp4"
+
+    def new_chapter(self, title: str = "") -> Chapter:
+        nid = max((int(c.id) for c in self.chapters), default=0) + 1
+        ch = Chapter(f"{nid:02d}", title.strip())
+        ch.title = ch.title or f"Chương {nid}"
+        self.chapters.append(ch)
+        return ch
+
+    def all_scenes(self) -> list[tuple[Chapter, Scene]]:
+        return [(c, s) for c in self.chapters for s in c.scenes]
+
+    def save(self) -> None:
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / "project.json").write_text(
+            json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, name: str) -> "Project":
+        d = json.loads((PROJ_DIR / name / "project.json").read_text(encoding="utf-8"))
+        old_scenes, old_story = d.pop("scenes", None), d.pop("story", None)   # định dạng cũ: 1 dự án = 1 chapter
+        chapters = []
+        for c in d.pop("chapters", []):
+            c = dict(c)
+            scenes = [Scene(**s) for s in c.pop("scenes", [])]
+            for s in scenes:
+                s.characters = [nfc(n) for n in s.characters]
+            chapters.append(Chapter(**c, scenes=scenes))
+        p = cls(**d, chapters=chapters)
+        if not chapters and (old_scenes or old_story):
+            p._migrate_legacy(old_story or "", [Scene(**s) for s in old_scenes or []])
+        return p
+
+    def _migrate_legacy(self, story: str, scenes: list[Scene]) -> None:
+        """Dự án cũ (1 chapter phẳng) -> Chương 01: chuyển clips/audio/flow vào chapters/01 và sửa đường dẫn."""
+        backup = self.dir / "project.json.bak-truoc-khi-chia-chuong"
+        if not backup.exists():  # giữ bản gốc phòng khi cần quay lại
+            shutil.copy2(self.dir / "project.json", backup)
+        first = next((ln.strip() for ln in story.splitlines() if ln.strip()), "")
+        title = first[:120] if re.match(r"(?i)^chương\s*\d+", first) else "Chương 1"
+        ch = Chapter("01", title, story, scenes)
+        old, new = self.dir, self.chapter_dir(ch)
+        new.mkdir(parents=True, exist_ok=True)
+        for sub in ("clips", "audio", "flow"):
+            if (old / sub).exists() and not (new / sub).exists():
+                shutil.move(str(old / sub), str(new / sub))
+        legacy_merged = old / f"{self.name}.mp4"
+        if legacy_merged.exists() and not self.merged_path(ch).exists():
+            shutil.move(str(legacy_merged), str(self.merged_path(ch)))
+        for s in scenes:  # đổi theo (thư mục cha, tên file) nên đúng cả khi dự án đã bị di chuyển/đổi máy
+            for attr in ("raw_clip", "audio", "clip"):
+                v = getattr(s, attr)
+                if v and Path(v).parent.name in ("clips", "audio"):
+                    setattr(s, attr, str(new / Path(v).parent.name / Path(v).name))
+        self.chapters = [ch]
+        self.save()
+
+    @staticmethod
+    def summary(name: str) -> tuple[int, int, int]:
+        """(số chương, số scene xong, tổng scene) đọc thẳng từ file, không migrate dữ liệu cũ, dùng cho danh sách chuyển dự án."""
+        try:
+            d = json.loads((PROJ_DIR / name / "project.json").read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return 0, 0, 0
+        groups = [c.get("scenes", []) for c in d.get("chapters", [])] or ([d.get("scenes", [])] if d.get("scenes") else [])
+        scenes = [s for g in groups for s in g]
+        return len(groups), sum(1 for s in scenes if s.get("status") == "done"), len(scenes)
+
+    @staticmethod
+    def list_names() -> list[str]:
+        return sorted(p.parent.name for p in PROJ_DIR.glob("*/project.json"))
+
+
+def char_dir(project: str) -> Path:
+    return PROJ_DIR / project / "characters"
+
+
+def load_characters(project: str) -> list[Character]:
+    f = char_dir(project) / "characters.json"
+    if not f.exists():
+        return []
+    out = []
+    for d in json.loads(f.read_text(encoding="utf-8")):
+        c = Character(**d)
+        c.name, c.aliases = nfc(c.name), [nfc(a) for a in c.aliases]
+        out.append(c)
+    return out
+
+
+def characters_mtime(project: str) -> float:
+    f = char_dir(project) / "characters.json"
+    return f.stat().st_mtime if f.exists() else 0.0
+
+
+def save_characters(project: str, chars: list[Character]) -> None:
+    char_dir(project).mkdir(parents=True, exist_ok=True)
+    (char_dir(project) / "characters.json").write_text(
+        json.dumps([asdict(c) for c in chars], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def import_image(project: str, src: str, char_name: str) -> str:
+    """Copy ảnh vào thư mục nhân vật của dự án để không phụ thuộc đường dẫn gốc."""
+    d = char_dir(project)
+    d.mkdir(parents=True, exist_ok=True)
+    dst = d / f"{char_name}{Path(src).suffix.lower()}"
+    if Path(src).resolve() != dst.resolve():
+        shutil.copy2(src, dst)
+    return str(dst)
