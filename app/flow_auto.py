@@ -16,7 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from . import credits
 from . import flow_selectors as S
-from .models import DATA_DIR, Character, Project, Scene
+from .models import DATA_DIR, Chapter, Character, Project, Scene
 from .veo_client import build_prompt
 
 PROFILE_DIR = DATA_DIR / "flow_profile"
@@ -151,37 +151,65 @@ class FlowAuto:
         self._check_login()
 
     # ---- dự án ----
-    def ensure_project(self, p: Project) -> str:
+    @staticmethod
+    def project_title(p: Project, ch: Chapter | None) -> str:
+        return f"{p.name} · {ch.name}" if ch else p.name
+
+    @staticmethod
+    def url_of(p: Project, ch: Chapter | None) -> str:
+        return (ch.flow_project_url if ch else p.flow_project_url) or ""
+
+    @staticmethod
+    def _store_url(p: Project, ch: Chapter | None, url: str) -> None:
+        if ch:
+            ch.flow_project_url = url
+        else:
+            p.flow_project_url = url
+        p.save()
+
+    def ensure_project(self, p: Project, ch: Chapter | None = None) -> str:
+        """Trả về địa chỉ project Flow đã mở sẵn. ch=None: project chung của dự án (ảnh nhân vật). ch=chương: project RIÊNG của chương
+        (đặt tên «Dự án · Chương»), để mỗi project chỉ chứa clip của một chương -> Flow nhẹ, đối soát nhanh.
+        Chương cũ đã gen trong project chung của dự án thì giữ nguyên project đó (không tách đôi lịch sử clip)."""
         pg = self.page
-        if p.flow_project_url:
-            self._goto(p.flow_project_url)
+        title = self.project_title(p, ch)
+        if ch and not ch.flow_project_url and p.flow_project_url and ch.has_flow_history:
+            ch.flow_project_url = p.flow_project_url
+            p.save()
+            self.log(f"{ch.name}: giữ project Flow cũ của dự án vì chương đã gen trước đó.")
+        url = self.url_of(p, ch)
+        if url:
+            self._goto(url)
             if "/project/" in pg.url and pg.locator(S.PROMPT_EDITOR).count():
-                self.log(f"Dùng lại project Flow: {p.name}")
-                return p.flow_project_url
+                self.log(f"Dùng lại project Flow: {title}")
+                return url
             self.log("Project Flow đã lưu không còn truy cập được, tìm lại theo tên...")
         self._goto(S.HOME_URL)
         for link in pg.get_by_role("link", name=S.LINK_OPEN_PROJECT).all():
             card = link.locator(f"xpath=ancestor::*[.//button[@aria-label='{S.BTN_EDIT_TITLE}']][1]")
-            if card.count() and p.name in card.first.inner_text():
+            if not card.count():
+                continue
+            text = card.first.inner_text()
+            # chương: khớp NGUYÊN dòng tiêu đề (tránh «… Chương 1» khớp nhầm «… Chương 10»); dự án: chứa tên như trước
+            hit = (title in [ln.strip() for ln in text.splitlines()]) if ch else (p.name in text)
+            if hit:
                 url = "https://flow.google.com" + link.get_attribute("href")
                 self._goto(url)
-                p.flow_project_url = url
-                p.save()
-                self.log(f"Tìm thấy project Flow cùng tên: {p.name}")
+                self._store_url(p, ch, url)
+                self.log(f"Tìm thấy project Flow cùng tên: {title}")
                 return url
-        self.log(f"Tạo project Flow mới: {p.name}")
+        self.log(f"Tạo project Flow mới: {title}")
         pg.get_by_role("button", name=S.BTN_NEW_PROJECT).click()
         pg.wait_for_url(re.compile(r"/project/[0-9a-f-]+$"), timeout=30000)
         pg.wait_for_timeout(2500)
         box = pg.get_by_role("textbox", name=S.TITLE_BOX).first
         box.click()
         pg.keyboard.press("ControlOrMeta+A")
-        pg.keyboard.type(p.name)
+        pg.keyboard.type(title)
         pg.keyboard.press("Enter")
         pg.wait_for_timeout(1000)
-        p.flow_project_url = pg.url
-        p.save()
-        return p.flow_project_url
+        self._store_url(p, ch, pg.url)
+        return pg.url
 
     # ---- cấu hình tạo video ----
     def configure(self, model: str, aspect: str, res: str = "720p", dur: int = 8):
@@ -249,11 +277,11 @@ class FlowAuto:
         pg.wait_for_timeout(1200)
 
     # ---- 1 scene ----
-    def submit_scene(self, p: Project, s: Scene, chars: dict[str, Character]) -> int:
+    def submit_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character]) -> int:
         """Cấu hình + điền prompt + bấm tạo, rồi chờ tới khi Flow nhận (xuất hiện thêm 1 ô clip). KHÔNG chờ render xong.
         Trả về số ô clip trước khi gửi. Trả None-clip khi dry_run."""
         pg = self.page
-        self._goto(p.flow_project_url)
+        self._goto(self.url_of(p, ch))
         n0 = pg.locator(S.TILE).count()
         dur = credits.pick_duration(s.narration, p.narration_lang) if (p.flow_auto_duration and p.flow_model == credits.OMNI) else 8
         s.duration = dur
@@ -304,8 +332,8 @@ class FlowAuto:
                 return False
         return False
 
-    def generate_scene(self, p: Project, s: Scene, chars: dict[str, Character], out_dir: Path) -> Path | None:
-        n0 = self.submit_scene(p, s, chars)
+    def generate_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character], out_dir: Path) -> Path | None:
+        n0 = self.submit_scene(p, ch, s, chars)
         if n0 < 0:
             return None
         pg = self.page
@@ -326,7 +354,7 @@ class FlowAuto:
         return self._download_first(s, out_dir)
 
     # ---- gen song song kiểu cửa sổ trượt ----
-    def generate_sliding(self, p: Project, scenes: list[Scene], chars: dict[str, Character], out_dir_for, window: int,
+    def generate_sliding(self, p: Project, ch: Chapter, scenes: list[Scene], chars: dict[str, Character], out_dir_for, window: int,
                          on_event=None, on_clip=None, cancel=None, max_wait: int = 1500) -> None:
         """Luôn giữ tối đa `window` scene đang render trên Flow: clip nào xong thì tải về và gửi ngay scene kế tiếp vào chỗ trống.
         on_event(scene, "sent"|"error", thông_báo): scene vừa được gửi / vừa lỗi. on_clip(scene): scene đã có clip gốc (làm giọng...).
@@ -348,7 +376,7 @@ class FlowAuto:
             while pending and len(inflight) < window and not halt and not cancelled():
                 s = pending.pop(0)
                 try:
-                    n0 = self.submit_scene(p, s, chars)
+                    n0 = self.submit_scene(p, ch, s, chars)
                     if n0 < 0:
                         continue
                     base = n0 if base is None else base
@@ -372,7 +400,7 @@ class FlowAuto:
             self.log(f"Flow đang render {rendering} clip · chờ {len(inflight)} · còn {len(pending)} scene chưa gửi.")
             got: list[Scene] = []
             if rendering < len(inflight):              # có clip đã xong (hoặc lỗi): đối chiếu và tải về
-                got = self.sync_clips(p, [s for s, _ in inflight], out_dir_for,
+                got = self.sync_clips(p, ch, [s for s, _ in inflight], out_dir_for,
                                       limit=len(texts) - (base or 0), skip_rendering=True)
                 inflight[:] = [(s, t) for s, t in inflight if s not in got]
                 quiet = quiet + 1 if (not got and rendering == 0) else 0
@@ -607,12 +635,12 @@ class FlowAuto:
     def _norm(x: str) -> str:
         return re.sub(r"\s+", " ", x).strip().lower()
 
-    def sync_clips(self, p: Project, scenes: list[Scene], out_dir_for, limit: int | None = None,
+    def sync_clips(self, p: Project, ch: Chapter, scenes: list[Scene], out_dir_for, limit: int | None = None,
                    skip_rendering: bool = False) -> list[Scene]:
         """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
         tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
         pg = self.page
-        url = self.ensure_project(p)
+        url = self.ensure_project(p, ch)
         remaining = list(scenes)
         got: list[Scene] = []
         self._goto(url)

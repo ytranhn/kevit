@@ -524,6 +524,79 @@ class Popover(QFrame):
         self._targets.pop()
         area.setFixedHeight(min(inner.sizeHint().height() + 2, max_h))
 
+    def searchable_list(self, entries: list[dict], placeholder: str, max_height: int = 360, limit: int = 40,
+                        focus: int = -1, empty: str = "Không có kết quả") -> None:
+        """Danh sách dài có ô tìm kiếm (bỏ dấu, không phân biệt hoa thường). entries: [{title, sub, cb, shortcut, progress, action}].
+        Chỉ dựng tối đa `limit` dòng mỗi lần (hàng trăm dòng sẽ làm popover mở chậm); khi chưa gõ gì thì lấy cửa sổ quanh mục `focus`
+        (mục đang chọn). Enter mở kết quả đầu tiên. Chiều cao vùng cuộn cố định để popover không nhảy khi lọc."""
+        import unicodedata
+
+        def norm(t: str) -> str:
+            t = unicodedata.normalize("NFD", t.replace("đ", "d").replace("Đ", "D")).lower()
+            return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+        keys = [norm(e["title"] + " " + e.get("search", "")) for e in entries]
+        box = QLineEdit()
+        box.setPlaceholderText(placeholder)
+        box.setClearButtonEnabled(True)
+        holder = QWidget()
+        hl = QVBoxLayout(holder)
+        hl.setContentsMargins(SP.xs, SP.xs, SP.xs, SP.s)
+        hl.addWidget(box)
+        self.body.addWidget(holder)
+        count = QLabel("")
+        count.setProperty("caption", True)
+        self.begin_scroll(max_height)
+        area, inner, lay, _ = self._scroll
+        self._targets.pop()                    # tự quản lý nội dung vùng cuộn, không dùng end_scroll
+        count.setContentsMargins(SP.m, 0, SP.m, 0)
+        count.setFixedHeight(28)
+        self.body.addWidget(count)
+        shown: list[dict] = []
+
+        def fill(q: str) -> None:
+            while lay.count():
+                it = lay.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            nq = norm(q.strip())
+            idx = [i for i, k in enumerate(keys) if nq in k]
+            if nq or len(idx) <= limit:
+                pick = idx[:limit]
+            else:                              # chưa gõ: hiện quanh mục đang chọn để thấy ngay vị trí hiện tại
+                lo = max(0, min(max(focus, 0) - limit // 2, len(idx) - limit))
+                pick = idx[lo:lo + limit]
+            shown[:] = [entries[i] for i in pick]
+            for e in shown:
+                b = PopItem(e["title"], e.get("sub", ""), False, e.get("shortcut", ""), e.get("progress"),
+                            e["action"][0] if e.get("action") else "")
+                b.clicked.connect(lambda _=False, cb=e.get("cb"): self._fire(cb))
+                if e.get("action"):
+                    b.action_btn.clicked.connect(lambda _=False, cb=e["action"][1]: self._fire(cb))
+                lay.addWidget(b)
+            if not shown:
+                lab = QLabel(empty)
+                lab.setProperty("caption", True)
+                lab.setContentsMargins(SP.m, SP.m, SP.m, SP.m)
+                lay.addWidget(lab)
+            lay.addStretch(1)
+            more = len(idx) - len(shown)
+            if nq:
+                count.setText(f"{len(idx)} kết quả" + (f" · hiển thị {len(shown)} đầu" if more > 0 else ""))
+            else:
+                count.setText(f"Hiển thị {len(shown)}/{len(entries)} · gõ để tìm các mục còn lại" if more > 0 else f"{len(entries)} mục")
+            area.verticalScrollBar().setValue(0)
+
+        box.textChanged.connect(fill)
+        box.returnPressed.connect(lambda: self._fire(shown[0].get("cb")) if shown else None)
+        fill("")
+        if len(entries) > 6:
+            area.setFixedHeight(max_height)    # danh sách dài: cố định chiều cao, popover không nhảy khi lọc
+        else:
+            inner.adjustSize()
+            area.setFixedHeight(min(max_height, inner.sizeHint().height() + 2))
+        self._focus_widget = box
+
     def _fire(self, cb) -> None:
         self.hide()
         if cb:
@@ -532,6 +605,7 @@ class Popover(QFrame):
     # ---- hiển thị ----
     def _prepare(self) -> None:
         self.clear()
+        self._focus_widget = None
         self._builder(self)
         self.adjustSize()
 
@@ -556,6 +630,8 @@ class Popover(QFrame):
         x = (br.x() - self.width() + m) if align == "right" else (tl.x() - m)
         self.move(self._clamp(x, y, tl))
         self.show()
+        if self._focus_widget is not None:
+            self._focus_widget.setFocus()
 
     def show_at(self, global_pos: QPoint) -> None:
         self._prepare()

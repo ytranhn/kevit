@@ -767,14 +767,14 @@ class ProjectTab(QWidget):
     def build_project_pop(self, pop):
         names = Project.list_names()
         cur = self.combo.currentText()
-        pop.section("Chuyển dự án")
-        pop.begin_scroll(360)
+        pop.section(f"Chuyển dự án  ·  {len(names)}")
+        entries = []
         for name in names:
             nch, done, total = Project.summary(name)
             sub = f"{nch} chương  ·  {done}/{total} scene xong" if total else f"{nch} chương  ·  chưa có scene"
-            pop.item(name, sub, (lambda n=name: self.switch_project(n)), shortcut="✓" if name == cur else "",
-                     progress=(done, total), action=("Xoá", (lambda n=name: self.delete_project(n))))
-        pop.end_scroll()
+            entries.append(dict(title=name, sub=sub, cb=(lambda n=name: self.switch_project(n)), shortcut="✓" if name == cur else "",
+                                progress=(done, total), action=("Xoá", (lambda n=name: self.delete_project(n)))))
+        pop.searchable_list(entries, "Tìm dự án…", focus=names.index(cur) if cur in names else -1, empty="Không có dự án nào khớp")
         pop.separator()
         pop.item("+ Dự án mới…", "Tạo dự án trống với một chương", self.new_project)
         pop.separator()
@@ -841,14 +841,14 @@ class ProjectTab(QWidget):
     def build_chapter_pop(self, pop):
         p = self.project
         chs = p.chapters if p else []
-        pop.section("Chuyển chương")
-        pop.begin_scroll(360)
+        pop.section(f"Chuyển chương  ·  {len(chs)}")
+        entries = []
         for i, c in enumerate(chs):
             sub = f"{c.done}/{len(c.scenes)} scene xong" if c.scenes else ("Có truyện, chưa tạo scene" if c.story.strip() else "Chưa có nội dung")
-            pop.item(c.name, sub, (lambda k=i: self.chap_combo.setCurrentIndex(k)),
-                     shortcut="✓" if i == self._chap_idx else "", progress=(c.done, len(c.scenes)),
-                     action=("Xoá", (lambda k=i: self.delete_chapter(k))) if len(chs) > 1 else None)
-        pop.end_scroll()
+            entries.append(dict(title=c.name, search=f"chuong {int(c.id)}" if c.id.isdigit() else "", sub=sub, cb=(lambda k=i: self.chap_combo.setCurrentIndex(k)),
+                                shortcut="✓" if i == self._chap_idx else "", progress=(c.done, len(c.scenes)),
+                                action=("Xoá", (lambda k=i: self.delete_chapter(k))) if len(chs) > 1 else None))
+        pop.searchable_list(entries, "Tìm chương (tên hoặc số)…", focus=self._chap_idx, empty="Không có chương nào khớp")
         pop.separator()
         pop.item("+ Chương mới…", "Dán truyện rồi tạo scene", self.new_chapter)
         ch = self.chapter
@@ -1687,14 +1687,14 @@ class ProjectTab(QWidget):
 
         def job(log):
             with flow_auto.FlowAuto(log) as f:
-                f.ensure_project(p)
+                f.ensure_project(p, ch)
                 # scene lỗi do ngắt/tải thất bại có thể đã render xong trên Flow: lấy lại thay vì trả credit lần nữa
                 maybe = [s for s in todo if prev[id(s)][0] == "error"
                          and any(k in (prev[id(s)][1] or "") for k in ("Bị ngắt", "Không tải được", "quá 15 phút", "chưa thấy clip"))]
                 recovered = []
                 if maybe:
                     log("Kiểm tra clip đã render sẵn trên Flow trước khi gen lại (tránh trả credit trùng)...")
-                    recovered = f.sync_clips(p, maybe, lambda s: p.chapter_dir(ch) / "clips")
+                    recovered = f.sync_clips(p, ch, maybe, lambda s: p.chapter_dir(ch) / "clips")
                     for s in recovered:
                         try:
                             s.status, s.error = "raw", ""
@@ -1753,7 +1753,7 @@ class ProjectTab(QWidget):
                                     overloaded.append(s)
                             save()
 
-                        f.generate_sliding(p, rest, chars, out_dir, par, on_event, finish, self._cancel)
+                        f.generate_sliding(p, ch, rest, chars, out_dir, par, on_event, finish, self._cancel)
                         if overloaded:
                             log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
                         elif self._cancel.is_set():
@@ -1766,7 +1766,7 @@ class ProjectTab(QWidget):
                             s.status, s.error = "generating", ""
                             save()
                             try:
-                                s.raw_clip = str(f.generate_scene(p, s, chars, p.chapter_dir(ch) / "clips"))
+                                s.raw_clip = str(f.generate_scene(p, ch, s, chars, p.chapter_dir(ch) / "clips"))
                             except Exception as e:  # noqa: BLE001
                                 s.status, s.error = "error", str(e)[:1500]
                                 log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
@@ -1823,9 +1823,16 @@ class ProjectTab(QWidget):
                     return
             if missing:
                 with flow_auto.FlowAuto(log) as f:
-                    got = f.sync_clips(p, missing, lambda s: p.chapter_dir(owner[id(s)]) / "clips")
-                    for s in got:
-                        finish(s, log)
+                    by_ch: dict[str, list] = {}               # mỗi chương có project Flow riêng: đối soát lần lượt từng chương
+                    for s in missing:
+                        by_ch.setdefault(owner[id(s)].id, []).append(s)
+                    for cid, group in by_ch.items():
+                        if self._cancel.is_set():
+                            break
+                        c = owner[id(group[0])]
+                        log(f"[{c.name}] đối soát {len(group)} scene với project Flow của chương...")
+                        for s in f.sync_clips(p, c, group, lambda s: p.chapter_dir(owner[id(s)]) / "clips"):
+                            finish(s, log)
                     for s in missing:  # kẹt "đang gen" mà Flow không có clip -> trả về chờ gen
                         if s.status == "generating":
                             s.status, s.error = "pending", ""

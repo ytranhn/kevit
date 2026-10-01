@@ -114,6 +114,9 @@ DATA_DIR = _data_dir()
 PROJ_DIR = DATA_DIR / "projects"
 
 
+_SUMMARY_CACHE: dict[str, tuple[int, tuple[int, int, int]]] = {}
+
+
 @dataclass
 class Character:
     name: str
@@ -147,10 +150,16 @@ class Chapter:
     title: str = ""
     story: str = ""                # nội dung chapter (nguyên văn)
     scenes: list[Scene] = field(default_factory=list)
+    flow_project_url: str = ""     # project Google Flow RIÊNG của chương này (mỗi chương một project để Flow không phải lọc quá nhiều clip)
 
     @property
     def name(self) -> str:
         return self.title or f"Chương {int(self.id)}"
+
+    @property
+    def has_flow_history(self) -> bool:
+        """Chương đã từng gửi/nhận clip trên Flow (dùng để giữ nguyên project cũ của dự án, không tách đôi lịch sử)."""
+        return any(s.raw_clip or s.status in ("generating", "queued", "raw", "done") for s in self.scenes)
 
     @property
     def done(self) -> int:
@@ -166,7 +175,7 @@ class Project:
     tts_provider: str = "edge"     # edge (miễn phí) | gemini
     voice: str = "vi-VN-HoaiMyNeural"  # 1 giọng đọc duy nhất cho cả dự án
     narration_lang: str = "vi"         # ngôn ngữ thuyết minh (vi = giữ nguyên truyện; ngôn ngữ khác = dịch ngắn gọn từ truyện gốc)
-    flow_project_url: str = ""     # project Google Flow gắn với dự án này (dùng chung mọi chương)
+    flow_project_url: str = ""     # project Google Flow cấp DỰ ÁN (ảnh nhân vật; dự án cũ: cũng là nơi chứa clip các chương đã gen trước khi tách project theo chương)
     flow_model: str = "Veo 3.1 - Fast"
     flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)
     flow_parallel: int = 1             # số scene gửi lên Flow cùng lúc (1 = lần lượt từng scene)
@@ -249,14 +258,25 @@ class Project:
 
     @staticmethod
     def summary(name: str) -> tuple[int, int, int]:
-        """(số chương, số scene xong, tổng scene) đọc thẳng từ file, không migrate dữ liệu cũ, dùng cho danh sách chuyển dự án."""
+        """(số chương, số scene xong, tổng scene) đọc thẳng từ file, không migrate dữ liệu cũ, dùng cho danh sách chuyển dự án.
+        Có nhớ theo thời điểm sửa file: hàng trăm dự án mà mở danh sách không phải đọc lại từng project.json."""
+        f = PROJ_DIR / name / "project.json"
         try:
-            d = json.loads((PROJ_DIR / name / "project.json").read_text(encoding="utf-8"))
+            m = f.stat().st_mtime_ns
+        except OSError:
+            return 0, 0, 0
+        hit = _SUMMARY_CACHE.get(name)
+        if hit and hit[0] == m:
+            return hit[1]
+        try:
+            d = json.loads(f.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             return 0, 0, 0
         groups = [c.get("scenes", []) for c in d.get("chapters", [])] or ([d.get("scenes", [])] if d.get("scenes") else [])
         scenes = [s for g in groups for s in g]
-        return len(groups), sum(1 for s in scenes if s.get("status") == "done"), len(scenes)
+        res = (len(groups), sum(1 for s in scenes if s.get("status") == "done"), len(scenes))
+        _SUMMARY_CACHE[name] = (m, res)
+        return res
 
     @staticmethod
     def list_names() -> list[str]:
