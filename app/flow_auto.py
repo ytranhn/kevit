@@ -409,6 +409,22 @@ class FlowAuto:
         raise FlowError("Nút tạo bị khoá (prompt trống hoặc hết credit?)")
 
     # ---- tạo ảnh (chế độ "Hình ảnh" của Flow: Nano Banana, thường 0 tín dụng) ----
+    def _close_overlays(self) -> None:
+        """Đóng mọi lớp phủ của Flow (bảng cài đặt, menu, thông báo) đang che trang: chúng chặn mọi cú bấm vào ô ảnh/clip ('Timeout waiting for
+        navigation'). Thử Escape, không được thì bấm vào vùng trống ngoài lớp phủ."""
+        pg = self.page
+        for _ in range(3):
+            try:
+                if not pg.locator(".cdk-overlay-backdrop").count():
+                    return
+                pg.keyboard.press("Escape")
+                pg.wait_for_timeout(500)
+                if pg.locator(".cdk-overlay-backdrop").count():
+                    pg.mouse.click(4, 4)
+                    pg.wait_for_timeout(500)
+            except Exception:  # noqa: BLE001
+                return
+
     def _radio(self, text: str):
         return self.page.locator("[role=radio]").filter(has_text=text).first
 
@@ -426,6 +442,7 @@ class FlowAuto:
         cost = self._stable_cost()
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(400)
+        self._close_overlays()
         return cost
 
     def generate_image(self, p: Project, prompt: str, aspect: str = "3:4", timeout: int = 240) -> bytes:
@@ -434,8 +451,10 @@ class FlowAuto:
         url = self.ensure_project(p)
         self._goto(url)
         n0 = pg.locator(S.IMAGE_TILE).count()
+        before = {self._url_key(u) for u in self._tile_image_urls()}      # ảnh có sẵn: để nhận ra đâu là ảnh MỚI
         cost = self._set_image_mode(aspect)
         self.log(f"Tạo ảnh trên Flow ({aspect}). {cost}")
+        self._close_overlays()
         self._type_prompt(prompt)
         pg.get_by_role("button", name=S.BTN_GENERATE).click()
         t0, seen_new = time.time(), False
@@ -453,33 +472,63 @@ class FlowAuto:
                                 "Flow không nhận yêu cầu tạo ảnh (không thấy ô mới). Kiểm tra cửa sổ Chrome Flow xem có thông báo lỗi không.")
         else:
             raise FlowError(f"Quá {timeout}s chưa có ảnh trên Flow.")
-        # mở ảnh mới nhất rồi tải bản gốc
-        pg.locator(S.IMAGE_TILE).first.click()
-        pg.wait_for_url(re.compile(r"/edit/"), timeout=20000)
+        # ưu tiên: lấy thẳng ảnh mới từ ô ảnh trên trang dự án (không cần mở trang chi tiết nên không phụ thuộc vào việc bấm trúng ô)
+        for _ in range(10):
+            fresh = [u for u in self._tile_image_urls() if self._url_key(u) not in before]
+            data = self._fetch_image(fresh[0]) if fresh else None
+            if data:
+                return data
+            pg.wait_for_timeout(2000)
+        # dự phòng: mở ảnh mới nhất rồi lấy từ màn hình chi tiết
+        self.log("Không thấy ảnh mới trên trang dự án, thử mở ảnh để lấy...")
+        try:
+            self._close_overlays()
+            pg.locator(S.IMAGE_TILE).first.scroll_into_view_if_needed(timeout=5000)
+            pg.locator(S.IMAGE_TILE).first.click(timeout=10000)
+            pg.wait_for_url(re.compile(r"/edit/"), timeout=20000)
+        except Exception as e:  # noqa: BLE001
+            raise FlowError("Flow đã tạo ảnh nhưng tool không lấy được nó (không mở được ảnh để tải). Mở dự án trên Flow, tải ảnh thủ công "
+                            f"rồi gắn vào nhân vật bằng nút “Chọn ảnh…”. Chi tiết: {type(e).__name__}") from e
         pg.wait_for_timeout(2000)
         data = self._download_image()
         self._goto(url)                                             # thoát màn hình ảnh về dự án
         return data
 
-    def _image_bytes_from_page(self) -> bytes | None:
-        """Lấy thẳng dữ liệu ảnh đang hiển thị ở màn hình ảnh (địa chỉ CDN đã ký của Flow): không cần tải xuống nên không bị Chrome
-        hỏi quyền tải/hộp thoại lưu file. Trả None nếu không lấy được."""
-        import urllib.request
-        pg = self.page
+    @staticmethod
+    def _url_key(u: str) -> str:
+        return u.split("?", 1)[0]
+
+    def _tile_image_urls(self) -> list[str]:
+        """Địa chỉ ảnh của các ô ảnh trên trang dự án (theo thứ tự hiển thị)."""
         try:
-            imgs = pg.evaluate("""() => [...document.images].map(i => ({src: i.currentSrc || i.src, area: i.naturalWidth * i.naturalHeight}))
-                                  .filter(i => i.area > 200 * 200 && i.src.startsWith('http')).sort((a, b) => b.area - a.area)""")
-            ua = pg.evaluate("navigator.userAgent")
+            return self.page.evaluate("""() => [...document.querySelectorAll('flow-image-tile img')]
+                .filter(i => i.naturalWidth > 100).map(i => i.currentSrc || i.src).filter(u => u && u.startsWith('http'))""")
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _fetch_image(self, url: str) -> bytes | None:
+        """Tải dữ liệu ảnh từ địa chỉ CDN đã ký của Flow (không qua trình duyệt nên không dính quyền tải/hộp thoại lưu)."""
+        import urllib.request
+        try:
+            ua = self.page.evaluate("navigator.userAgent")
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": ua}), timeout=30) as r:
+                data = r.read()
+            return data if len(data) > 2000 else None
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Lấy ảnh trực tiếp chưa được ({type(e).__name__}).")
+            return None
+
+    def _image_bytes_from_page(self) -> bytes | None:
+        """Ở màn hình ảnh (/edit/): lấy dữ liệu ảnh lớn nhất đang hiển thị (địa chỉ CDN đã ký)."""
+        try:
+            imgs = self.page.evaluate("""() => [...document.images].map(i => ({src: i.currentSrc || i.src, area: i.naturalWidth * i.naturalHeight}))
+                                       .filter(i => i.area > 200 * 200 && i.src.startsWith('http')).sort((a, b) => b.area - a.area)""")
         except Exception:  # noqa: BLE001
             return None
         for im in imgs[:2]:
-            try:
-                with urllib.request.urlopen(urllib.request.Request(im["src"], headers={"User-Agent": ua}), timeout=30) as r:
-                    data = r.read()
-                if len(data) > 2000:
-                    return data
-            except Exception as e:  # noqa: BLE001
-                self.log(f"Lấy ảnh trực tiếp chưa được ({type(e).__name__}), dùng cách tải xuống...")
+            data = self._fetch_image(im["src"])
+            if data:
+                return data
         return None
 
     def _download_image(self) -> bytes:
