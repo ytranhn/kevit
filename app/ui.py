@@ -73,8 +73,9 @@ class CharactersTab(QWidget):
         top = QHBoxLayout()
         top.setSpacing(SP.l)
         btn_img.setFixedHeight(36)
-        btn_ai = QPushButton("Tạo ảnh (AI)…")
+        self.btn_ai = btn_ai = QPushButton("Tạo ảnh (AI)…")      # đổi thành "Gen lại ảnh (AI)…" khi nhân vật đã có ảnh
         btn_ai.setFixedHeight(36)
+        btn_ai.setProperty("primary", True)
         btn_ai.clicked.connect(self.make_image_ai)
         picbox = QWidget()                      # khối ảnh + nút có kích thước cố định: cửa sổ thấp cũng không bị nén đè lên nhau
         pic = QVBoxLayout(picbox)
@@ -204,7 +205,9 @@ class CharactersTab(QWidget):
         self.set_preview()
 
     def set_preview(self):
-        if self.img_path and Path(self.img_path).exists():
+        has = bool(self.img_path and Path(self.img_path).exists())
+        self.btn_ai.setText("Gen lại ảnh (AI)…" if has else "Tạo ảnh (AI)…")
+        if has:
             self.preview.setProperty("avatarph", False)
             self.preview.setPixmap(rounded_pixmap(self.img_path, 176, 16))
         else:
