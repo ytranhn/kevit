@@ -50,9 +50,16 @@ def resource_path(rel: str) -> Path:
     return base / rel
 
 
-def _saved_data_dir() -> str:
+def qsettings():
+    """Cấu hình người dùng (QSettings). Đặt KEVIT_SETTINGS_FILE để dùng một file .ini riêng thay cho cấu hình thật:
+    bắt buộc với mọi bài kiểm thử, vì đổi thư mục dữ liệu trong test từng ghi đè cấu hình thật và làm app 'mất' dữ liệu."""
     from PySide6.QtCore import QSettings
-    return str(QSettings("veo-story-studio", "veo-story-studio").value("data_dir", "") or "")
+    f = os.environ.get("KEVIT_SETTINGS_FILE")
+    return QSettings(f, QSettings.IniFormat) if f else QSettings("veo-story-studio", "veo-story-studio")
+
+
+def _saved_data_dir() -> str:
+    return str(qsettings().value("data_dir", "") or "")
 
 
 def _data_dir() -> Path:
@@ -84,29 +91,29 @@ def has_projects(data_dir: Path) -> bool:
 
 def set_data_dir(path: Path) -> None:
     """Lưu lựa chọn thư mục dữ liệu và cập nhật các đường dẫn đang dùng (cửa sổ đang mở cần khởi động lại để nạp lại)."""
-    from PySide6.QtCore import QSettings
     global DATA_DIR, PROJ_DIR
-    QSettings("veo-story-studio", "veo-story-studio").setValue("data_dir", str(path))
+    qsettings().setValue("data_dir", str(path))
     DATA_DIR = Path(path)
     PROJ_DIR = DATA_DIR / "projects"
     fa = sys.modules.get("app.flow_auto")
     if fa is not None:
         fa.PROFILE_DIR = DATA_DIR / "flow_profile"
         fa.DOWNLOAD_DIR = DATA_DIR / "flow_downloads"
+        ac = sys.modules.get("app.accounts")
+        if ac is not None:
+            ac.activate(ac._active_id)               # hồ sơ Chrome của tài khoản đang dùng nằm theo thư mục dữ liệu mới
 
 
 def remember_dev_data_dir() -> None:
     """Chạy từ mã nguồn thì ghi nhớ thư mục data đang dùng, để bản đóng gói lần đầu mở có thể đề nghị dùng lại."""
     if FROZEN:
         return
-    from PySide6.QtCore import QSettings
-    QSettings("veo-story-studio", "veo-story-studio").setValue("dev_data_dir", str(DATA_DIR))
+    qsettings().setValue("dev_data_dir", str(DATA_DIR))
 
 
 def legacy_data_dir() -> Path | None:
     """Thư mục data của bản chạy từ mã nguồn (nếu còn và có dự án) mà bản đóng gói chưa dùng."""
-    from PySide6.QtCore import QSettings
-    v = str(QSettings("veo-story-studio", "veo-story-studio").value("dev_data_dir", "") or "")
+    v = str(qsettings().value("dev_data_dir", "") or "")
     return Path(v) if v and Path(v) != DATA_DIR and has_projects(Path(v)) else None
 
 
@@ -174,6 +181,8 @@ class Project:
     flow_model: str = "Veo 3.1 - Fast"
     flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)
     flow_parallel: int = 1             # số scene gửi lên Flow cùng lúc (1 = lần lượt từng scene)
+    flow_account: str = ""             # tài khoản Google Flow của dự án (id trong accounts.json); rỗng = tài khoản chính
+    flow_stash: dict = field(default_factory=dict)   # địa chỉ project Flow của các tài khoản KHÁC (mỗi tài khoản có project riêng của nó)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
     chapters: list[Chapter] = field(default_factory=list)
@@ -198,6 +207,26 @@ class Project:
         ch.title = ch.title or f"Chương {nid}"
         self.chapters.append(ch)
         return ch
+
+    @property
+    def account_id(self) -> str:
+        return self.flow_account or "default"
+
+    def use_flow_account(self, acc_id: str) -> bool:
+        """Đổi tài khoản Flow của dự án. Project Flow là của riêng từng tài khoản nên địa chỉ project (cấp dự án và từng chương) được cất
+        theo tài khoản cũ và nạp lại địa chỉ của tài khoản mới (chưa có thì để trống, lần gen sau sẽ tạo project mới). True nếu có đổi."""
+        acc_id = acc_id or "default"
+        cur = self.account_id
+        if acc_id == cur:
+            return False
+        self.flow_stash[cur] = {"project": self.flow_project_url,
+                                "chapters": {c.id: c.flow_project_url for c in self.chapters if c.flow_project_url}}
+        st = self.flow_stash.pop(acc_id, {})
+        self.flow_project_url = st.get("project", "")
+        for c in self.chapters:
+            c.flow_project_url = st.get("chapters", {}).get(c.id, "")
+        self.flow_account = "" if acc_id == "default" else acc_id
+        return True
 
     def all_scenes(self) -> list[tuple[Chapter, Scene]]:
         return [(c, s) for c in self.chapters for s in c.scenes]

@@ -9,14 +9,14 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from . import theme, characters_pack, flow, flow_auto, llm, models, settings, trash
+from . import accounts, theme, characters_pack, flow_auto, llm, models, settings, trash
+from .settings_tab import SettingsTab
 from .models import Character
 from .project_tab import ProjectTab
 from .pack_guide import PackGuideDialog, confirm_text
 from .welcome import Welcome
 from .theme import SP
-from .widgets import Segmented, StatusStrip, avatar, repolish, rounded_pixmap
-from .workers import Worker
+from .widgets import Popover, StatusStrip, avatar, repolish, rounded_pixmap
 
 
 class CharactersTab(QWidget):
@@ -348,220 +348,6 @@ class CharactersTab(QWidget):
                 return
 
 
-class SettingsTab(QWidget):
-    """Cài đặt chung (mô hình LLM, khoá API): bố cục một cột canh giữa, mỗi nhóm một thẻ."""
-
-    def __init__(self):
-        super().__init__()
-        self.provider = Segmented()
-        self.provider.addItem("Claude", "claude")
-        self.provider.addItem("Gemini", "gemini")
-        self.provider.setCurrentIndex(max(0, self.provider.findData(settings.llm_provider())))
-
-        self.claude_key = self._secret(settings.claude_api_key(), "sk-ant-…")
-        self.base_url = QLineEdit(settings.claude_base_url())
-        self.base_url.setPlaceholderText("https://proxy.example.com")
-        self.model = QLineEdit(settings.claude_model())
-        self.model.setPlaceholderText(settings.CLAUDE_DEFAULT_MODEL)
-        self.proxy = QLineEdit(settings.claude_proxy())
-        self.proxy.setPlaceholderText("http://127.0.0.1:7890")
-        self.gemini_key = self._secret(settings.get_api_key(), "AIza…")
-
-        self.status = QLabel("")
-        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.status.setWordWrap(True)
-        self.btn_test = QPushButton("Lưu và thử kết nối")
-        btn_save = QPushButton("Lưu")
-        btn_save.setProperty("primary", True)
-        btn_save.clicked.connect(self.save)
-        self.btn_test.clicked.connect(self.test)
-
-        # --- thẻ 1: mô hình tách scene ---
-        self.claude_box = QWidget()
-        cv = QVBoxLayout(self.claude_box)
-        cv.setContentsMargins(0, 0, 0, 0)
-        cv.setSpacing(SP.m)
-        cv.addWidget(self._field("API key", "Key của bạn hoặc key do nhà cung cấp proxy cấp. Được lưu trên máy này.", self.claude_key))
-        cv.addWidget(self._field("Địa chỉ API (proxy)",
-                                 "Để trống để dùng api.anthropic.com. Dán địa chỉ gốc, không kèm /v1/messages.", self.base_url))
-        cv.addWidget(self._field("Model", "Tên model theo proxy của bạn.", self.model))
-        cv.addWidget(self._field("HTTP proxy mạng (tuỳ chọn)", "Chỉ cần khi máy phải đi qua proxy mạng.", self.proxy))
-        self.gemini_note = QLabel("Gemini dùng khoá ở thẻ “Gemini API” bên dưới.")
-        self.gemini_note.setProperty("caption", True)
-
-        llm_card = self._card("Mô hình tách scene và viết thuyết minh",
-                              "Dùng để chia chương thành scene, viết lại thuyết minh và gộp scene.")
-        row = QHBoxLayout()
-        lab = QLabel("Nhà cung cấp")
-        row.addWidget(lab)
-        row.addStretch()
-        row.addWidget(self.provider)
-        llm_card.layout().addLayout(row)
-        llm_card.layout().addWidget(self.claude_box)
-        llm_card.layout().addWidget(self.gemini_note)
-        foot = QHBoxLayout()
-        foot.setSpacing(SP.s)
-        foot.addWidget(self.status, 0, Qt.AlignVCenter)    # nhãn viên thuốc chỉ rộng bằng chữ, không giãn hết dòng
-        foot.addStretch(1)                                 # phần trống bên trái, nút luôn nằm sát phải
-        foot.addWidget(self.btn_test)
-        foot.addWidget(btn_save)
-        llm_card.layout().addLayout(foot)
-
-        # --- thẻ 2: Gemini API ---
-        gem_card = self._card("Gemini API", "Dùng khi chọn Gemini làm mô hình, hoặc khi gen video và giọng trực tiếp qua API.")
-        gem_card.layout().addWidget(self._field("API key", "Lấy từ Google AI Studio.", self.gemini_key))
-        self.image_model = QLineEdit(settings.image_model())
-        self.image_model.setPlaceholderText(settings.IMAGE_DEFAULT_MODEL)
-        gem_card.layout().addWidget(self._field("Model tạo ảnh nhân vật", "Dùng cho “Tạo nhân vật từ truyện”. Ví dụ gemini-2.5-flash-image "
-                                                "hoặc gemini-3.1-flash-image (giá khác nhau theo bảng giá Gemini API).", self.image_model))
-
-        # --- thẻ 3: nơi lưu dữ liệu ---
-        data_card = self._card("Dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
-                                          "cập nhật hay build lại app không làm mất.")
-        self.data_path = QLabel(str(models.DATA_DIR))
-        self.data_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.data_path.setWordWrap(True)
-        self.data_path.setProperty("mono", True)
-        b_change, b_open = QPushButton("Đổi thư mục…"), QPushButton("Mở thư mục")
-        b_change.clicked.connect(self.change_data_dir)
-        b_open.clicked.connect(lambda: (models.DATA_DIR.mkdir(parents=True, exist_ok=True), flow.reveal(models.DATA_DIR)))
-        data_card.layout().addWidget(self.data_path)
-        drow = QHBoxLayout()
-        drow.addStretch()
-        drow.addWidget(b_open)
-        drow.addWidget(b_change)
-        data_card.layout().addLayout(drow)
-
-        head = QLabel("Cài đặt")
-        head.setProperty("heading", True)
-        sub = QLabel("Cấu hình dùng chung cho mọi dự án.")
-        sub.setProperty("caption", True)
-        col = QVBoxLayout()
-        col.setSpacing(SP.l)
-        col.addWidget(head)
-        col.addWidget(sub)
-        col.addWidget(llm_card)
-        col.addWidget(gem_card)
-        col.addWidget(data_card)
-        col.addStretch()
-        holder = QWidget()
-        holder.setMaximumWidth(680)
-        holder.setLayout(col)
-        row = QHBoxLayout()                          # canh giữa một cột
-        row.setContentsMargins(0, 0, SP.m, 0)
-        row.addStretch(1)
-        row.addWidget(holder, 100)
-        row.addStretch(1)
-        page = QWidget()
-        page.setLayout(row)
-        scroll = QScrollArea()                       # nội dung dài hơn cửa sổ thì cuộn, không ép xẹp các ô nhập
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidget(page)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
-        self.provider.currentIndexChanged.connect(self.refresh)
-        self.refresh()
-        self.worker = None
-
-    def change_data_dir(self):
-        start = str(models.DATA_DIR if models.DATA_DIR.exists() else Path.home())
-        f = QFileDialog.getExistingDirectory(self, "Chọn thư mục dữ liệu (thư mục chứa “projects”)", start)
-        if not f or Path(f) == models.DATA_DIR:
-            return
-        has = models.has_projects(Path(f))
-        models.set_data_dir(Path(f))
-        self.data_path.setText(str(models.DATA_DIR))
-        QMessageBox.information(
-            self, "Đã đổi thư mục dữ liệu",
-            ("Tìm thấy dự án trong thư mục này. " if has else "Thư mục này chưa có dự án nào (sẽ tạo mới khi bạn tạo dự án). ")
-            + "\n\nHãy đóng và mở lại ứng dụng để áp dụng. Dữ liệu ở thư mục cũ không bị xoá hay di chuyển.")
-
-    # ---- khối dựng nhỏ ----
-    @staticmethod
-    def _card(title: str, subtitle: str) -> QFrame:
-        card = QFrame()
-        card.setProperty("card", True)
-        v = QVBoxLayout(card)
-        v.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
-        v.setSpacing(SP.m)
-        t = QLabel(title)
-        t.setProperty("subheading", True)
-        v.addWidget(t)
-        if subtitle:
-            s = QLabel(subtitle)
-            s.setProperty("caption", True)
-            s.setWordWrap(True)
-            v.addWidget(s)
-        return card
-
-    @staticmethod
-    def _field(title: str, hint: str, control: QWidget) -> QWidget:
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(SP.xs)
-        v.addWidget(QLabel(title))
-        v.addWidget(control)
-        if hint:
-            h = QLabel(hint)
-            h.setProperty("caption", True)
-            h.setWordWrap(True)
-            v.addWidget(h)
-        return w
-
-    @staticmethod
-    def _secret(value: str, placeholder: str) -> QWidget:
-        """Ô nhập khoá có nút Hiện/Ẩn. Dùng .edit để đọc giá trị."""
-        w = QWidget()
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(SP.s)
-        e = QLineEdit(value)
-        e.setEchoMode(QLineEdit.Password)
-        e.setPlaceholderText(placeholder)
-        b = QPushButton("Hiện")
-        b.setProperty("ghost", True)
-        b.setCheckable(True)
-
-        def flip(on):
-            e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password)
-            b.setText("Ẩn" if on else "Hiện")
-        b.toggled.connect(flip)
-        h.addWidget(e, 1)
-        h.addWidget(b)
-        w.edit = e
-        return w
-
-    def refresh(self) -> None:
-        claude = self.provider.currentData() == "claude"
-        self.claude_box.setVisible(claude)
-        self.gemini_note.setVisible(not claude)
-
-    def show_status(self, text: str, kind: str) -> None:
-        self.status.setText(text)
-        self.status.setProperty("pill", kind)
-        repolish(self.status)
-
-    def save(self) -> None:
-        settings.save_llm(self.provider.currentData(), self.claude_key.edit.text(), self.base_url.text(),
-                          self.model.text(), self.proxy.text())
-        settings.set_api_key(self.gemini_key.edit.text())
-        settings.set_image_model(self.image_model.text())
-        self.show_status("Đã lưu.", "ok")
-
-    def test(self) -> None:
-        self.save()
-        self.show_status("Đang thử kết nối…", "warn")
-        self.btn_test.setEnabled(False)
-        self.worker = Worker(lambda log: llm.ping())
-        self.worker.done.connect(lambda m: self.show_status(str(m), "ok"))
-        self.worker.failed.connect(lambda e: self.show_status(f"Lỗi: {e}", "err"))
-        self.worker.finished.connect(lambda: self.btn_test.setEnabled(True))
-        self.worker.start()
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -583,6 +369,9 @@ class MainWindow(QMainWindow):
         chars.chars_changed.connect(proj.d_chars.refresh)     # nối TRƯỚC khi nạp để chip luôn được vẽ lại với ảnh
         chars.set_project(proj.combo.currentText())
         self.settings_tab = SettingsTab()
+        self.settings_tab.accounts_changed.connect(proj.on_accounts_changed)
+        self.settings_tab.llm_changed.connect(lambda: self.refresh_chips())
+        proj.account_changed.connect(lambda *_: (self.refresh_chips(), self.settings_tab.accounts_panel.refresh()))
         proj.welcome = Welcome(proj, lambda: tabs.setCurrentWidget(self.settings_tab), proj.new_project, proj.launch_flow_chrome)
         proj.update_welcome()
         tabs.addTab(proj, "Dự án")
@@ -665,20 +454,57 @@ class MainWindow(QMainWindow):
 
     def refresh_chips(self):
         ok, _ = llm.is_configured()
-        self.strip.set_chip("llm", f"LLM · {llm.short_name()}" if ok else "LLM · chưa cấu hình", ok)
+        prof = settings.active_llm()
+        self.strip.set_chip("llm", f"LLM · {llm.short_name()}" if ok else f"LLM · {prof.name} chưa nhập key", ok)
         up = flow_auto.cdp_state()
-        self.strip.set_chip("flow", "Flow ● sẵn sàng" if up else "Flow ○ chưa mở Chrome", up)
+        accs = accounts.all_accounts()
+        who = f" · {accounts.active().name}" if len(accs) > 1 else ""         # chỉ nêu tên tài khoản khi có nhiều hơn một
+        self.strip.set_chip("flow", f"Flow{who} ● sẵn sàng" if up else f"Flow{who} ○ chưa mở Chrome", up)
         voice = self.proj.project.voice.split("-")[-1].replace("Neural", "") if self.proj.project else "—"
         self.strip.set_chip("voice", f"Giọng · {voice}", True)
         if self.proj.welcome.isVisible():
             self.proj.welcome.refresh()
 
+    def build_flow_pop(self, pop):
+        """Chip Flow: chọn tài khoản Flow cho DỰ ÁN đang mở, mở Chrome của tài khoản đó, hoặc vào quản lý tài khoản."""
+        cur = accounts.active().id
+        pop.section("Tài khoản Flow của dự án" if self.proj.project else "Tài khoản Flow")
+        for a in accounts.all_accounts():
+            pop.item(a.name, f"Cổng {a.port}" + ("  ·  mặc định cho dự án mới" if a.id == accounts.default_new_id() else ""),
+                     (lambda i=a.id: self.proj.set_account(i)), shortcut="✓" if a.id == cur else "", enabled=bool(self.proj.project))
+        pop.separator()
+        if not flow_auto.cdp_state(0):
+            pop.item("Mở Chrome cho tài khoản này", "Đăng nhập Google Flow một lần trong cửa sổ đó", self.proj.launch_flow_chrome)
+        pop.item("Quản lý tài khoản…", "Thêm, đổi tên, gỡ, mở Chrome để đăng nhập",
+                 lambda: (self.tabs.setCurrentWidget(self.settings_tab), self.settings_tab.select_section("flow")))
+
+    def build_llm_pop(self, pop):
+        """Chip LLM: chọn nhanh mô hình AI đang dùng (áp dụng cho mọi dự án), hoặc vào quản lý mô hình."""
+        pop.section("Mô hình AI đang dùng")
+        cur = settings.active_llm_id()
+        for p in settings.llm_profiles():
+            ok, _ = llm.is_configured(p)
+            sub = f"{p.kind_label.split(' (')[0]}  ·  {p.effective_model}" + ("" if ok else "  ·  chưa nhập key")
+            pop.item(p.name, sub, (lambda i=p.id: self.set_llm(i)), shortcut="✓" if p.id == cur else "")
+        pop.separator()
+        pop.item("Quản lý mô hình…", "Thêm Claude, Gemini, OpenAI và dịch vụ tương thích",
+                 lambda: (self.tabs.setCurrentWidget(self.settings_tab), self.settings_tab.select_section("llm")))
+
+    def set_llm(self, profile_id: str):
+        settings.set_active_llm(profile_id)
+        self.settings_tab.llm_panel.active_id = profile_id
+        self.settings_tab.llm_panel.refresh_list(profile_id)
+        self.refresh_chips()
+
     def on_chip(self, key: str):
         if key == "llm":
-            self.tabs.setCurrentWidget(self.settings_tab)
+            if not hasattr(self, "llm_pop"):
+                self.llm_pop = Popover(self, self.build_llm_pop, 380)
+            self.llm_pop.show_for(self.strip.chips["llm"], "above", "right")
         elif key == "flow":
-            if not flow_auto.cdp_state(0):
-                self.proj.launch_flow_chrome()
+            if not hasattr(self, "flow_pop"):
+                self.flow_pop = Popover(self, self.build_flow_pop, 360)
+            self.flow_pop.show_for(self.strip.chips["flow"], "above", "right")
         elif key == "voice":
             self.tabs.setCurrentWidget(self.proj)
             self.proj.open_settings()

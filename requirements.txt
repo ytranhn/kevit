@@ -5,3 +5,4 @@ edge-tts>=7.0
 playwright>=1.48
 anthropic>=0.40
 pyinstaller>=6.10   # chỉ cần khi đóng gói app
+httpx>=0.27

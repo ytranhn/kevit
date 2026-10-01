@@ -20,7 +20,7 @@ from . import credits, langs, flow, flow_auto, flow_selectors, llm, pipeline, sc
 from .merger import merge
 from . import models
 from .models import Project, nfc, safe_dirname
-from . import icons, theme
+from . import accounts, icons, theme
 from .theme import SP
 from .project_settings import ProjectSettingsDialog
 from .widgets import (
@@ -125,6 +125,7 @@ class PreviewPanel(QWidget):
 
 class ProjectTab(QWidget):
     opened = Signal(str)
+    account_changed = Signal(str)        # id tài khoản Flow đang dùng vừa đổi
     voices_ready = Signal()              # danh mục giọng Edge vừa tải xong ở luồng nền
     activity = Signal(str, str)          # (nội dung, mức: info/ok/warn/error) -> thanh trạng thái
     busy_changed = Signal(bool, bool)    # (đang chạy, có thể dừng)
@@ -215,6 +216,9 @@ class ProjectTab(QWidget):
         self.voice = Combo()
         self.voice.setMinimumWidth(240)
         self.voice_style = QLineEdit()
+        self.flow_account = Combo()              # tài khoản Google Flow của dự án (đổi có hiệu lực ngay, không đợi bấm Lưu)
+        self.account_changed.connect(self.fill_accounts)
+        self.flow_account.activated.connect(lambda i: self.set_account(self.flow_account.itemData(i)))
         self.flow_model = Combo()
         self.flow_model.addItems(flow_selectors.MODELS)
         self.flow_model.setMinimumWidth(240)
@@ -461,6 +465,7 @@ class ProjectTab(QWidget):
         tts.on_catalog_ready(self.voices_ready.emit)
         self.combo.currentTextChanged.connect(self.open_project)
         self.chap_combo.currentIndexChanged.connect(self.on_chapter_selected)
+        self.fill_accounts()
         self.reload_projects()
 
     # ================= dự án / chương =================
@@ -511,6 +516,7 @@ class ProjectTab(QWidget):
         name = safe_dirname(name) if ok and name.strip() else ""
         if name:
             p = Project(name)
+            p.use_flow_account(accounts.default_new_id())     # dự án mới dùng tài khoản mặc định (đổi được ở chip Flow / Cài đặt dự án)
             p.new_chapter()
             p.save()
             self.reload_projects(name)
@@ -527,6 +533,8 @@ class ProjectTab(QWidget):
             return
         self._row, self._chap_idx = -1, -1
         self.project = p = Project.load(name)
+        accounts.activate(p.account_id)         # mọi thao tác Flow của dự án này dùng đúng tài khoản (Chrome/hồ sơ/cổng) của nó
+        self.account_changed.emit(p.account_id)
         if not p.chapters:
             p.new_chapter()
             p.save()
@@ -650,6 +658,15 @@ class ProjectTab(QWidget):
         self._chap_idx = -1
         self.fill_chapter_combo(new)
         self.show_chapter(new)
+
+    def fill_accounts(self, current: str = ""):
+        self.flow_account.blockSignals(True)
+        self.flow_account.clear()
+        cur = current or (self.project.account_id if self.project else accounts.DEFAULT_ID)
+        for a in accounts.all_accounts():
+            self.flow_account.addItem(a.name, a.id)
+        self.flow_account.setCurrentIndex(max(0, self.flow_account.findData(cur)))
+        self.flow_account.blockSignals(False)
 
     def current_voice(self) -> str:
         return self.voice.currentData() or self.voice.currentText()
@@ -1557,9 +1574,40 @@ class ProjectTab(QWidget):
             self.left_tabs.setCurrentWidget(self.story)
             self.story.setFocus()
 
+    def set_account(self, acc_id: str):
+        """Đổi tài khoản Flow của dự án đang mở. Project Flow là của riêng từng tài khoản nên địa chỉ project được cất/nạp theo tài khoản
+        (đổi sang tài khoản chưa từng dùng thì lần gen sau tạo project mới theo tên chương)."""
+        p = self.project
+        if not p or acc_id == p.account_id:
+            return
+        if self._busy:
+            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong (hoặc bấm Dừng) rồi đổi tài khoản Flow.")
+            self.account_changed.emit(p.account_id)         # trả ô chọn về giá trị cũ
+            return
+        self.save_edits()
+        old = accounts.get(p.account_id).name
+        p.use_flow_account(acc_id)
+        p.save()
+        acc = accounts.activate(p.account_id)
+        self.log(f"Dự án «{p.name}» chuyển từ tài khoản Flow «{old}» sang «{acc.name}»."
+                 + ("" if flow_auto.cdp_state(0) else " Chrome của tài khoản này chưa mở: bấm chip Flow để mở và đăng nhập."))
+        self.account_changed.emit(acc.id)
+
+    def on_accounts_changed(self):
+        """Danh sách tài khoản đổi (thêm/đổi tên/gỡ): nạp lại ô chọn và kích hoạt lại tài khoản của dự án (có thể đã bị chuyển về chính)."""
+        if self.project:
+            fresh = Project.load(self.project.name)
+            self.project.flow_account, self.project.flow_stash = fresh.flow_account, fresh.flow_stash
+            self.project.flow_project_url = fresh.flow_project_url
+            for c, f in zip(self.project.chapters, fresh.chapters):
+                c.flow_project_url = f.flow_project_url
+            accounts.activate(self.project.account_id)
+        self.account_changed.emit(self.project.account_id if self.project else "")
+
     def launch_flow_chrome(self):
         if not self._busy:
-            self.run(lambda log: flow_auto.launch_chrome(), lambda _: self.log("Chrome Flow đã mở."))
+            acc = accounts.active()
+            self.run(lambda log: flow_auto.launch_chrome(acc), lambda _: self.log(f"Chrome Flow ({acc.name}) đã mở."))
 
     def _restore_queue(self):
         """Scene còn đang 'Hàng đợi' khi tác vụ kết thúc/bị dừng thì trả về trạng thái trước đó."""

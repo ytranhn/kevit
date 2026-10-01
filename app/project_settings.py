@@ -89,6 +89,8 @@ class ProjectSettingsDialog(QDialog):
             _row("Cảnh báo khi chương vượt số scene", "Chỉ để cảnh báo chi phí. Tool luôn tách đủ scene để thuyết minh giữ ≥70% nội dung truyện.", tab.max_scenes))
         flow = _card(
             "Google Flow", "Model và độ dài ảnh hưởng trực tiếp đến credit.",
+            _row("Tài khoản Flow", "Tài khoản Google dùng để gen video của dự án này (credit tính theo tài khoản). Thêm tài khoản ở tab Cài đặt. "
+                 "Đổi tài khoản thì mỗi chương sẽ có project Flow mới trên tài khoản đó; clip đã tải về máy không bị ảnh hưởng.", tab.flow_account),
             _row("Model", "Veo 3.1 Lite rẻ nhất ở 720p; Omni linh hoạt thời lượng.", tab.flow_model),
             _row("Độ phân giải", "Chỉ Omni có 360p (rẻ, hợp bản nháp).", tab.flow_res),
             tab.flow_auto_dur,
@@ -158,14 +160,14 @@ class ProjectSettingsDialog(QDialog):
         t = self.tab
         return dict(style=t.style.text(), aspect=t.aspect.currentIndex(), scenes=t.max_scenes.value(),
                     model=t.flow_model.currentText(), res=t.flow_res.currentText(), auto=t.flow_auto_dur.isChecked(), parallel=t.flow_parallel.value(),
-                    provider=t.provider.currentIndex(), voice=t.current_voice(), lang=t.narr_lang.currentIndex(), vstyle=t.voice_style.text())
+                    acct=t.project.account_id if t.project else 'default', provider=t.provider.currentIndex(), voice=t.current_voice(), lang=t.narr_lang.currentIndex(), vstyle=t.voice_style.text())
 
     def restore(self, s: dict) -> None:
         t = self.tab
         t.style.setText(s["style"]); t.aspect.setCurrentIndex(s["aspect"]); t.max_scenes.setValue(s["scenes"])
         t.flow_model.setCurrentText(s["model"]); t.flow_res.setCurrentText(s["res"]); t.flow_auto_dur.setChecked(s["auto"]); t.flow_parallel.setValue(s["parallel"])
         t.narr_lang.blockSignals(True); t.narr_lang.setCurrentIndex(s["lang"]); t.narr_lang.blockSignals(False)
-        t.provider.setCurrentIndex(s["provider"]); t.fill_voices(s["voice"]); t.voice_style.setText(s["vstyle"])
+        t.set_account(s["acct"]); t.provider.setCurrentIndex(s["provider"]); t.fill_voices(s["voice"]); t.voice_style.setText(s["vstyle"])
 
     def open_for_project(self) -> bool:
         """Hiện hộp thoại; trả True nếu người dùng bấm Lưu."""
