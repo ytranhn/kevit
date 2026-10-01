@@ -69,7 +69,7 @@ class CharactersTab(QWidget):
         btn_save.clicked.connect(self.save)
         btn_new.clicked.connect(self.new)
         btn_del.clicked.connect(self.delete)
-        btn_pack.clicked.connect(self.import_pack)
+        btn_pack.clicked.connect(lambda _checked=False: self.import_pack())     # clicked gửi thêm 'checked': không được lọt vào tham số source
 
         top = QHBoxLayout()
         top.setSpacing(SP.l)
