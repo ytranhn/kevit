@@ -21,6 +21,7 @@ from .workers import Worker
 
 class CharactersTab(QWidget):
     deleted = Signal(list)          # tên các nhân vật vừa bị xoá (để dọn khỏi scene)
+    added = Signal(list)            # tên các nhân vật MỚI vừa thêm (AI, nhập gói, tạo tay): để gắn vào các scene đã tạo trước đó
     chars_changed = Signal()        # danh sách nhân vật vừa được nạp/đổi (để nơi khác vẽ lại ảnh)
 
     def __init__(self):
@@ -234,9 +235,11 @@ class CharactersTab(QWidget):
         c = Character(name, self.desc.toPlainText().strip(),
                       [models.nfc(a.strip()) for a in self.aliases.text().split(",") if a.strip()], img,
                       self.role.text().strip(), self.zh.text().strip(), self.desc_vi.toPlainText().strip())
+        is_new = True
         for i, old in enumerate(self._chars):
             if old.name == name:
                 self._chars[i] = c
+                is_new = False
                 break
         else:
             self._chars.append(c)
@@ -244,6 +247,8 @@ class CharactersTab(QWidget):
         self._mtime = models.characters_mtime(self.project_name)
         self.refresh()
         self.chars_changed.emit()
+        if is_new:
+            self.added.emit([name])
 
     def delete(self):
         """Xoá nhân vật đang chọn (có thể nhiều): bỏ khỏi danh sách, ảnh vào thùng rác của dự án, gỡ tên khỏi các scene."""
@@ -292,6 +297,7 @@ class CharactersTab(QWidget):
             return
         if QMessageBox.question(self, "Xem trước gói nhân vật", confirm_text(pv)) != QMessageBox.Yes:
             return
+        before = {c.name for c in models.load_characters(self.project_name)}
         try:
             report = characters_pack.import_pack(self.project_name, source)
         except Exception as e:  # noqa: BLE001
@@ -299,6 +305,9 @@ class CharactersTab(QWidget):
             return
         self._reload()
         QMessageBox.information(self, "Nhập gói nhân vật", "\n".join(report[:30]) + ("\n…" if len(report) > 30 else ""))
+        new = [c.name for c in self._chars if c.name not in before]
+        if new:
+            self.added.emit(new)
 
     def make_image_ai(self):
         """Tạo (lại) ảnh cho nhân vật đang chọn bằng AI: chọn giới tính, chỉnh mô tả, xem trước rồi dùng."""
@@ -324,6 +333,7 @@ class CharactersTab(QWidget):
             self._reload()
             QMessageBox.information(self, "Đã thêm nhân vật", f"Đã thêm {len(dlg.added)} nhân vật: {', '.join(dlg.added[:8])}"
                                     + ("…" if len(dlg.added) > 8 else "") + ".\nBạn có thể sửa mô tả hoặc đổi ảnh từng nhân vật ở đây.")
+            self.added.emit(list(dlg.added))
 
     # kéo-thả thư mục hoặc .zip thẳng vào tab Nhân vật
     def dragEnterEvent(self, e):
@@ -568,6 +578,8 @@ class MainWindow(QMainWindow):
         proj.opened.connect(chars.set_project)
         chars.usage_counter = proj.character_usage
         chars.deleted.connect(proj.on_characters_deleted)
+        chars.added.connect(proj.on_characters_added)
+        chars.chars_changed.connect(proj.update_empty_state)
         chars.chars_changed.connect(proj.d_chars.refresh)     # nối TRƯỚC khi nạp để chip luôn được vẽ lại với ảnh
         chars.set_project(proj.combo.currentText())
         self.settings_tab = SettingsTab()

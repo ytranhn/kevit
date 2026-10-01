@@ -91,6 +91,28 @@ def guess_characters(chars: list[Character], scene: Scene, limit: int = 3) -> li
     return (scan(scene.visual) or scan(f"{scene.source_text} {scene.narration}"))[:limit]
 
 
+def attach_characters(chars: list[Character], scenes: list[Scene], only: list[str] | None = None, limit: int = 3) -> list[tuple[Scene, list[str]]]:
+    """Gắn nhân vật vào scene ĐÃ CÓ theo văn bản (không dùng LLM, không tốn credit): nhân vật (chỉ trong `only` nếu có) được nhắc trong
+    hình ảnh / đoạn gốc / thuyết minh của scene mà chưa nằm trong danh sách nhân vật của scene, tối đa `limit` mỗi scene.
+    Trả về [(scene, [tên vừa thêm])] cho các scene đã đổi. Dùng khi nhân vật được tạo SAU khi đã tách scene."""
+    allow = {nfc(n) for n in only} if only is not None else None
+    pool = [c for c in chars if allow is None or nfc(c.name) in allow]
+    out = []
+    for sc in scenes:
+        have = {nfc(n) for n in sc.characters}
+        if len(sc.characters) >= limit:
+            continue
+        found = guess_characters(pool, Scene(index=sc.index, visual=sc.visual), limit=limit)          # ưu tiên nhân vật hiện trong hình ảnh
+        for n in guess_characters(pool, Scene(index=sc.index, source_text=sc.source_text, narration=sc.narration), limit=limit):
+            if n not in found:
+                found.append(n)
+        new = [n for n in found if nfc(n) not in have][:limit - len(sc.characters)]
+        if new:
+            sc.characters = sc.characters + new
+            out.append((sc, new))
+    return out
+
+
 def relevant_chars(story: str, chars: list[Character]) -> list[Character]:
     """Chỉ giữ nhân vật được nhắc trong chương (tên, tên gọi khác, hoặc 2 âm cuối của tên dài như "Tinh Quân").
     Danh sách 50 nhân vật kèm mô tả là phần tốn token nhất ngoài chính chương truyện. Không khớp ai thì gửi hết."""
