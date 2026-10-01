@@ -206,6 +206,10 @@ class ProjectTab(QWidget):
         self.flow_model.setMinimumWidth(240)
         self.flow_res = Segmented()
         self.flow_res.addItems(["720p", "360p"])
+        self.flow_parallel = QSpinBox()
+        self.flow_parallel.setRange(1, 8)
+        self.flow_parallel.setValue(1)
+        self.flow_parallel.setFixedWidth(100)
         self.flow_auto_dur = QCheckBox("Tự chọn thời lượng clip theo thuyết minh (chỉ Omni)")
         self.provider.currentIndexChanged.connect(self.fill_voices)
         self.settings_dialog = ProjectSettingsDialog(self)
@@ -512,6 +516,7 @@ class ProjectTab(QWidget):
         self.flow_model.setCurrentText(p.flow_model)
         self.flow_res.setCurrentText(p.flow_resolution)
         self.flow_auto_dur.setChecked(p.flow_auto_duration)
+        self.flow_parallel.setValue(max(1, min(8, p.flow_parallel)))
         self.opened.emit(name)   # nạp danh sách nhân vật trước khi dựng bảng/chi tiết
         self.fill_chapter_combo(0)
         self.show_chapter(0)
@@ -1184,6 +1189,7 @@ class ProjectTab(QWidget):
         p.voice_style = self.voice_style.text().strip()
         p.flow_model = self.flow_model.currentText()
         p.flow_resolution, p.flow_auto_duration = self.flow_res.currentText(), self.flow_auto_dur.isChecked()
+        p.flow_parallel = self.flow_parallel.value()
         p.save()
         self.refresh_chapter_labels()
 
@@ -1477,10 +1483,12 @@ class ProjectTab(QWidget):
                                 f"Sẽ tạo {len(todo)} clip ({ch.name}: {self.MODE_LABEL[mode]}) bằng {cfg} trên Google Flow.\n"
                                 + (f"⚠ {redo} scene đã xong sẽ bị gen LẠI và ghi đè clip cũ.\n" if redo else "") +
                                 f"Ước tính khoảng {est} credit (giá thật hiện trong nhật ký).\n"
+                                + (f"Gửi song song {p.flow_parallel} scene mỗi lượt (đổi trong Cài đặt dự án).\n" if p.flow_parallel > 1 and len(todo) > 1 else "") +
                                 "Chrome Flow phải đã đăng nhập. Tiếp tục?") != QMessageBox.Yes:
             return
         chars = {c.name: c for c in self.chars_tab.chars}
-        self._queue_prev = {id(s): (s.status, s.error) for s in todo}
+        prev = {id(s): (s.status, s.error) for s in todo}     # trạng thái trước khi xếp hàng đợi
+        self._queue_prev = dict(prev)
         for s in todo:                      # hiện ngay hàng đợi trên bảng, không đợi tới lượt
             s.status, s.error = "queued", ""
         self._prog = (0, len(todo))
@@ -1490,8 +1498,8 @@ class ProjectTab(QWidget):
             with flow_auto.FlowAuto(log) as f:
                 f.ensure_project(p)
                 # scene lỗi do ngắt/tải thất bại có thể đã render xong trên Flow: lấy lại thay vì trả credit lần nữa
-                maybe = [s for s in todo if s.status == "error"
-                         and any(k in (s.error or "") for k in ("Bị ngắt", "Không tải được", "quá 15 phút"))]
+                maybe = [s for s in todo if prev[id(s)][0] == "error"
+                         and any(k in (prev[id(s)][1] or "") for k in ("Bị ngắt", "Không tải được", "quá 15 phút", "chưa thấy clip"))]
                 recovered = []
                 if maybe:
                     log("Kiểm tra clip đã render sẵn trên Flow trước khi gen lại (tránh trả credit trùng)...")
@@ -1506,14 +1514,12 @@ class ProjectTab(QWidget):
                         p.save()
                 finished = len(recovered)
                 self._prog = (finished, len(todo))
-                for s in [x for x in todo if x not in recovered]:
-                    if self._cancel.is_set():
-                        log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                        break
-                    s.status, s.error = "generating", ""
-                    p.save()
+                rest = [x for x in todo if x not in recovered]
+                par = max(1, p.flow_parallel)
+
+                def finish(s):
+                    nonlocal finished
                     try:
-                        s.raw_clip = str(f.generate_scene(p, s, chars, p.chapter_dir(ch) / "clips"))
                         s.status = "raw"
                         pipeline.apply_voice(p, ch, s, log)
                         s.status = "done"
@@ -1524,6 +1530,53 @@ class ProjectTab(QWidget):
                     p.save()
                     finished += 1
                     self._prog = (finished, len(todo))
+
+                if par > 1 and len(rest) > 1:
+                    log(f"Gen song song: gửi {par} scene mỗi lượt lên Flow.")
+                    out_dir = lambda s: p.chapter_dir(ch) / "clips"
+                    for i in range(0, len(rest), par):
+                        group = rest[i:i + par]
+                        if self._cancel.is_set():
+                            log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
+                            break
+                        for s in group:
+                            s.status, s.error = "generating", ""
+                        p.save()
+                        got, failed, missing = f.generate_parallel(p, group, chars, out_dir)
+                        for s in got:
+                            finish(s)
+                        for s in group:
+                            if id(s) in failed:
+                                s.status, s.error = "error", failed[id(s)]
+                            elif s in missing:
+                                s.status = "error"
+                                s.error = ("Đã gửi lên Flow nhưng chưa thấy clip (Flow báo lỗi hoặc quá thời gian chờ). "
+                                           "Bấm ⟳ Đồng bộ Flow để thử lấy lại, không tốn credit.")
+                            else:
+                                continue
+                            log(f"[{ch.name}] Scene {s.index} lỗi: {s.error}")
+                            p.save()
+                            finished += 1
+                            self._prog = (finished, len(todo))
+                else:
+                    for s in [x for x in todo if x not in recovered]:
+                        if self._cancel.is_set():
+                            log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
+                            break
+                        s.status, s.error = "generating", ""
+                        p.save()
+                        try:
+                            s.raw_clip = str(f.generate_scene(p, s, chars, p.chapter_dir(ch) / "clips"))
+                            s.status = "raw"
+                            pipeline.apply_voice(p, ch, s, log)
+                            s.status = "done"
+                            log(f"[{ch.name}] Scene {s.index} xong.")
+                        except Exception as e:  # noqa: BLE001
+                            s.status, s.error = "error", str(e)[:1500]
+                            log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
+                        p.save()
+                        finished += 1
+                        self._prog = (finished, len(todo))
         self._prog = (0, len(todo))
         self.run(job, lambda _: None, cancelable=True)
 

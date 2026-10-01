@@ -22,6 +22,9 @@ PROFILE_DIR = DATA_DIR / "flow_profile"
 FLOW_URL = "https://labs.google/fx/tools/flow"
 
 
+ERROR_RE = r"(lỗi|không thành công|thất bại|failed)"
+
+
 def _ranges(nums: list[int]) -> str:
     """[2,3,4,7,9,10] -> 'scene 2-4, 7, 9-10'."""
     nums, out, i = sorted(nums), [], 0
@@ -211,7 +214,9 @@ class FlowAuto:
         pg.wait_for_timeout(1200)
 
     # ---- 1 scene ----
-    def generate_scene(self, p: Project, s: Scene, chars: dict[str, Character], out_dir: Path) -> Path | None:
+    def submit_scene(self, p: Project, s: Scene, chars: dict[str, Character]) -> int:
+        """Cấu hình + điền prompt + bấm tạo, rồi chờ tới khi Flow nhận (xuất hiện thêm 1 ô clip). KHÔNG chờ render xong.
+        Trả về số ô clip trước khi gửi. Trả None-clip khi dry_run."""
         pg = self.page
         self._goto(p.flow_project_url)
         n0 = pg.locator(S.TILE).count()
@@ -227,12 +232,20 @@ class FlowAuto:
         pg.wait_for_timeout(800)
         if self.dry_run:
             self.log(f"[dry-run] scene {s.index}: đã điền sẵn, không bấm tạo.")
-            return None
+            return -1
         gen = pg.get_by_role("button", name=S.BTN_GENERATE)
         if not gen.is_enabled():
             raise FlowError("Nút tạo bị khoá (prompt trống hoặc hết credit?)")
         gen.click()
-        self.log(f"Scene {s.index}: đã gửi, chờ Flow render...")
+        self.log(f"Scene {s.index}: đã gửi lên Flow.")
+        return n0
+
+    def generate_scene(self, p: Project, s: Scene, chars: dict[str, Character], out_dir: Path) -> Path | None:
+        n0 = self.submit_scene(p, s, chars)
+        if n0 < 0:
+            return None
+        pg = self.page
+        self.log(f"Scene {s.index}: chờ Flow render...")
         t0 = time.time()
         while time.time() - t0 < 900:
             pg.wait_for_timeout(6000)
@@ -240,13 +253,54 @@ class FlowAuto:
             tiles = pg.locator(S.TILE)
             if tiles.count() > n0:
                 txt = tiles.first.inner_text()
-                if re.search(r"(lỗi|không thành công|thất bại|failed)", txt, re.I):
+                if re.search(ERROR_RE, txt, re.I):
                     raise FlowError(f"Flow báo lỗi scene {s.index}: {txt[:120]}")
                 if "%" not in txt:
                     break
         else:
             raise FlowError(f"Scene {s.index}: quá 15 phút chưa xong.")
         return self._download_first(s, out_dir)
+
+    # ---- gen song song: gửi nhiều scene liền nhau, chờ render cùng lúc, rồi thu clip về ----
+    def wait_idle(self, expect_new: int, n0: int, timeout: int = 1200) -> int:
+        """Chờ tới khi đủ `expect_new` ô clip mới xuất hiện và không còn ô nào đang render (hiện %).
+        Trả về số ô báo lỗi. Quá `timeout` giây thì dừng chờ (các clip chưa xong sẽ được báo là chưa thấy)."""
+        pg, t0 = self.page, time.time()
+        while time.time() - t0 < timeout:
+            pg.wait_for_timeout(6000)
+            self._check_login()
+            texts = pg.locator(S.TILE).all_inner_texts()
+            rendering = sum(1 for t in texts if "%" in t)
+            if len(texts) >= n0 + expect_new and not rendering:
+                break
+            self.log(f"Flow đang render: {rendering} clip ({len(texts) - n0}/{expect_new} ô mới)...")
+        return sum(1 for t in pg.locator(S.TILE).all_inner_texts() if re.search(ERROR_RE, t, re.I))
+
+    def generate_parallel(self, p: Project, scenes: list[Scene], chars: dict[str, Character], out_dir_for) -> tuple[list[Scene], dict[int, str], list[Scene]]:
+        """Gửi cả nhóm `scenes` lên Flow, chờ render cùng lúc, rồi tải clip về bằng đối chiếu prompt (sync_clips).
+        Trả về (đã_lấy_được, {id(scene): lỗi_khi_gửi}, đã_gửi_nhưng_chưa_thấy_clip). Scene gửi lỗi không chặn các scene khác."""
+        pg = self.page
+        failed: dict[int, str] = {}
+        submitted: list[Scene] = []
+        n_start = None
+        for s in scenes:
+            try:
+                n0 = self.submit_scene(p, s, chars)
+                if n0 < 0:
+                    continue
+                n_start = n0 if n_start is None else n_start
+                submitted.append(s)
+                pg.wait_for_timeout(1500)
+            except Exception as e:  # noqa: BLE001
+                failed[id(s)] = str(e)[:500]
+                self.log(f"Scene {s.index}: gửi lỗi: {e}")
+        if not submitted:
+            return [], failed, []
+        errs = self.wait_idle(len(submitted), n_start or 0)
+        if errs:
+            self.log(f"Flow báo lỗi ở {errs} clip trong nhóm (credit có thể đã được hoàn).")
+        got = self.sync_clips(p, submitted, out_dir_for)
+        return got, failed, [s for s in submitted if s not in got]
 
     def _open_first_tile(self):
         pg = self.page

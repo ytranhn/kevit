@@ -92,6 +92,7 @@ class ProjectSettingsDialog(QDialog):
             _row("Model", "Veo 3.1 Lite rẻ nhất ở 720p; Omni linh hoạt thời lượng.", tab.flow_model),
             _row("Độ phân giải", "Chỉ Omni có 360p (rẻ, hợp bản nháp).", tab.flow_res),
             tab.flow_auto_dur,
+            _row("Số scene gửi cùng lúc", "Flow render song song trên máy chủ: gửi nhiều scene một lượt rồi thu clip về, đỡ chờ từng scene. Credit không đổi. 1 = lần lượt như cũ; nếu Flow báo lỗi hoặc giới hạn thì giảm xuống.", tab.flow_parallel),
             _row("Ước tính", "Cho mỗi scene dài 8 giây.", self.cost))
         voice = _card(
             "Giọng đọc", "Một giọng duy nhất cho cả dự án để người nghe không thấy lệch giữa các scene.",
@@ -155,13 +156,13 @@ class ProjectSettingsDialog(QDialog):
     def snapshot(self) -> dict:
         t = self.tab
         return dict(style=t.style.text(), aspect=t.aspect.currentIndex(), scenes=t.max_scenes.value(),
-                    model=t.flow_model.currentText(), res=t.flow_res.currentText(), auto=t.flow_auto_dur.isChecked(),
+                    model=t.flow_model.currentText(), res=t.flow_res.currentText(), auto=t.flow_auto_dur.isChecked(), parallel=t.flow_parallel.value(),
                     provider=t.provider.currentIndex(), voice=t.voice.currentText(), vstyle=t.voice_style.text())
 
     def restore(self, s: dict) -> None:
         t = self.tab
         t.style.setText(s["style"]); t.aspect.setCurrentIndex(s["aspect"]); t.max_scenes.setValue(s["scenes"])
-        t.flow_model.setCurrentText(s["model"]); t.flow_res.setCurrentText(s["res"]); t.flow_auto_dur.setChecked(s["auto"])
+        t.flow_model.setCurrentText(s["model"]); t.flow_res.setCurrentText(s["res"]); t.flow_auto_dur.setChecked(s["auto"]); t.flow_parallel.setValue(s["parallel"])
         t.provider.setCurrentIndex(s["provider"]); t.voice.setCurrentText(s["voice"]); t.voice_style.setText(s["vstyle"])
 
     def open_for_project(self) -> bool:

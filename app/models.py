@@ -165,6 +165,7 @@ class Project:
     flow_project_url: str = ""     # project Google Flow gắn với dự án này (dùng chung mọi chương)
     flow_model: str = "Veo 3.1 - Fast"
     flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)
+    flow_parallel: int = 1             # số scene gửi lên Flow cùng lúc (1 = lần lượt từng scene)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
     chapters: list[Chapter] = field(default_factory=list)
