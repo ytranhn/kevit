@@ -123,6 +123,8 @@ QLabel[level="warn"] { color: $warn; }
 QLabel[level="ok"] { color: $ok; }
 QPushButton[navbtn="true"] { text-align: left; padding: 0; background: $surface; }
 QPushButton[navbtn="true"]:hover { background: $surface2; }
+QLabel[mono="true"] { font-family: Menlo, Consolas, 'Courier New', monospace; font-size: 12px; background: $surface2;
+    border: 1px solid $border; border-radius: 10px; padding: 12px; color: $text; }
 QWidget[welcome="true"] { background: $bg; }
 QFrame[stepRow="true"] { background: $surface; border: 1px solid $border; border-radius: 14px; }
 QLabel[stepnum="true"] { background: $accent_tint; color: $accent; border-radius: 14px; font-weight: 700; }

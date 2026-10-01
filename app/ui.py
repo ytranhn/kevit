@@ -6,12 +6,13 @@ from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme, characters_pack, flow_auto, llm, models, settings, trash
 from .models import Character
 from .project_tab import ProjectTab
+from .pack_guide import PackGuideDialog, confirm_text
 from .welcome import Welcome
 from .theme import SP
 from .widgets import Segmented, StatusStrip, avatar, repolish, rounded_pixmap
@@ -254,14 +255,30 @@ class CharactersTab(QWidget):
         self.deleted.emit(names)
 
     def import_pack(self):
+        """Hướng dẫn -> chọn thư mục -> xem trước -> xác nhận -> nhập."""
         if not self.project_name:
             QMessageBox.warning(self, "Thiếu dự án", "Chọn hoặc tạo dự án trước.")
             return
-        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục gói nhân vật")
-        if not folder:
+        guide = PackGuideDialog(self)
+        if guide.exec() != QDialog.Accepted or not guide.folder:
+            return
+        folder = guide.folder
+        try:
+            pv = characters_pack.preview_pack(self.project_name, folder)
+        except FileNotFoundError:
+            QMessageBox.warning(self, "Chưa đúng cấu trúc gói", f"Không thấy file character_index.csv trong:\n{folder}\n\n"
+                                "Chọn đúng thư mục chứa file đó (không phải thư mục con). Bấm “Nhập gói…” lại để xem hướng dẫn.")
+            return
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Không đọc được gói", f"{e}\n\nKiểm tra file character_index.csv: UTF-8, đủ cột No, Tên, Tên Trung, Vai trò, Folder.")
+            return
+        if not pv["update"] and not pv["new"]:
+            QMessageBox.warning(self, "Gói không có nhân vật hợp lệ", confirm_text(pv).split("\n\n")[0])
+            return
+        if QMessageBox.question(self, "Xem trước gói nhân vật", confirm_text(pv)) != QMessageBox.Yes:
             return
         try:
-            report = characters_pack.import_pack(self.project_name, Path(folder))
+            report = characters_pack.import_pack(self.project_name, folder)
         except Exception as e:  # noqa: BLE001
             QMessageBox.critical(self, "Nhập gói lỗi", str(e))
             return

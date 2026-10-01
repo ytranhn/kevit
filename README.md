@@ -68,6 +68,8 @@ py -m venv .venv
 
 ### Gói nhân vật
 
+Bấm **Nhập gói…** sẽ mở hộp thoại hướng dẫn từng bước (cấu trúc thư mục, ví dụ CSV, mô tả), có nút **Tạo gói mẫu…** để xem tận mắt và bước **xem trước** trước khi ghi vào dự án.
+
 Thư mục chứa `character_index.csv` (UTF-8, cột `No`, `Tên`, `Tên Trung`, `Vai trò`, `Folder`) và mỗi nhân vật một thư mục `NN_Tên/` gồm ảnh và `description.md` (mục `## Mô tả ngoại hình`). Tool ghép theo tên: cập nhật ảnh, vai trò, tên Hán, mô tả gốc; **giữ nguyên** mô tả prompt và tên gọi khác bạn đã chỉnh.
 
 ## Dữ liệu và bảo mật

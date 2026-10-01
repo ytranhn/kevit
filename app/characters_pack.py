@@ -89,3 +89,42 @@ def import_pack(project: str, folder: Path) -> list[str]:
     models.save_characters(project, chars)
     report.insert(0, f"Đã cập nhật {len(seen)}/{len(items)} nhân vật từ gói.")
     return report
+
+
+SAMPLE = [("Nhân vật mẫu A", "主角", "Nhân vật chính", "Nam, thanh niên, tóc đen dài, áo choàng xanh lục viền vàng."),
+          ("Nhân vật mẫu B", "师姐", "Sư tỷ", "Nữ, tóc búi cao, váy trắng thêu hoa, ánh mắt dịu dàng.")]
+
+
+def write_sample(dest: Path) -> Path:
+    """Tạo một gói mẫu (2 nhân vật, ảnh giữ chỗ) để người dùng xem cấu trúc rồi thay bằng dữ liệu thật."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QFont, QImage, QPainter
+    root = Path(dest) / "goi-nhan-vat-mau"
+    root.mkdir(parents=True, exist_ok=True)
+    rows = ["No,Tên,Tên Trung,Vai trò,Folder"]
+    for i, (name, zh, role, desc) in enumerate(SAMPLE, 1):
+        sub = root / f"{i:02d}_{name}"
+        sub.mkdir(exist_ok=True)
+        img = QImage(512, 768, QImage.Format_RGB32)
+        img.fill(QColor("#6B6FF2" if i == 1 else "#4CC38A"))
+        p = QPainter(img)
+        p.setPen(QColor("white"))
+        p.setFont(QFont("Helvetica", 34))
+        p.drawText(img.rect(), Qt.AlignCenter | Qt.TextWordWrap, f"{name}\n(thay bằng ảnh thật)")
+        p.end()
+        img.save(str(sub / f"{i:02d}_{name}.png"))
+        (sub / "description.md").write_text(f"# {name}\n\n## Mô tả ngoại hình\n{desc}\n", encoding="utf-8")
+        rows.append(f"{i},{name},{zh},{role},{sub.name}/{sub.name}.png")
+    (root / "character_index.csv").write_text("\n".join(rows) + "\n", encoding="utf-8-sig")
+    return root
+
+
+def preview_pack(project: str, folder: Path) -> dict:
+    """Đọc gói mà chưa ghi gì: bao nhiêu nhân vật sẽ được cập nhật / thêm mới / bị bỏ qua vì thiếu ảnh."""
+    items = parse_pack(Path(folder))
+    have = {models.nfc(c.name) for c in models.load_characters(project)}
+    ok = [it for it in items if it["image"].exists()]
+    return {"total": len(items), "update": [it["name"] for it in ok if it["name"] in have],
+            "new": [it["name"] for it in ok if it["name"] not in have],
+            "no_image": [it["name"] for it in items if not it["image"].exists()],
+            "no_desc": [it["name"] for it in ok if not it["desc_vi"]]}
