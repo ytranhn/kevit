@@ -156,15 +156,6 @@ class Chapter:
     def name(self) -> str:
         return self.title or f"Chương {int(self.id)}"
 
-    @property
-    def has_flow_history(self) -> bool:
-        """Chương đã từng gửi/nhận clip trên Flow (dùng để giữ nguyên project cũ của dự án, không tách đôi lịch sử)."""
-        return any(s.raw_clip or s.status in ("generating", "queued", "raw", "done") for s in self.scenes)
-
-    @property
-    def done(self) -> int:
-        return sum(1 for s in self.scenes if s.status == "done")
-
 
 @dataclass
 class Project:

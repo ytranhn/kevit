@@ -191,13 +191,15 @@ class FlowAuto:
     def ensure_project(self, p: Project, ch: Chapter | None = None) -> str:
         """Trả về địa chỉ project Flow đã mở sẵn. ch=None: project chung của dự án (ảnh nhân vật). ch=chương: project RIÊNG của chương
         (đặt tên «Dự án · Chương»), để mỗi project chỉ chứa clip của một chương -> Flow nhẹ, đối soát nhanh.
-        Chương cũ đã gen trong project chung của dự án thì giữ nguyên project đó (không tách đôi lịch sử clip)."""
+        Mọi chương đều có project riêng, kể cả chương đã gen từ trước: clip cũ nằm ở project chung của dự án vẫn tìm lại được
+        qua Đồng bộ (sync_clips quét thêm project chung), còn clip MỚI luôn vào project của chương."""
         pg = self.page
         title = self.project_title(p, ch)
-        if ch and not ch.flow_project_url and p.flow_project_url and ch.has_flow_history:
-            ch.flow_project_url = p.flow_project_url
+        if ch and ch.flow_project_url and ch.flow_project_url == p.flow_project_url:
+            # bản trước (v1.2.x) cho chương đã gen "mượn" project chung của dự án: gỡ ra để chương có project riêng theo tên chương
+            self.log(f"{ch.name}: trước đây dùng project chung của dự án, chuyển sang project riêng «{title}».")
+            ch.flow_project_url = ""
             p.save()
-            self.log(f"{ch.name}: giữ project Flow cũ của dự án vì chương đã gen trước đó.")
         url = self.url_of(p, ch)
         if url:
             self._goto(url)
@@ -656,14 +658,9 @@ class FlowAuto:
     def _norm(x: str) -> str:
         return re.sub(r"\s+", " ", x).strip().lower()
 
-    def sync_clips(self, p: Project, ch: Chapter, scenes: list[Scene], out_dir_for, limit: int | None = None,
-                   skip_rendering: bool = False) -> list[Scene]:
-        """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
-        tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
+    def _scan_tiles(self, url: str, remaining: list[Scene], got: list[Scene], out_dir_for, limit: int | None, skip_rendering: bool) -> None:
+        """Duyệt các ô clip của một project Flow (mới -> cũ), khớp prompt với `remaining`, tải clip khớp (chuyển scene từ remaining sang got)."""
         pg = self.page
-        url = self.ensure_project(p, ch)
-        remaining = list(scenes)
-        got: list[Scene] = []
         self._goto(url)
         total = pg.locator(S.TILE).count()
         if limit is not None:        # chỉ quét các ô mới nhất (clip vừa gửi), không lội qua cả lịch sử cũ
@@ -701,6 +698,20 @@ class FlowAuto:
                     got.append(s)
                     self.log(f"Scene {s.index}: đã lấy lại clip từ Flow.")
                     break
+
+    def sync_clips(self, p: Project, ch: Chapter, scenes: list[Scene], out_dir_for, limit: int | None = None,
+                   skip_rendering: bool = False) -> list[Scene]:
+        """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
+        tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
+        url = self.ensure_project(p, ch)
+        remaining = list(scenes)
+        got: list[Scene] = []
+        self._scan_tiles(url, remaining, got, out_dir_for, limit, skip_rendering)
+        legacy = p.flow_project_url
+        if remaining and limit is None and legacy and legacy != url:
+            # clip gen từ bản cũ (mọi chương dùng chung một project của dự án) vẫn nằm ở project chung: quét thêm để lấy lại, không tốn credit
+            self.log("Quét thêm project chung của dự án (clip gen từ bản cũ)...")
+            self._scan_tiles(legacy, remaining, got, out_dir_for, None, skip_rendering)
         if remaining:
             self.log(f"Chưa thấy trên Flow (chưa gen, đã xoá, hoặc đã sửa prompt sau khi gen): "
                      f"{_ranges([s.index for s in remaining])}.")
