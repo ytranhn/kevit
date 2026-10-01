@@ -97,6 +97,36 @@ QPushButton[segbtn="true"]:hover:!checked { color: $text; background: transparen
 QPushButton[segbtn="true"]:checked { background: $surface; color: $text; border: 1px solid $border; font-weight: 600; }
 QPushButton[segbtn="true"]:disabled { color: $faint; }
 
+/* ---- khung ứng dụng: thanh trên cùng + điều hướng bên (Cài đặt) ---- */
+QFrame[topbar="true"] { background: $surface; border: none; border-bottom: 1px solid $border; }
+QPushButton[topnav="true"] { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: $muted;
+    padding: 0 6px; min-height: 40px; font-weight: 500; }
+QPushButton[topnav="true"]:hover { color: $text; background: transparent; }
+QPushButton[topnav="true"][active="true"] { color: $accent; border-bottom: 2px solid $accent; font-weight: 600; }
+QPushButton[acctpill="true"] { border: 1px solid transparent; border-radius: 19px; background: transparent; padding: 0; min-height: 38px; }
+QPushButton[acctpill="true"]:hover { background: $surface2; border-color: $border; }
+QLabel[avatar2="true"] { background: $accent; color: $on_accent; border-radius: 15px; font-weight: 700; }
+QFrame[sidebar="true"] { background: $surface; border: none; border-right: 1px solid $border; }
+QPushButton[sidenav="true"] { text-align: left; border: 1px solid transparent; background: transparent; border-radius: 12px; padding: 0; min-height: 58px; }
+QPushButton[sidenav="true"]:hover { background: $surface2; }
+QPushButton[sidenav="true"][active="true"] { background: $accent_tint; border: 1px solid $accent; }
+QLabel[navtile="true"] { background: $surface2; border-radius: 10px; }
+QPushButton[sidenav="true"][active="true"] QLabel[navtile="true"] { background: transparent; }
+QLabel[pagetitle="true"] { font-family: $serif; font-size: 26px; font-weight: 700; color: $text; }
+QFrame[provrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[provrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
+QLabel[logotile="true"] { border-radius: 10px; color: #FFFFFF; font-weight: 700; font-size: 16px; }
+QFrame[banner="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QListWidget#provList { background: transparent; border: none; padding: 0; }
+QListWidget#provList::item { padding: 0; border: none; background: transparent; }
+QListWidget#provList::item:selected, QListWidget#provList::item:hover:!selected { background: transparent; }
+QPushButton::menu-indicator { image: none; width: 0px; }
+QMenu { background: $surface; border: 1px solid $border; border-radius: 10px; padding: 6px; }
+QMenu::item { padding: 8px 18px; border-radius: 7px; color: $text; }
+QMenu::item:selected { background: $sel; }
+QMenu::item:disabled { color: $faint; }
+QPushButton[iconbtn="true"] { padding: 0; min-height: 36px; min-width: 36px; max-width: 36px; border-radius: 10px; }
+
 /* ---- popover ---- */
 QFrame#popCard { background: $surface; border: 1px solid $border; border-radius: 14px; }
 QPushButton[popitem="true"] { text-align: left; border: none; background: transparent; border-radius: 9px; padding: 0; min-height: 40px; }

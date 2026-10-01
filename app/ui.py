@@ -16,6 +16,7 @@ from .project_tab import ProjectTab
 from .pack_guide import PackGuideDialog, confirm_text
 from .welcome import Welcome
 from .theme import SP
+from .shell import TopBar
 from .widgets import Popover, StatusStrip, avatar, repolish, rounded_pixmap
 
 
@@ -404,11 +405,24 @@ class MainWindow(QMainWindow):
         self.strip.set_activity("Sẵn sàng.", "info")
 
         central = QWidget()
-        cl = QVBoxLayout(central)
+        # thanh trên cùng (logo, tab có icon, tài khoản Flow) thay thanh tab mặc định; QTabWidget vẫn giữ để chuyển trang
+        tabs.tabBar().hide()
+        self.topbar = TopBar(ICON_PATH, [("Dự án", "folder"), ("Nhân vật", "users"), ("Cài đặt", "gear")])
+        self.topbar.tab_clicked.connect(tabs.setCurrentIndex)
+        self.topbar.account_clicked.connect(lambda: self.on_chip("flow", anchor=self.topbar.pill))
+        tabs.currentChanged.connect(self.topbar.set_current)
+        self.topbar.set_current(tabs.currentIndex())
+        body = QWidget()
+        cl = QVBoxLayout(body)
         cl.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
         cl.setSpacing(SP.s)
         cl.addWidget(tabs, 1)
         cl.addWidget(self.strip)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self.topbar)
+        root.addWidget(body, 1)
         self.setCentralWidget(central)
         self.central = central
         # Ngăn nhật ký là cửa sổ nổi riêng (không viền): khung video dùng bề mặt vẽ riêng nên luôn đè lên mọi widget con,
@@ -476,6 +490,7 @@ class MainWindow(QMainWindow):
         act = accounts.active()
         who = f" · {act.name}" if len(accs) > 1 else ""         # chỉ nêu tên tài khoản khi có nhiều hơn một
         cr = f" · {accounts.fmt_credits(act.credits)} cr" if act.credits is not None else ""
+        self.topbar.set_account(act.name)
         self.strip.set_chip("flow", f"Flow{who}{cr} ● sẵn sàng" if up else f"Flow{who}{cr} ○ chưa mở Chrome", up)
         voice = self.proj.project.voice.split("-")[-1].replace("Neural", "") if self.proj.project else "—"
         self.strip.set_chip("voice", f"Giọng · {voice}", True)
@@ -520,7 +535,7 @@ class MainWindow(QMainWindow):
         self.settings_tab.llm_panel.refresh_list(profile_id)
         self.refresh_chips()
 
-    def on_chip(self, key: str):
+    def on_chip(self, key: str, anchor=None):
         if key == "llm":
             if not hasattr(self, "llm_pop"):
                 self.llm_pop = Popover(self, self.build_llm_pop, 380)
@@ -528,7 +543,10 @@ class MainWindow(QMainWindow):
         elif key == "flow":
             if not hasattr(self, "flow_pop"):
                 self.flow_pop = Popover(self, self.build_flow_pop, 360)
-            self.flow_pop.show_for(self.strip.chips["flow"], "above", "right")
+            if anchor is not None:
+                self.flow_pop.show_for(anchor, "below", "right")
+            else:
+                self.flow_pop.show_for(self.strip.chips["flow"], "above", "right")
         elif key == "voice":
             self.tabs.setCurrentWidget(self.proj)
             self.proj.open_settings()
