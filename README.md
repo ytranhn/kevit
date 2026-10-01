@@ -90,3 +90,9 @@ Thư mục chứa `character_index.csv` (UTF-8, cột `No`, `Tên`, `Tên Trung`
 ```
 
 Kết quả ở `dist/` (`.app` + `.dmg` trên macOS, thư mục + `.zip` trên Windows). Phải build trên đúng hệ điều hành đích; workflow `.github/workflows/build.yml` build cả hai trên GitHub. Trên macOS, `tools/make_mac_app.py` tạo gói `.app` nhỏ để Dock hiện đúng tên và biểu tượng khi chạy từ mã nguồn. `tools/make_icon.py` vẽ lại logo.
+
+## Giấy phép
+
+[MIT](LICENSE): được dùng, sửa và phân phối tự do, giữ nguyên thông báo bản quyền. Phần mềm cung cấp "nguyên trạng", không bảo hành.
+
+Tool điều khiển Google Flow qua Chrome của chính bạn: hãy tuân thủ điều khoản dịch vụ của Google và của nhà cung cấp mô hình AI bạn dùng.
