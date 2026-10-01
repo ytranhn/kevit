@@ -442,6 +442,7 @@ class ProjectTab(QWidget):
         lay.addLayout(top)
         lay.addWidget(main, 1)
 
+        self.s1.setToolTip("Tách truyện của chương thành scene. Nên có nhân vật trước (tab Nhân vật; AI đọc truyện, không cần scene) để scene gắn đúng nhân vật.")
         self.s1.clicked.connect(self.plan)
         self.s3.clicked.connect(self.merge_all)
         self.voices_ready.connect(self.fill_voices)
@@ -894,6 +895,8 @@ class ProjectTab(QWidget):
         pop.item("Gen bằng Gemini API", "Cần key có quyền Veo", lambda: self.generate("pending"))
         pop.separator()
         pop.section("Nội dung chương")
+        pop.item("Gắn nhân vật vào scene đã có", "Nhân vật tạo sau khi tách scene; theo văn bản, không tốn credit",
+                 lambda: self.attach_characters_to_scenes(None, ask=True), enabled=bool(self.scenes))
         pop.item("Nhận diện lại nhân vật cho scene", "Theo văn bản, không dùng LLM", self.reassign_characters)
         lname = langs.name(self.project.narration_lang) if self.project else ""
         pop.item("Viết lại thuyết minh bám truyện", "Giữ nguyên clip đã gen", self.realign)
@@ -1486,7 +1489,8 @@ class ProjectTab(QWidget):
         words = len(ch.story.split())
         if words:
             self.empty_title.setText("Chương đã có truyện, chưa có scene")
-            self.empty_text.setText(f"Truyện hiện có khoảng {words} từ. Bấm nút dưới để tách thành các scene.")
+            hint = "" if self.chars_tab.chars else "\nChưa có nhân vật: nên tạo ở tab Nhân vật (AI đọc truyện, không cần scene) trước để scene gắn đúng nhân vật."
+            self.empty_text.setText(f"Truyện hiện có khoảng {words} từ. Bấm nút dưới để tách thành các scene.{hint}")
             self.empty_btn.setText("① Tạo scene")
         else:
             self.empty_title.setText("Chương này đang trống")
@@ -1574,6 +1578,8 @@ class ProjectTab(QWidget):
             self.left_tabs.setCurrentWidget(self.story)
             QMessageBox.information(self, "Thiếu truyện", f"Dán nội dung {ch.name} vào tab Truyện trước.")
             return
+        if not self.chars_tab.chars and not self.ask_characters_first():
+            return
         p, chars, n = self.project, self.chars_tab.chars, self.max_scenes.value()
         if ch.scenes and QMessageBox.question(
                 self, "Tạo lại scene", f"{ch.name} đã có scene. Tạo lại sẽ xoá danh sách scene hiện tại của chương này. "
@@ -1591,6 +1597,69 @@ class ProjectTab(QWidget):
             self.log(f"[{ch.name}] Đã tạo {len(scenes)} scene.")
             self.left_tabs.setCurrentWidget(self.scene_page)
         self.run(lambda log: scene_planner.plan_scenes(ch.story, chars, n, p.synopsis, log, p.narration_lang), done)
+
+    def ask_characters_first(self) -> bool:
+        """Dự án chưa có nhân vật nào: scene tạo ra sẽ không gắn được nhân vật (clip mỗi cảnh một diện mạo). Cho chọn tạo nhân vật
+        từ truyện NGAY (không cần scene), tạo scene luôn, hoặc huỷ. Trả về True nếu nên tiếp tục tạo scene."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Chưa có nhân vật")
+        box.setText("Dự án chưa có nhân vật nào.")
+        box.setInformativeText(
+            "Nên tạo nhân vật TRƯỚC khi tạo scene: AI chỉ cần đọc truyện (không cần scene) để đề xuất nhân vật và ảnh, "
+            "sau đó mỗi scene sẽ tự gắn đúng nhân vật.\n\nBạn vẫn có thể tạo scene ngay; nhân vật thêm sau sẽ được gắn vào các scene "
+            "đã có (không tốn credit).")
+        b_ai = box.addButton("Tạo nhân vật từ truyện (AI)…", QMessageBox.AcceptRole)
+        b_go = box.addButton("Tạo scene luôn", QMessageBox.DestructiveRole)
+        box.addButton("Huỷ", QMessageBox.RejectRole)
+        box.setDefaultButton(b_ai)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_go:
+            return True
+        if clicked is b_ai:
+            self.chars_tab.generate_from_story()          # hộp thoại AI; xong mà đã có nhân vật thì làm tiếp bước tạo scene
+            return bool(self.chars_tab.chars) and QMessageBox.question(
+                self, "Tạo scene", f"Đã có {len(self.chars_tab.chars)} nhân vật. Tạo scene cho {self.chapter.name} bây giờ?") == QMessageBox.Yes
+        return False
+
+    def on_characters_added(self, names: list[str]):
+        """Nhân vật mới (AI, nhập gói, tạo tay): nếu các scene đã tạo trước đó nhắc tới họ thì hỏi để gắn vào."""
+        if self.project and self.scenes_total():
+            self.attach_characters_to_scenes(names, ask=True)
+
+    def scenes_total(self) -> int:
+        return sum(len(c.scenes) for c in self.project.chapters) if self.project else 0
+
+    def attach_characters_to_scenes(self, names: list[str] | None = None, ask: bool = False):
+        """Gắn nhân vật vào các scene ĐÃ CÓ (mọi chương) theo văn bản: không dùng LLM, không tốn credit, không đụng tới clip đã gen.
+        names=None: xét mọi nhân vật; mỗi scene tối đa 3 nhân vật."""
+        if not self.need_project() or not self.scenes_total():
+            return
+        self.save_edits()
+        chars = self.chars_tab.chars
+        scenes = [s for _, s in self.project.all_scenes()]
+        saved = {id(s): list(s.characters) for s in scenes}
+        changes = scene_planner.attach_characters(chars, scenes, names)
+        if not changes:
+            for s in scenes:
+                s.characters = saved[id(s)]
+            if not ask:
+                self.log("Không có scene nào cần gắn thêm nhân vật (đã đủ hoặc văn bản không nhắc tới).")
+            return
+        who = sorted({n for _, new in changes for n in new})
+        done_clips = sum(1 for sc, _ in changes if sc.status == "done")
+        if ask:
+            msg = (f"{len(who)} nhân vật ({', '.join(who[:6])}{'…' if len(who) > 6 else ''}) xuất hiện trong {len(changes)} scene đã tạo "
+                   "nhưng chưa được gắn vào.\n\nGắn vào các scene đó? Không tốn credit, không gen lại gì."
+                   + (f"\nLưu ý: {done_clips} scene đã có clip sẽ giữ nguyên clip; nhân vật mới chỉ ảnh hưởng khi gen lại." if done_clips else ""))
+            if QMessageBox.question(self, "Gắn nhân vật vào scene", msg) != QMessageBox.Yes:
+                for s in scenes:
+                    s.characters = saved[id(s)]
+                return
+        self.project.save()
+        self.fill_table(self._row)
+        self.log(f"Đã gắn {len(who)} nhân vật vào {len(changes)} scene ({', '.join(who[:8])}{'…' if len(who) > 8 else ''}).")
 
     def reassign_characters(self):
         """Gán lại nhân vật theo văn bản cho các scene CHƯA có nhân vật nào (vd. bị mất do lỗi chuẩn hoá tên)."""
