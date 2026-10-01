@@ -205,6 +205,15 @@ class FlowAuto:
         self.page.wait_for_timeout(3000)
         self._check_login()
 
+    # ---- tìm phần tử không phụ thuộc ngôn ngữ giao diện ----
+    def _first(self, css: str, role: str | None = None, name=None, scope=None):
+        """Phần tử đầu tiên theo CSS (class/icon: không đổi theo ngôn ngữ Flow); không có thì tìm theo vai trò + nhãn chữ (đa ngôn ngữ)."""
+        root = scope or self.page
+        loc = root.locator(css)
+        if loc.count() or not role or name is None:
+            return loc.first
+        return root.get_by_role(role, name=name).first
+
     # ---- dự án ----
     @staticmethod
     def project_title(p: Project, ch: Chapter | None) -> str:
@@ -242,8 +251,8 @@ class FlowAuto:
                 return url
             self.log("Project Flow đã lưu không còn truy cập được, tìm lại theo tên...")
         self._goto(S.HOME_URL)
-        for link in pg.get_by_role("link", name=S.LINK_OPEN_PROJECT).all():
-            cond = " or ".join(f"@aria-label='{a}'" for a in S.EDIT_TITLE_LABELS)
+        for link in pg.locator(S.CSS_PROJECT_LINK).all():
+            cond = " or ".join([f"normalize-space(.)='{S.ICON_EDIT_TITLE}'"] + [f"@aria-label='{a}'" for a in S.EDIT_TITLE_LABELS])
             card = link.locator(f"xpath=ancestor::*[.//button[{cond}]][1]")
             if not card.count():
                 continue
@@ -257,10 +266,10 @@ class FlowAuto:
                 self.log(f"Tìm thấy project Flow cùng tên: {title}")
                 return url
         self.log(f"Tạo project Flow mới: {title}")
-        pg.get_by_role("button", name=S.BTN_NEW_PROJECT).click()
+        self._first(S.CSS_NEW_PROJECT, "button", S.BTN_NEW_PROJECT).click()
         pg.wait_for_url(re.compile(r"/project/[0-9a-f-]+$"), timeout=30000)
         pg.wait_for_timeout(2500)
-        box = pg.get_by_role("textbox", name=S.TITLE_BOX).first
+        box = self._first(S.CSS_TITLE_INPUT, "textbox", S.TITLE_BOX)
         box.click()
         pg.keyboard.press("ControlOrMeta+A")
         pg.keyboard.type(title)
@@ -277,7 +286,7 @@ class FlowAuto:
         pg = self.page
         try:
             self._goto(S.HOME_URL)
-            btn = pg.locator(", ".join(f"[aria-label='{a}']" for a in S.ACCOUNT_LABELS)).first
+            btn = pg.locator(", ".join([S.CSS_ACCOUNT] + [f"[aria-label='{a}']" for a in S.ACCOUNT_LABELS])).first
             btn.wait_for(state="visible", timeout=15000)
             btn.click()
             pg.wait_for_timeout(1500)
@@ -288,7 +297,7 @@ class FlowAuto:
         except Exception as e:  # noqa: BLE001
             self.log(f"Không đọc được credit trên Flow: {type(e).__name__}")
             return None
-        amount = next((credits.parse_amount(ln) for ln in text.splitlines() if S.CREDIT_LINE.search(ln) and credits.parse_amount(ln) is not None), None)
+        amount = self._credit_from_text(text)
         if amount is None:
             self.log("Không thấy dòng credit trong hộp thoại tài khoản Flow.")
             return None
@@ -297,6 +306,22 @@ class FlowAuto:
         if deep:
             info.update(self._read_plan_details())
         return info
+
+    @staticmethod
+    def _credit_from_text(text: str) -> int | None:
+        """Số credit trong hộp thoại tài khoản, theo thứ tự tin cậy: (1) dòng ngay sau icon 'movie_filter_auto' (tên icon không đổi theo ngôn ngữ);
+        (2) dòng khớp chữ 'credits' của các ngôn ngữ đã biết; (3) dòng ngắn có số, không phải email/tên tài khoản."""
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        for i, ln in enumerate(lines[:-1]):
+            if ln == S.ICON_CREDITS and credits.parse_amount(lines[i + 1]) is not None:
+                return credits.parse_amount(lines[i + 1])
+        for ln in lines:
+            if S.CREDIT_LINE.search(ln) and credits.parse_amount(ln) is not None:
+                return credits.parse_amount(ln)
+        for ln in lines:
+            if "@" not in ln and len(ln) < 50 and re.fullmatch(r"\D{0,25}\d[\d.,\u202f\u00a0 ]*\D{0,40}", ln) and any(c.isdigit() for c in ln):
+                return credits.parse_amount(ln)
+        return None
 
     def _read_plan_details(self) -> dict:
         """Trang Google One → Google Flow activity: credit tặng hằng ngày còn lại và thời gian làm mới/gia hạn (nếu trang có ghi). Lỗi thì trả rỗng."""
@@ -333,9 +358,9 @@ class FlowAuto:
     def _ensure_classic_mode(self) -> None:
         """Giao diện Flow mới mở sẵn chế độ 'Agent' trong ô nhập: nút cài đặt tạo clip bị ẩn. Bấm vào nhãn Agent để tắt rồi mới cấu hình."""
         pg = self.page
-        trigger = pg.get_by_role("button", name=S.BTN_SETTINGS_PILL)
+        trigger = self._first(S.CSS_SETTINGS_PILL, "button", S.BTN_SETTINGS_PILL)
         for _ in range(2):
-            if trigger.count() and trigger.first.is_visible():
+            if trigger.count() and trigger.is_visible():
                 return
             chip = pg.locator(S.BTN_AGENT_CHIP)
             if not chip.count():
@@ -351,7 +376,7 @@ class FlowAuto:
         for attempt in range(2):
             if pg.locator("[role=radio]:visible").count():       # đã mở sẵn: bấm nữa sẽ ĐÓNG bảng
                 break
-            pg.get_by_role("button", name=S.BTN_SETTINGS_PILL).click()
+            self._first(S.CSS_SETTINGS_PILL, "button", S.BTN_SETTINGS_PILL).click()
             try:
                 pg.locator("[role=radio]").first.wait_for(state="visible", timeout=5000)
                 break
@@ -364,18 +389,18 @@ class FlowAuto:
     def configure(self, model: str, aspect: str, res: str = "720p", dur: int = 8):
         pg = self.page
         self._open_settings()
-        self._radio(S.RADIO_VIDEO).click()
+        vid = self._radio(S.RADIO_VIDEO)
+        vid.click()
+        self._wait_checked(vid)
         pg.wait_for_timeout(600)
         self._radio(S.RADIO_INGREDIENTS).click()
         if aspect != "flow":   # "flow": giữ nguyên khổ đang chọn trong Flow
             self._radio(aspect).click()
-        pg.get_by_role("button", name=S.BTN_MODEL).click()
-        pg.wait_for_timeout(400)
-        pg.locator("[role=menuitem]").filter(has_text=model).first.click()
+        self._pick_model(model)
         pg.wait_for_timeout(600)
         self._radio(re.compile(r"^\s*x1\s*$")).click()
         pg.wait_for_timeout(500)
-        for opt in (rf"{res}", rf"{dur}\s*{S.DURATION_UNIT}"):  # chỉ Omni có tuỳ chọn này; Veo cố định
+        for opt in (re.escape(res), rf"{dur}(?!\d)"):  # chỉ Omni có tuỳ chọn này (độ phân giải '720p', thời lượng '8s'/'8 giây'); Veo cố định
             r = pg.locator("[role=radio]").filter(has_text=re.compile(rf"^\s*{opt}"))
             if r.count():
                 r.first.click()
@@ -386,11 +411,54 @@ class FlowAuto:
         pg.wait_for_timeout(500)
         self.log(f"Cấu hình: {model}, {'khổ theo Flow' if aspect == 'flow' else aspect}, x1" + (f", {res}, {dur}s" if model == credits.OMNI else "") + f". {cost}")
 
+    def _wait_checked(self, radio, timeout: int = 4000) -> None:
+        """Đợi nút chọn (radio) thật sự ở trạng thái đã chọn: Flow đổi danh sách model/tuỳ chọn sau khi chuyển chế độ Ảnh <-> Video."""
+        try:
+            self.page.wait_for_function("e => e.getAttribute('aria-checked') === 'true'", arg=radio.element_handle(), timeout=timeout)
+        except Exception:  # noqa: BLE001 - không đọc được trạng thái thì vẫn đi tiếp
+            self.page.wait_for_timeout(800)
+
+    def _pick_model(self, model: str) -> None:
+        """Mở danh sách model (nút có icon mũi tên xổ, không phụ thuộc ngôn ngữ) và chọn `model`. Danh sách có thể chưa kịp đổi sau khi
+        chuyển chế độ: không thấy model thì đóng, đợi rồi thử lại một lần."""
+        pg = self.page
+        for attempt in range(2):
+            ov = pg.locator(".cdk-overlay-container").last
+            menu_btn = ov.locator("button").filter(has_text=S.ICON_MODEL_MENU)
+            (menu_btn.first if menu_btn.count() else pg.get_by_role("button", name=S.BTN_MODEL).first).click()
+            pg.wait_for_timeout(500)
+            item = pg.locator("[role=menuitem]").filter(has_text=model)
+            try:
+                item.first.wait_for(state="visible", timeout=4000 if attempt == 0 else 8000)
+                item.first.click()
+                return
+            except Exception:  # noqa: BLE001
+                if attempt:
+                    raise FlowError(f"Không thấy model «{model}» trong danh sách model của Flow (tài khoản có thể chưa được dùng model này).")
+                pg.keyboard.press("Escape")
+                pg.wait_for_timeout(1200)
+
+    def _cost_text(self) -> str:
+        """Dòng giá trong bảng cài đặt. Không phụ thuộc ngôn ngữ: dòng CUỐI có chữ số của bảng cài đặt đang mở (vd. 'Generating will use 20 credits',
+        'Quá trình tạo sẽ tốn 20 tín dụng'); không có bảng thì tìm theo chữ của các ngôn ngữ đã biết."""
+        pg = self.page
+        try:
+            ov = pg.locator(".cdk-overlay-container").last
+            if ov.count():
+                lines = [ln.strip() for ln in ov.inner_text(timeout=3000).splitlines() if ln.strip()]
+                priced = [ln for ln in lines if any(c.isdigit() for c in ln) and credits.parse_amount(ln) is not None and not re.fullmatch(r"x\d|\d+p|\d+s|\d+:\d+", ln, re.I)
+                          and len(ln) > 8]
+                if priced:
+                    return priced[-1]
+        except Exception:  # noqa: BLE001
+            pass
+        return pg.get_by_text(S.TXT_COST).first.locator("xpath=..").inner_text().replace("\n", " ")
+
     def _stable_cost(self) -> str:
         """Đọc dòng giá khi nó đã ổn định (Flow cập nhật chậm sau khi đổi tuỳ chọn, đọc sớm sẽ ra giá cũ)."""
         pg, last = self.page, None
         for _ in range(12):
-            txt = pg.get_by_text(S.TXT_COST).first.locator("xpath=..").inner_text().replace("\n", " ")
+            txt = self._cost_text()
             if txt == last:
                 return txt
             last = txt
@@ -400,16 +468,17 @@ class FlowAuto:
     # ---- ảnh nhân vật ----
     def add_ingredient(self, img: Path):
         pg = self.page
-        pg.get_by_role("button", name=S.BTN_ADD_INGREDIENT).click()
+        self._first(S.CSS_ADD_MENU, "button", S.BTN_ADD_INGREDIENT).click()
         pg.wait_for_timeout(1000)
-        pg.get_by_role("textbox", name=S.SEARCH_ASSET).fill(img.name)
-        pg.wait_for_timeout(1800)
         ov = pg.locator(".cdk-overlay-container").last
+        search = ov.locator("input")
+        (search.first if search.count() else pg.get_by_role("textbox", name=S.SEARCH_ASSET)).fill(img.name)
+        pg.wait_for_timeout(1800)
         opt = ov.get_by_role("option").filter(has_text=img.name)
         if not opt.count():
             self.log(f"Tải ảnh nhân vật lên Flow: {img.name}")
             with pg.expect_file_chooser() as fc:
-                ov.get_by_role("button", name=S.BTN_UPLOAD).click()
+                self._first(S.CSS_UPLOAD, "button", S.BTN_UPLOAD, scope=ov).click()
             fc.value.set_files(str(img))
             pg.wait_for_timeout(2000)
             for _ in range(40):
@@ -448,7 +517,7 @@ class FlowAuto:
             self.log(f"[dry-run] scene {s.index}: đã điền sẵn, không bấm tạo.")
             return -1
         self._type_prompt(build_prompt(p, s, chars))
-        gen = pg.get_by_role("button", name=S.BTN_GENERATE)
+        gen = self._first(S.CSS_GENERATE, "button", S.BTN_GENERATE)
         gen.click()
         if not self._wait_new_tile(n0):
             why = self._overload_text()
@@ -592,7 +661,7 @@ class FlowAuto:
         pg.locator(S.PROMPT_EDITOR).click()
         pg.keyboard.press("ControlOrMeta+A")
         pg.keyboard.insert_text(text)
-        gen = pg.get_by_role("button", name=S.BTN_GENERATE)
+        gen = self._first(S.CSS_GENERATE, "button", S.BTN_GENERATE)
         for _ in range(16):
             pg.wait_for_timeout(500)
             if gen.is_enabled():
@@ -646,7 +715,7 @@ class FlowAuto:
         self.log(f"Tạo ảnh trên Flow ({aspect}). {cost}")
         self._close_overlays()
         self._type_prompt(prompt)
-        pg.get_by_role("button", name=S.BTN_GENERATE).click()
+        self._first(S.CSS_GENERATE, "button", S.BTN_GENERATE).click()
         t0, seen_new = time.time(), False
         while time.time() - t0 < timeout:
             pg.wait_for_timeout(4000)
@@ -738,7 +807,7 @@ class FlowAuto:
                 if pg.locator("[role=menu]").count():
                     pg.keyboard.press("Escape")
                     pg.wait_for_timeout(500)
-                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD).first
+                btn = self._first(S.CSS_DOWNLOAD, "button", S.BTN_DOWNLOAD)
                 btn.wait_for(state="visible", timeout=15000)
                 with pg.expect_download(timeout=25000) as d:
                     btn.first.click()
@@ -774,7 +843,7 @@ class FlowAuto:
                 if pg.locator("[role=menu]").count():
                     pg.keyboard.press("Escape")
                     pg.wait_for_timeout(500)
-                btn = pg.get_by_role("button", name=S.BTN_DOWNLOAD).first
+                btn = self._first(S.CSS_DOWNLOAD, "button", S.BTN_DOWNLOAD)
                 btn.wait_for(state="visible", timeout=20000)
                 btn.click()
                 pg.wait_for_timeout(1200)
