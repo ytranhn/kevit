@@ -18,6 +18,19 @@ def safe_dirname(name: str) -> str:
     return out or "du-an"
 
 
+def rebase_path(path: str) -> str:
+    """Đường dẫn tuyệt đối đã lưu mà không còn tồn tại (dự án bị dời thư mục/đổi máy) -> đường dẫn tương ứng dưới PROJ_DIR hiện tại."""
+    if not path or Path(path).exists():
+        return path
+    norm = path.replace("\\", "/")
+    for marker in ("/projects/",):
+        if marker in norm:
+            cand = PROJ_DIR / Path(norm.split(marker, 1)[1])
+            if cand.exists():
+                return str(cand)
+    return path
+
+
 def nfc(s: str) -> str:
     """Chuẩn hoá Unicode về NFC. macOS ghi tên file ở dạng NFD còn LLM trả NFC: so sánh tên mà không chuẩn hoá thì
     'Cố An' != 'Cố An' (cùng hiển thị, khác byte) và nhân vật bị loại nhầm."""
@@ -149,6 +162,7 @@ class Project:
             scenes = [Scene(**s) for s in c.pop("scenes", [])]
             for s in scenes:
                 s.characters = [nfc(n) for n in s.characters]
+                s.raw_clip, s.audio, s.clip = rebase_path(s.raw_clip), rebase_path(s.audio), rebase_path(s.clip)
             chapters.append(Chapter(**c, scenes=scenes))
         p = cls(**d, chapters=chapters)
         if not chapters and (old_scenes or old_story):
@@ -207,6 +221,7 @@ def load_characters(project: str) -> list[Character]:
     for d in json.loads(f.read_text(encoding="utf-8")):
         c = Character(**d)
         c.name, c.aliases = nfc(c.name), [nfc(a) for a in c.aliases]
+        c.image = rebase_path(c.image)
         out.append(c)
     return out
 
