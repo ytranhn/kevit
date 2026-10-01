@@ -10,9 +10,11 @@ WORDS_PER_SEC = 3.3
 MAX_TEMPO = 1.15          # cho phép đọc nhanh nhẹ để chọn clip ngắn hơn (tối đa 1.3 ở bước ghép)
 
 
-def pick_duration(narration: str) -> int:
-    """Thời lượng clip Omni ngắn nhất vẫn đủ chỗ đọc hết thuyết minh (có đệm 0.3s, tăng tốc nhẹ tối đa 1.15x)."""
-    sec = len(narration.split()) / WORDS_PER_SEC + 0.3
+def pick_duration(narration: str, lang: str = "vi") -> int:
+    """Thời lượng clip Omni ngắn nhất vẫn đủ chỗ đọc hết thuyết minh (có đệm 0.3s, tăng tốc nhẹ tối đa 1.15x).
+    Tốc độ đọc phụ thuộc ngôn ngữ (tiếng Anh ~2.6 từ/giây, tiếng Trung ~4.2 chữ/giây...)."""
+    from . import langs
+    sec = langs.seconds(narration, lang) + 0.3
     return next((d for d in DURATIONS if d * MAX_TEMPO >= sec), DURATIONS[-1])
 
 
@@ -22,9 +24,9 @@ def scene_cost(model: str, resolution: str, duration: int) -> int:
     return FIXED_COST.get(model, 20)
 
 
-def estimate(model: str, resolution: str, scenes: list, auto_duration: bool) -> int:
+def estimate(model: str, resolution: str, scenes: list, auto_duration: bool, lang: str = "vi") -> int:
     total = 0
     for s in scenes:
-        d = pick_duration(s.narration) if (auto_duration and model == OMNI) else 8
+        d = pick_duration(s.narration, lang) if (auto_duration and model == OMNI) else 8
         total += scene_cost(model, resolution, d)
     return total

@@ -32,6 +32,91 @@ EDGE_VOICES = ["vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"]
 PROVIDERS = {"edge": "Edge TTS (miễn phí, không cần key)", "gemini": "Gemini TTS (cần API key)"}
 VOICES_BY_PROVIDER = {"edge": EDGE_VOICES, "gemini": VOICES}
 
+# Danh mục giọng Edge TTS (miễn phí, ~320 giọng cho ~75 ngôn ngữ). Lấy từ dịch vụ rồi lưu đệm 7 ngày; không có mạng thì dùng bảng dự phòng dưới.
+_FALLBACK = {
+    "vi": ["vi-VN-NamMinhNeural:M", "vi-VN-HoaiMyNeural:F"],
+    "en": ["en-US-AndrewMultilingualNeural:M", "en-US-AvaMultilingualNeural:F", "en-US-GuyNeural:M", "en-US-JennyNeural:F",
+           "en-GB-RyanNeural:M", "en-GB-SoniaNeural:F", "en-AU-WilliamMultilingualNeural:M", "en-AU-NatashaNeural:F"],
+    "zh": ["zh-CN-YunxiNeural:M", "zh-CN-XiaoxiaoNeural:F", "zh-CN-YunjianNeural:M", "zh-CN-XiaoyiNeural:F", "zh-TW-HsiaoChenNeural:F", "zh-HK-WanLungNeural:M"],
+    "ja": ["ja-JP-KeitaNeural:M", "ja-JP-NanamiNeural:F"],
+    "ko": ["ko-KR-InJoonNeural:M", "ko-KR-SunHiNeural:F", "ko-KR-HyunsuMultilingualNeural:M"],
+    "fr": ["fr-FR-HenriNeural:M", "fr-FR-DeniseNeural:F", "fr-CA-AntoineNeural:M", "fr-CA-SylvieNeural:F"],
+    "de": ["de-DE-ConradNeural:M", "de-DE-KatjaNeural:F", "de-DE-FlorianMultilingualNeural:M"],
+    "es": ["es-ES-AlvaroNeural:M", "es-ES-ElviraNeural:F", "es-MX-JorgeNeural:M", "es-MX-DaliaNeural:F"],
+    "pt": ["pt-BR-AntonioNeural:M", "pt-BR-FranciscaNeural:F", "pt-PT-DuarteNeural:M", "pt-PT-RaquelNeural:F"],
+    "it": ["it-IT-DiegoNeural:M", "it-IT-ElsaNeural:F", "it-IT-IsabellaNeural:F"],
+    "ru": ["ru-RU-DmitryNeural:M", "ru-RU-SvetlanaNeural:F"],
+    "id": ["id-ID-ArdiNeural:M", "id-ID-GadisNeural:F"],
+    "hi": ["hi-IN-MadhurNeural:M", "hi-IN-SwaraNeural:F"],
+    "ar": ["ar-SA-HamedNeural:M", "ar-SA-ZariyahNeural:F", "ar-EG-ShakirNeural:M", "ar-EG-SalmaNeural:F"],
+    "th": ["th-TH-NiwatNeural:M", "th-TH-PremwadeeNeural:F"],
+}
+_PREFERRED = {"vi": "vi-VN-NamMinhNeural", "en": "en-US-AndrewMultilingualNeural", "zh": "zh-CN-YunxiNeural", "ja": "ja-JP-KeitaNeural",
+              "ko": "ko-KR-InJoonNeural", "fr": "fr-FR-HenriNeural", "de": "de-DE-ConradNeural", "es": "es-ES-AlvaroNeural",
+              "pt": "pt-BR-AntonioNeural", "it": "it-IT-DiegoNeural", "ru": "ru-RU-DmitryNeural", "id": "id-ID-ArdiNeural",
+              "hi": "hi-IN-MadhurNeural", "ar": "ar-SA-HamedNeural", "th": "th-TH-NiwatNeural"}
+_catalog: dict[str, list[tuple[str, str]]] | None = None
+
+
+def _cache_file() -> Path:
+    from . import models
+    return models.DATA_DIR / "edge_voices.json"
+
+
+def _fetch_edge_voices() -> list[dict]:
+    import edge_tts
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(edge_tts.list_voices())).result(timeout=12)
+
+
+def edge_catalog(refresh: bool = False) -> dict[str, list[tuple[str, str]]]:
+    """{mã ngôn ngữ: [(tên giọng, 'M'|'F'), ...]} cho toàn bộ giọng Edge. Thứ tự: giọng ưu tiên trước, rồi nam/nữ theo vùng."""
+    global _catalog
+    if _catalog is not None and not refresh:
+        return _catalog
+    import json
+    raw = None
+    f = _cache_file()
+    try:
+        if f.exists() and not refresh and time.time() - f.stat().st_mtime < 7 * 86400:
+            raw = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        raw = None
+    if raw is None:
+        try:
+            raw = [{"n": v["ShortName"], "g": v["Gender"][0], "l": v["Locale"]} for v in _fetch_edge_voices()]
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        except Exception:  # noqa: BLE001 - không có mạng: dùng bảng dự phòng
+            raw = [{"n": x.split(":")[0], "g": x.split(":")[1], "l": "-".join(x.split("-")[:2])} for xs in _FALLBACK.values() for x in xs]
+    cat: dict[str, list[tuple[str, str]]] = {}
+    for v in raw:
+        cat.setdefault(v["l"].split("-")[0].lower(), []).append((v["n"], v["g"]))
+    for lang, voices in cat.items():
+        pref = _PREFERRED.get(lang)
+        voices.sort(key=lambda x: (x[0] != pref, x[1] != "M", x[0]))
+    _catalog = cat
+    return cat
+
+
+def voices_for(provider: str, lang: str = "vi") -> list[tuple[str, str]]:
+    """Danh sách giọng [(mã giọng, nhãn hiển thị)] theo nhà cung cấp và ngôn ngữ thuyết minh."""
+    if provider == "edge":
+        out = []
+        for name, g in edge_catalog().get(lang, []) or [(v, "M") for v in EDGE_VOICES if lang == "vi"]:
+            nice = name.replace("Neural", "").replace("Multilingual", " Đa ngữ")
+            out.append((name, f"{nice}  ·  {'Nam' if g == 'M' else 'Nữ'}"))
+        return out
+    return [(v, v) for v in VOICES]               # Gemini TTS: giọng dùng được cho mọi ngôn ngữ
+
+
+def default_voice(provider: str, lang: str = "vi") -> str:
+    vs = [v for v, _ in voices_for(provider, lang)]
+    if provider == "edge":
+        pref = _PREFERRED.get(lang)
+        return pref if pref in vs else (vs[0] if vs else EDGE_VOICES[1])
+    return vs[0]
+
 
 def synthesize(text: str, provider: str, voice: str, style: str, dst: Path) -> Path:
     return (_edge if provider == "edge" else _gemini)(text, voice, style, dst)

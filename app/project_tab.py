@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSlider, QSpinBox, QSplitter,
     QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from . import credits, flow, flow_auto, flow_selectors, llm, pipeline, scene_ops, scene_planner, trash, tts, veo_client
+from . import credits, langs, flow, flow_auto, flow_selectors, llm, pipeline, scene_ops, scene_planner, trash, tts, veo_client
 from .merger import merge
 from . import models
 from .models import Project, nfc, safe_dirname
@@ -200,6 +200,10 @@ class ProjectTab(QWidget):
         self.provider = Segmented()
         for k in tts.PROVIDERS:
             self.provider.addItem(PROVIDER_LABELS.get(k, k), k)
+        self.narr_lang = Combo()                 # ngôn ngữ thuyết minh: quyết định danh sách giọng và cách AI viết thuyết minh
+        for code, (label, _u, _r) in langs.LANGS.items():
+            self.narr_lang.addItem(label, code)
+        self.narr_lang.setMinimumWidth(240)
         self.voice = Combo()
         self.voice.setMinimumWidth(240)
         self.voice_style = QLineEdit()
@@ -214,6 +218,7 @@ class ProjectTab(QWidget):
         self.flow_parallel.setFixedWidth(100)
         self.flow_auto_dur = QCheckBox("Tự chọn thời lượng clip theo thuyết minh (chỉ Omni)")
         self.provider.currentIndexChanged.connect(self.fill_voices)
+        self.narr_lang.currentIndexChanged.connect(self.fill_voices)
         self.settings_dialog = ProjectSettingsDialog(self)
         theme.on_change(self.on_theme_changed)
 
@@ -519,6 +524,9 @@ class ProjectTab(QWidget):
         self.style.setText(p.style)
         self.aspect.setCurrentIndex(max(0, self.aspect.findData(p.aspect_ratio)))
         self.provider.setCurrentIndex(max(0, self.provider.findData(p.tts_provider)))
+        self.narr_lang.blockSignals(True)
+        self.narr_lang.setCurrentIndex(max(0, self.narr_lang.findData(p.narration_lang)))
+        self.narr_lang.blockSignals(False)
         self.fill_voices(p.voice)
         self.voice_style.setText(p.voice_style)
         self.flow_model.setCurrentText(p.flow_model)
@@ -627,12 +635,27 @@ class ProjectTab(QWidget):
         self.fill_chapter_combo(new)
         self.show_chapter(new)
 
+    def current_voice(self) -> str:
+        return self.voice.currentData() or self.voice.currentText()
+
     def fill_voices(self, keep=None):
+        """Danh sách giọng theo nhà cung cấp + ngôn ngữ thuyết minh. Giữ giọng đang chọn nếu còn hợp lệ, không thì lấy giọng mặc định của ngôn ngữ."""
+        provider, lang = self.provider.currentData(), self.narr_lang.currentData() or "vi"
+        want = keep if isinstance(keep, str) else self.current_voice()
+        voices = tts.voices_for(provider, lang)
+        self.voice.blockSignals(True)
         self.voice.clear()
-        self.voice.addItems(tts.VOICES_BY_PROVIDER[self.provider.currentData()])
-        if isinstance(keep, str):
-            self.voice.setCurrentText(keep)
-        self.voice_style.setEnabled(self.provider.currentData() == "gemini")
+        for vid, label in voices:
+            self.voice.addItem(label, vid)
+        ids = [v for v, _ in voices]
+        if want and want not in ids and isinstance(keep, str):           # giọng tuỳ chỉnh đã lưu trong dự án nhưng không có trong danh mục
+            self.voice.insertItem(0, want, want)
+            ids.insert(0, want)
+        pick = want if want in ids else tts.default_voice(provider, lang)
+        self.voice.setCurrentIndex(max(0, self.voice.findData(pick)))
+        self.voice.blockSignals(False)
+        self.voice_style.setEnabled(provider == "gemini")
+        self.update_narr_count()
 
     # ================= bảng + chi tiết scene =================
     def fill_table(self, select: int | None = None):
@@ -677,7 +700,7 @@ class ProjectTab(QWidget):
         todo = self.pick_todo(mode)
         if not todo or not p:
             return ""
-        est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration)
+        est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration, p.narration_lang)
         return f"{len(todo)} clip  ·  ≈ {est} credit"
 
     def build_gen_pop(self, pop):
@@ -869,7 +892,11 @@ class ProjectTab(QWidget):
         pop.separator()
         pop.section("Nội dung chương")
         pop.item("Nhận diện lại nhân vật cho scene", "Theo văn bản, không dùng LLM", self.reassign_characters)
+        lname = langs.name(self.project.narration_lang) if self.project else ""
         pop.item("Viết lại thuyết minh bám truyện", "Giữ nguyên clip đã gen", self.realign)
+        pop.item(f"Dịch thuyết minh sang {lname}…" if lname else "Dịch thuyết minh…",
+                 "AI dịch từ truyện gốc, rồi tạo lại giọng, không tốn credit Flow", self.translate_narrations_dialog,
+                 enabled=bool(self.project and any(c.scenes for c in self.project.chapters)))
         pop.item("Áp dụng lại giọng đọc cho cả chương", "Không tốn credit Flow",
                  lambda: self.revoice(only_current=False))
         pop.separator()
@@ -887,9 +914,72 @@ class ProjectTab(QWidget):
     def open_settings(self):
         if not self.project or self._busy:
             return
+        old_lang = self.project.narration_lang
         if self.settings_dialog.open_for_project():
             self.update_steps()
             self.log("Đã lưu cài đặt dự án.")
+            if self.project.narration_lang != old_lang and any(c.scenes for c in self.project.chapters):
+                QTimer.singleShot(0, lambda: self.translate_narrations_dialog(changed_from=old_lang))
+
+    def translate_narrations_dialog(self, changed_from: str | None = None):
+        """Viết lại thuyết minh của các scene hiện có bằng ngôn ngữ đã chọn (AI dịch từ truyện gốc), rồi tạo lại giọng đọc."""
+        if not self.need_project(need_key=True):
+            return
+        self.save_edits()
+        p = self.project
+        lang = p.narration_lang
+        here = len(self.chapter.scenes) if self.chapter else 0
+        total = sum(len(c.scenes) for c in p.chapters)
+        if not total:
+            QMessageBox.information(self, "Chưa có scene", "Hãy tạo scene trước.")
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Dịch thuyết minh")
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"Viết lại thuyết minh bằng {langs.name(lang)}?" if changed_from is None else
+                    f"Đã đổi ngôn ngữ thuyết minh sang {langs.name(lang)}. Dịch thuyết minh của các scene hiện có?")
+        box.setInformativeText("AI viết lại từ đoạn truyện gốc của từng scene (không dịch nối từ bản cũ), ghi đè thuyết minh hiện tại rồi tạo lại "
+                               "giọng đọc cho scene đã có clip. Không tốn credit Flow, chỉ tốn token của AI đang chọn. "
+                               "Chọn “Để sau” thì các scene mới tạo vẫn dùng ngôn ngữ này.")
+        b_here = box.addButton(f"Chương này ({here} scene)", QMessageBox.AcceptRole)
+        b_all = box.addButton(f"Cả dự án ({total} scene)", QMessageBox.AcceptRole)
+        box.addButton("Để sau", QMessageBox.RejectRole)
+        b_here.setEnabled(here > 0)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked not in (b_here, b_all):
+            return
+        chapters = [self.chapter] if clicked is b_here else [c for c in p.chapters if c.scenes]
+        chapters = [c for c in chapters if c and c.scenes]
+        self.log(f"Đang viết lại thuyết minh bằng {langs.name(lang)} ({sum(len(c.scenes) for c in chapters)} scene) bằng {llm.describe()}...")
+
+        def job(log):
+            changed = 0
+            for ch in chapters:
+                res = scene_planner.translate_narrations(ch.scenes, lang, log)
+                for s in ch.scenes:
+                    if s.index in res:
+                        s.narration, changed = res[s.index], changed + 1
+                p.save()
+                log(f"[{ch.name}] Đã viết lại thuyết minh {len(res)}/{len(ch.scenes)} scene.")
+            work = [(ch, s) for ch in chapters for s in ch.scenes if s.raw_clip and Path(s.raw_clip).exists()]
+            if work:
+                log(f"Tạo lại giọng đọc ({langs.name(lang)}) cho {len(work)} scene đã có clip...")
+
+                def one(cs):
+                    ch, s = cs
+                    try:
+                        pipeline.apply_voice(p, ch, s, log)
+                        s.status, s.error = "done", ""
+                    except Exception as e:  # noqa: BLE001
+                        s.status, s.error = "error", str(e)[:1500]
+                        log(f"Scene {s.index} lỗi giọng: {e}")
+                    p.save()
+                with ThreadPoolExecutor(max_workers=3, thread_name_prefix="giong") as pool:
+                    list(pool.map(one, work))
+            return changed
+        self.run(job, lambda n: (self.refresh_view(), self.log(f"Xong: đã viết lại thuyết minh {n} scene bằng {langs.name(lang)}. "
+                                                               "Bấm ③ Ghép video để ghép lại.")))
 
     def on_theme_changed(self):
         if self.project:
@@ -945,6 +1035,7 @@ class ProjectTab(QWidget):
         """Tạo nội dung gộp cho từng nhóm: dùng LLM nếu đã cấu hình, lỗi hoặc chưa có thì dùng cách gộp đơn giản."""
         chars = self.chars_tab.chars
         use_llm = llm.is_configured()[0]
+        lang = self.project.narration_lang if self.project else "vi"
 
         def job(log):
             out = []
@@ -952,7 +1043,7 @@ class ProjectTab(QWidget):
                 data, how = None, "đơn giản"
                 if use_llm:
                     try:
-                        data, how = scene_planner.merge_scenes_llm(g, chars, log), "LLM"
+                        data, how = scene_planner.merge_scenes_llm(g, chars, log, lang), "LLM"
                     except Exception as e:  # noqa: BLE001
                         log(f"LLM gộp lỗi ({str(e)[:80]}), dùng cách gộp đơn giản.")
                 out.append((g, data or scene_ops.merge_heuristic(g), how))
@@ -1184,10 +1275,11 @@ class ProjectTab(QWidget):
         self.update_badge(s)
 
     def update_narr_count(self):
-        words = len(self.d_narr.toPlainText().split())
-        sec = words / 3.3
-        warn = sec > 10.2  # quá ~8s x 1.3 (tăng tốc tối đa): phần dư phải giữ khung hình cuối
-        self.narr_count.setText(f"{words} từ ≈ {sec:.0f}s" + ("  ⚠ dài hơn clip 8s" if warn else ""))
+        lang = self.narr_lang.currentData() or "vi"
+        text = self.d_narr.toPlainText()
+        units, sec = langs.count_units(text, lang), langs.seconds(text, lang)
+        warn = sec > langs.CLIP_SECONDS * langs.TEMPO  # quá ~8s x 1.3 (tăng tốc tối đa): phần dư phải giữ khung hình cuối
+        self.narr_count.setText(f"{units} {langs.unit_label(lang)} ≈ {sec:.0f}s" + ("  ⚠ dài hơn clip 8s" if warn else ""))
         self.narr_count.setProperty("level", "error" if warn else "info")
         repolish(self.narr_count)
 
@@ -1283,7 +1375,8 @@ class ProjectTab(QWidget):
         p = self.project
         p.synopsis = self.synopsis.toPlainText().strip()
         p.style, p.aspect_ratio = self.style.text().strip(), self.aspect.currentData() or "9:16"
-        p.tts_provider, p.voice = self.provider.currentData(), self.voice.currentText()
+        p.tts_provider, p.voice = self.provider.currentData(), self.current_voice()
+        p.narration_lang = self.narr_lang.currentData() or "vi"
         p.voice_style = self.voice_style.text().strip()
         p.flow_model = self.flow_model.currentText()
         p.flow_resolution, p.flow_auto_duration = self.flow_res.currentText(), self.flow_auto_dur.isChecked()
@@ -1506,7 +1599,7 @@ class ProjectTab(QWidget):
                 self.log(line)
             self.log(f"[{ch.name}] Đã tạo {len(scenes)} scene.")
             self.left_tabs.setCurrentWidget(self.scene_page)
-        self.run(lambda log: scene_planner.plan_scenes(ch.story, chars, n, p.synopsis, log), done)
+        self.run(lambda log: scene_planner.plan_scenes(ch.story, chars, n, p.synopsis, log, p.narration_lang), done)
 
     def reassign_characters(self):
         """Gán lại nhân vật theo văn bản cho các scene CHƯA có nhân vật nào (vd. bị mất do lỗi chuẩn hoá tên)."""
@@ -1543,7 +1636,7 @@ class ProjectTab(QWidget):
         self.log(f"[{ch.name}] Đang căn lại thuyết minh theo truyện bằng {llm.describe()}...")
 
         def job(log):
-            res, notes = scene_planner.realign_narration(ch.story, ch.scenes, log)
+            res, notes = scene_planner.realign_narration(ch.story, ch.scenes, log, p.narration_lang)
             for line in notes:
                 log(line)
             for s in ch.scenes:
@@ -1575,7 +1668,7 @@ class ProjectTab(QWidget):
             self.log(f"Không có scene nào để gen ({self.MODE_LABEL[mode]}).")
             return
         redo = sum(1 for s in todo if s.status == "done")
-        est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration)
+        est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration, p.narration_lang)
         cfg = p.flow_model + (f" {p.flow_resolution}" if p.flow_model == credits.OMNI else "")
         if QMessageBox.question(self, "Xác nhận trừ credit",
                                 f"Sẽ tạo {len(todo)} clip ({ch.name}: {self.MODE_LABEL[mode]}) bằng {cfg} trên Google Flow.\n"

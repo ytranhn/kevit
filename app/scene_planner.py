@@ -6,7 +6,7 @@ import math
 import re
 import unicodedata
 
-from . import llm
+from . import langs, llm
 from .models import Character, Scene, nfc
 
 # Ràng buộc "trung thành với truyện": thuyết minh giữ >= KEEP số từ của đoạn gốc, nhưng một clip 8s chỉ đọc được
@@ -21,8 +21,27 @@ def _wc(text: str) -> int:
     return len(text.split())
 
 
-def _bounds(src_words: int) -> tuple[int, int]:
+def _units(text: str, lang: str = "vi") -> int:
+    return len(text.split()) if lang == "vi" else langs.count_units(text, lang)
+
+
+def _lang_note(lang: str) -> str:
+    """Đoạn dặn thêm khi thuyết minh KHÔNG phải tiếng Việt: ưu tiên hơn các quy tắc số từ tiếng Việt ở trên."""
+    if lang == "vi":
+        return ""
+    hi = langs.budget(lang)
+    return (f"\n\nQUY TẮC NGÔN NGỮ THUYẾT MINH (ƯU TIÊN HƠN mọi quy tắc về số từ và tỉ lệ giữ nội dung ở trên): trường \"narration\" phải là "
+            f"BẢN DỊCH sang {langs.english_name(lang)} ({langs.name(lang)}) của nội dung các đoạn truyện tiếng Việt của scene đó, viết thành lời kể "
+            f"ngôi thứ ba tự nhiên cho người bản ngữ nghe, giữ đúng thứ tự ý và sự kiện chính; tên người/địa danh viết theo cách quen thuộc "
+            f"của {langs.english_name(lang)} (phiên âm tên Hán-Việt sang dạng thông dụng); thoại trong ngoặc kép. TỐI ĐA {hi} {langs.unit_label(lang)} "
+            f"mỗi scene để đọc kịp trong 8 giây (được rút gọn ý phụ, không thêm chi tiết mới). KHÔNG viết thuyết minh bằng tiếng Việt. "
+            f"Các trường khác (title bằng tiếng Việt, visual bằng tiếng Anh) giữ nguyên quy tắc cũ.")
+
+
+def _bounds(src_words: int, lang: str = "vi") -> tuple[int, int]:
     """(tối thiểu, tối đa) số từ thuyết minh cho đoạn gốc có src_words từ."""
+    if lang != "vi":                 # bản dịch: không so số từ với tiếng Việt, chỉ giới hạn để đọc kịp 8s
+        return 0, langs.budget(lang)
     hi = NARR_MAX
     return min(math.ceil(KEEP * src_words), hi), hi
 
@@ -172,14 +191,14 @@ FIX_SCHEMA = {
 }
 
 
-def _fix_narrations(todo: list[tuple[int, Scene, bool]], log) -> dict[int, dict]:
+def _fix_narrations(todo: list[tuple[int, Scene, bool]], log, lang: str = "vi") -> dict[int, dict]:
     """Một lượt LLM viết lại thuyết minh cho các scene không đạt (quá ngắn so với truyện, quá dài cho 8s, hoặc vừa bị tách).
     todo = [(k, scene, cần_visual)]. Trả {k: {narration, visual}}."""
     parts = []
     for k, sc, need_visual in todo:
         w = _wc(sc.source_text)
-        lo, hi = _bounds(w)
-        parts.append(f"[Scene {k}] ({w} từ gốc) Thuyết minh phải dài {lo}–{hi} từ."
+        lo, hi = _bounds(w, lang)
+        parts.append(f"[Scene {k}] ({w} từ gốc) Thuyết minh phải dài {lo}–{hi} {langs.unit_label(lang)}."
                      + (" Viết thêm visual (tiếng Anh) cho đoạn này." if need_visual else " visual: để chuỗi rỗng.")
                      + f"\nTiêu đề: {sc.title}\nĐoạn truyện gốc:\n{sc.source_text}")
     prompt = f"""Viết (lại) thuyết minh của người dẫn truyện cho các scene dưới đây.
@@ -192,7 +211,7 @@ Quy tắc cho "narration" của mỗi scene:
 - Nếu scene yêu cầu "visual": mô tả bối cảnh, hành động, góc máy bằng TIẾNG ANH, không chứa lời thoại, chỉ gồm những gì
   có trong đoạn gốc, dùng tên không dấu của nhân vật.
 
-{chr(10).join(parts)}"""
+{chr(10).join(parts)}{_lang_note(lang)}"""
     data = json.loads(llm.generate_json(prompt, FIX_SCHEMA, log))
     return {int(x["k"]): x for x in data["scenes"]}
 
@@ -209,8 +228,8 @@ def coverage_note(scenes: list[Scene]) -> str:
 
 
 def plan_scenes(story: str, chars: list[Character], max_scenes: int = 16,
-                synopsis: str = "", log=print) -> tuple[list[Scene], list[str]]:
-    """Trả về (scenes, ghi_chú/cảnh_báo). Số scene tính theo độ dài chương để thuyết minh giữ >= 70% nội dung gốc
+                synopsis: str = "", log=print, lang: str = "vi") -> tuple[list[Scene], list[str]]:
+    """Trả về (scenes, ghi_chú/cảnh_báo). `lang`: ngôn ngữ thuyết minh (vi = giữ ≥70% nội dung; ngôn ngữ khác = bản dịch ngắn gọn). Số scene tính theo độ dài chương để thuyết minh giữ >= 70% nội dung gốc
     trong ~8 giây/scene; `max_scenes` chỉ còn dùng để cảnh báo chi phí, không cắt bớt nội dung."""
     segs = split_segments(story)
     total = len(segs)
@@ -219,7 +238,8 @@ def plan_scenes(story: str, chars: list[Character], max_scenes: int = 16,
     words = len(story.split())
     n = max(1, min(math.ceil(words / SRC_TARGET), total))
     notes = [f"Chapter ~{words} từ ({total} đoạn) -> khoảng {n} scene (~{SRC_TARGET} từ gốc/scene, "
-             f"thuyết minh ≤{NARR_MAX} từ, giữ ≥{int(KEEP * 100)}% nội dung)."]
+             + (f"thuyết minh ≤{NARR_MAX} từ, giữ ≥{int(KEEP * 100)}% nội dung)." if lang == "vi" else
+                f"thuyết minh {langs.name(lang)} ≤{langs.budget(lang)} {langs.unit_label(lang)}/scene)." )]
     if n > max_scenes:
         notes.append(f"Lưu ý: {n} scene vượt mức {max_scenes} đặt trong Cài đặt dự án -> tốn nhiều credit Flow hơn. "
                      f"Muốn ít scene hơn thì chia chương ngắn lại (nếu rút gọn thêm, thuyết minh sẽ bỏ >30% truyện).")
@@ -259,7 +279,7 @@ Bối cảnh chung của bộ truyện (chỉ để hiểu ngữ cảnh, KHÔNG 
 {synopsis or '(không có)'}
 
 CHAPTER (đã đánh số đoạn):
-{numbered}"""
+{numbered}{_lang_note(lang)}"""
     data = json.loads(llm.generate_json(prompt, SCHEMA, log))
     items = data["scenes"]
     ranges, repaired = _fix_ranges([(s["first_segment"], s["last_segment"]) for s in items], total)
@@ -282,14 +302,14 @@ CHAPTER (đã đánh số đoạn):
 
     todo = []
     for sc in out:
-        lo, hi = _bounds(_wc(sc.source_text))
-        nw = _wc(sc.narration)
-        if sc.index in split_idx or nw < lo or nw > hi + 4:
+        lo, hi = _bounds(_wc(sc.source_text), lang)
+        nw = _units(sc.narration, lang)
+        if sc.index in split_idx or nw < lo or nw > hi + (4 if lang == "vi" else max(4, hi // 8)):
             todo.append((sc.index, sc, sc.index in split_idx))
     if todo:
         log(f"{len(todo)} scene chưa đạt (thuyết minh bỏ quá {100 - int(KEEP * 100)}% truyện hoặc dài quá 8s) -> nhờ model viết lại...")
         try:
-            fixed = _fix_narrations(todo, log)
+            fixed = _fix_narrations(todo, log, lang)
             for k, sc, need_visual in todo:
                 f = fixed.get(k)
                 if f and f["narration"].strip():
@@ -303,13 +323,14 @@ CHAPTER (đã đánh số đoạn):
         if not sc.narration:
             sc.narration = sc.source_text.strip()
     for sc in out:
-        lo, hi = _bounds(_wc(sc.source_text))
-        nw = _wc(sc.narration)
+        lo, hi = _bounds(_wc(sc.source_text), lang)
+        nw = _units(sc.narration, lang)
         if nw < lo:
             notes.append(f"Scene {sc.index}: thuyết minh {nw}/{_wc(sc.source_text)} từ gốc, thấp hơn {int(KEEP * 100)}%.")
-        elif nw > hi + 4:
-            notes.append(f"Scene {sc.index}: thuyết minh {nw} từ, dài hơn mức {hi} từ (đọc nhanh hoặc clip dài hơn 8s).")
-    notes.append(coverage_note(out))
+        elif nw > hi + (4 if lang == "vi" else max(4, hi // 8)):
+            notes.append(f"Scene {sc.index}: thuyết minh {nw} {langs.unit_label(lang)}, dài hơn mức {hi} (đọc nhanh hoặc clip dài hơn 8s).")
+    if lang == "vi":
+        notes.append(coverage_note(out))
     return out, notes
 
 
@@ -325,7 +346,7 @@ REALIGN_SCHEMA = {
 }
 
 
-def realign_narration(story: str, scenes: list[Scene], log=print) -> tuple[dict[int, tuple[str, str]], list[str]]:
+def realign_narration(story: str, scenes: list[Scene], log=print, lang: str = "vi") -> tuple[dict[int, tuple[str, str]], list[str]]:
     """Giữ nguyên danh sách scene (và clip đã gen), chỉ gán lại đoạn truyện gốc + viết lại thuyết minh bám sát truyện.
     Trả về ({index: (source_text, narration)}, ghi_chú)."""
     segs = split_segments(story)
@@ -350,7 +371,7 @@ Các scene:
 {listing}
 
 CHAPTER (đã đánh số đoạn):
-{numbered}"""
+{numbered}{_lang_note(lang)}"""
     data = json.loads(llm.generate_json(prompt, REALIGN_SCHEMA, log))
     got = {int(x["index"]): x for x in data["scenes"]}
     notes: list[str] = []
@@ -367,13 +388,14 @@ CHAPTER (đã đánh số đoạn):
         narr = got[s.index]["narration"].strip()
         src = "\n".join(segs[a - 1:b])
         res[s.index] = (src, narr)
-        lo, hi = _bounds(_wc(src))
-        if _wc(narr) < lo:
+        lo, hi = _bounds(_wc(src), lang)
+        nu = _units(narr, lang)
+        if nu < lo:
             notes.append(f"Scene {s.index}: thuyết minh {_wc(narr)}/{_wc(src)} từ gốc, thấp hơn {int(KEEP * 100)}%.")
-        elif _wc(narr) > hi + 4:
-            notes.append(f"Scene {s.index}: thuyết minh {_wc(narr)} từ, dài hơn mức {hi} từ.")
+        elif nu > hi + (4 if lang == "vi" else max(4, hi // 8)):
+            notes.append(f"Scene {s.index}: thuyết minh {nu} {langs.unit_label(lang)}, dài hơn mức {hi}.")
     probe = [Scene(index=i, title="", visual="", source_text=v[0], narration=v[1]) for i, v in res.items()]
-    if probe:
+    if probe and lang == "vi":
         notes.append(coverage_note(probe))
     return res, notes
 
@@ -386,11 +408,11 @@ MERGE_SCHEMA = {
 }
 
 
-def merge_scenes_llm(group: list[Scene], chars: list[Character], log=print) -> dict:
+def merge_scenes_llm(group: list[Scene], chars: list[Character], log=print, lang: str = "vi") -> dict:
     """Gộp thông minh nhiều scene liền kề thành 1: viết lại thuyết minh ngắn gọn đủ ý theo thứ tự, mô tả hình ảnh cho 1 clip
     duy nhất (tối đa 2-3 nhịp), chọn tối đa 3 nhân vật quan trọng nhất."""
-    total_words = sum(len(s.narration.split()) for s in group)
-    budget = max(18, min(34, math.ceil(total_words * 0.85)))
+    total_words = sum(_units(s.narration, lang) for s in group)
+    budget = max(18, min(34, math.ceil(total_words * 0.85))) if lang == "vi" else max(10, min(langs.budget(lang), math.ceil(total_words * 0.85)))
     parts = "\n\n".join(
         f"[Scene {i}] {s.title}\nĐoạn truyện: {s.source_text or '(không có)'}\nThuyết minh: {s.narration}\n"
         f"Hình ảnh: {s.visual}\nNhân vật: {', '.join(s.characters) or '(không có)'}" for i, s in enumerate(group, 1))
@@ -399,7 +421,7 @@ def merge_scenes_llm(group: list[Scene], chars: list[Character], log=print) -> d
 
 Yêu cầu:
 - "narration": một đoạn thuyết minh liền mạch của người dẫn truyện, GIỮ ĐÚNG THỨ TỰ sự kiện và tên riêng, bao quát ý chính của cả
-  {len(group)} scene, không thêm chi tiết mới. Tối đa {budget} từ.
+  {len(group)} scene, không thêm chi tiết mới. Tối đa {budget} {langs.unit_label(lang)}.{' Viết bằng ' + langs.english_name(lang) + ' (cùng ngôn ngữ với thuyết minh các scene gốc).' if lang != 'vi' else ''}
 - "visual": mô tả bằng TIẾNG ANH cho một clip duy nhất, thể hiện nhịp hành động chính theo thứ tự (tối đa 3 nhịp), không chứa
   lời thoại, dùng tên không dấu của nhân vật.
 - "characters": tối đa 3 tên, chỉ chọn trong danh sách: {', '.join(names) or '(rỗng)'}; ưu tiên người xuất hiện nhiều và quan trọng nhất.
@@ -410,3 +432,48 @@ Yêu cầu:
     canon = {nfc(c.name): c.name for c in chars}
     data["characters"] = [canon[nfc(n)] for n in data.get("characters", []) if nfc(n) in canon][:3]
     return data
+
+
+TRANSLATE_SCHEMA = {
+    "type": "object",
+    "properties": {"scenes": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"k": {"type": "integer"}, "narration": {"type": "string"}},
+        "required": ["k", "narration"],
+    }}},
+    "required": ["scenes"],
+}
+TRANSLATE_BATCH = 24
+
+
+def translate_narrations(scenes: list[Scene], lang: str, log=print) -> dict[int, str]:
+    """Viết lại thuyết minh của các scene bằng ngôn ngữ `lang`, DỊCH từ đoạn truyện gốc tiếng Việt của từng scene (không dịch nối từ bản
+    thuyết minh cũ để khỏi sai lệch dần), đúng ngân sách đọc kịp 8 giây. Trả {scene.index: thuyết minh mới}. Scene không có đoạn gốc thì dịch từ
+    thuyết minh hiện có. Gọi theo lô nhỏ để tiết kiệm token và không bị cắt đầu ra."""
+    hi = NARR_MAX if lang == "vi" else langs.budget(lang)
+    unit = "từ" if lang == "vi" else langs.unit_label(lang)
+    target = f"{langs.english_name(lang)} ({langs.name(lang)})"
+    out: dict[int, str] = {}
+    todo = [s for s in scenes if (s.source_text or s.narration).strip()]
+    for i in range(0, len(todo), TRANSLATE_BATCH):
+        batch = todo[i:i + TRANSLATE_BATCH]
+        parts = []
+        for s in batch:
+            src = s.source_text.strip() or s.narration.strip()
+            note = "" if s.source_text.strip() else " (không có đoạn gốc: dịch từ thuyết minh hiện có)"
+            parts.append(f"[Scene {s.index}]{note}\nĐoạn truyện gốc (tiếng Việt):\n{src}")
+        extra = ("Giữ tối thiểu 70% ý của đoạn gốc." if lang == "vi" else "Được rút gọn ý phụ, giữ đủ sự kiện chính.")
+        prompt = f"""Viết thuyết minh cho người dẫn truyện của các scene dưới đây bằng {target}.
+
+Quy tắc cho "narration" của mỗi scene:
+- Viết thành lời kể ngôi thứ ba tự nhiên cho người bản ngữ NGHE, đúng thứ tự ý và sự kiện; thoại trong ngoặc kép.
+- Tên người/địa danh/thuật ngữ viết theo cách quen thuộc của ngôn ngữ đích (phiên âm tên Hán-Việt sang dạng thông dụng, nhất quán giữa các scene).
+- TỐI ĐA {hi} {unit} mỗi scene để đọc kịp trong 8 giây. {extra} Không thêm chi tiết mới, không lấy ý từ scene khác.
+- Chỉ trả về bản thuyết minh, không giải thích.
+
+{chr(10).join(parts)}"""
+        data = json.loads(llm.generate_json(prompt, TRANSLATE_SCHEMA, log))
+        for x in data["scenes"]:
+            if str(x.get("narration", "")).strip():
+                out[int(x["k"])] = x["narration"].strip()
+    return out

@@ -96,8 +96,9 @@ class ProjectSettingsDialog(QDialog):
             _row("Ước tính", "Cho mỗi scene dài 8 giây.", self.cost))
         voice = _card(
             "Giọng đọc", "Một giọng duy nhất cho cả dự án để người nghe không thấy lệch giữa các scene.",
-            _row("Nguồn giọng", "Edge miễn phí, Gemini cần API key.", tab.provider),
-            _row("Giọng", "", tab.voice),
+            _row("Ngôn ngữ thuyết minh", "Quyết định ngôn ngữ AI viết thuyết minh và danh sách giọng. Khác tiếng Việt thì thuyết minh được DỊCH từ truyện gốc.", tab.narr_lang),
+            _row("Nguồn giọng", "Edge miễn phí (hơn 300 giọng, 75 ngôn ngữ), Gemini cần API key.", tab.provider),
+            _row("Giọng", "Giọng “Đa ngữ” đọc tốt nhiều ngôn ngữ, hợp khi đổi ngôn ngữ mà vẫn muốn giữ một chất giọng.", tab.voice),
             _field("Phong cách đọc", "Edge TTS không nhận chỉ dẫn phong cách.", tab.voice_style))
 
         body = QWidget()
@@ -157,13 +158,14 @@ class ProjectSettingsDialog(QDialog):
         t = self.tab
         return dict(style=t.style.text(), aspect=t.aspect.currentIndex(), scenes=t.max_scenes.value(),
                     model=t.flow_model.currentText(), res=t.flow_res.currentText(), auto=t.flow_auto_dur.isChecked(), parallel=t.flow_parallel.value(),
-                    provider=t.provider.currentIndex(), voice=t.voice.currentText(), vstyle=t.voice_style.text())
+                    provider=t.provider.currentIndex(), voice=t.current_voice(), lang=t.narr_lang.currentIndex(), vstyle=t.voice_style.text())
 
     def restore(self, s: dict) -> None:
         t = self.tab
         t.style.setText(s["style"]); t.aspect.setCurrentIndex(s["aspect"]); t.max_scenes.setValue(s["scenes"])
         t.flow_model.setCurrentText(s["model"]); t.flow_res.setCurrentText(s["res"]); t.flow_auto_dur.setChecked(s["auto"]); t.flow_parallel.setValue(s["parallel"])
-        t.provider.setCurrentIndex(s["provider"]); t.voice.setCurrentText(s["voice"]); t.voice_style.setText(s["vstyle"])
+        t.narr_lang.blockSignals(True); t.narr_lang.setCurrentIndex(s["lang"]); t.narr_lang.blockSignals(False)
+        t.provider.setCurrentIndex(s["provider"]); t.fill_voices(s["voice"]); t.voice_style.setText(s["vstyle"])
 
     def open_for_project(self) -> bool:
         """Hiện hộp thoại; trả True nếu người dùng bấm Lưu."""

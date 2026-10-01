@@ -40,8 +40,50 @@ def extract_json(text: str) -> str:
     if a < 0 or b < a:
         raise ValueError(f"Phản hồi không chứa JSON: {t[:200]!r}")
     body = t[a:b + 1]
-    json.loads(body)  # ném lỗi rõ ràng nếu JSON hỏng
-    return body
+    try:
+        json.loads(body)
+        return body
+    except json.JSONDecodeError as first:
+        fixed = repair_quotes(body)             # lỗi hay gặp: lời thoại dùng dấu " thẳng bên trong chuỗi
+        try:
+            json.loads(fixed)
+            return fixed
+        except json.JSONDecodeError:
+            raise first
+
+
+def repair_quotes(body: str) -> str:
+    """Sửa JSON có dấu ngoặc kép chưa thoát BÊN TRONG chuỗi (vd. "说："要是…。""). Một dấu " trong chuỗi chỉ được coi là kết thúc chuỗi khi
+    ngay sau nó (bỏ khoảng trắng) là `,` rồi một khoá/giá trị mới, `:`, `}` hoặc `]`; còn lại là dấu lạc và được thoát bằng \\\"."""
+    out, i, n, in_str = [], 0, len(body), False
+    while i < n:
+        c = body[i]
+        if not in_str:
+            out.append(c)
+            if c == '"':
+                in_str = True
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:                 # chuỗi thoát có sẵn: giữ nguyên cặp ký tự
+            out.append(body[i:i + 2])
+            i += 2
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and body[j] in " \t\r\n":
+                j += 1
+            nxt = body[j] if j < n else ""
+            ahead = body[j + 1:j + 12].lstrip() if nxt == "," else ""
+            if nxt in (":", "}", "]", "") or (nxt == "," and ahead[:1] in ('"', "{", "[", "-", "0123456789")):
+                out.append('"')
+                in_str = False
+            else:
+                out.append('\\"')
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _gemini(prompt: str, schema: dict, log=print) -> str:
@@ -72,7 +114,8 @@ def claude_client():
 def _claude(prompt: str, schema: dict, log=print) -> str:
     """Dùng streaming: thấy tiến độ nhận dữ liệu, và treo quá CLAUDE_READ_TIMEOUT giây là báo thay vì chờ vô hạn."""
     system = ("Bạn chỉ trả về MỘT đối tượng JSON hợp lệ đúng theo JSON Schema sau, không markdown, không giải thích, "
-              "không thêm khoá nào ngoài schema.\nJSON Schema:\n" + json.dumps(schema, ensure_ascii=False))
+              "không thêm khoá nào ngoài schema. Trong giá trị chuỗi KHÔNG dùng dấu ngoặc kép thẳng (\"): lời thoại hay trích dẫn dùng “ ” hoặc ‘ ’; "
+              "xuống dòng viết là \\n. Mọi dấu \" bên trong chuỗi bắt buộc phải thoát bằng \\\".\nJSON Schema:\n" + json.dumps(schema, ensure_ascii=False))
     client, model = claude_client(), settings.claude_model()
     log(f"Đang gửi yêu cầu tới {settings.claude_base_url() or 'api.anthropic.com'} (model {model})...")
     t0, last, got, chunks = time.time(), 0.0, "", 0
@@ -118,9 +161,18 @@ def generate_json(prompt: str, schema: dict, log=print) -> str:
     """Trả về chuỗi JSON. Lỗi tạm thời (503/429/529/timeout...) tự thử lại; lỗi khác (key sai, 404...) báo ngay."""
     call = _claude if settings.llm_provider() == "claude" else _gemini
     timeouts = 0
+    json_retried = False
     for attempt in range(len(RETRY_DELAYS) + 1):
         try:
             return call(prompt, schema, log)
+        except json.JSONDecodeError as e:
+            if json_retried:
+                raise ValueError(f"Mô hình trả JSON hỏng hai lần liên tiếp ({e}). Thử lại, hoặc đổi sang mô hình khác trong Cài đặt.") from e
+            json_retried = True            # thường do dấu ngoặc kép thẳng bên trong chuỗi (lời thoại): nhắc rõ rồi thử lại 1 lần
+            log("Mô hình trả JSON bị hỏng (thường do dấu ngoặc kép trong lời thoại), đang thử lại...")
+            prompt += ("\n\n(LƯU Ý: lần trước JSON bị hỏng vì có dấu \" bên trong nội dung chuỗi. Lần này tuyệt đối không dùng dấu \" trong "
+                       "nội dung; lời thoại dùng “ ” hoặc ‘ ’. Chỉ trả đúng một đối tượng JSON hợp lệ.)")
+            continue
         except Exception as e:  # noqa: BLE001
             msg = str(e)
             if "timed out" in msg or type(e).__name__ == "APITimeoutError":

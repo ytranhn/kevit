@@ -165,6 +165,7 @@ class Project:
     aspect_ratio: str = "9:16"     # "9:16" (dọc) | "16:9" (ngang) | "flow" (giữ nguyên khổ đang chọn trong Flow)
     tts_provider: str = "edge"     # edge (miễn phí) | gemini
     voice: str = "vi-VN-HoaiMyNeural"  # 1 giọng đọc duy nhất cho cả dự án
+    narration_lang: str = "vi"         # ngôn ngữ thuyết minh (vi = giữ nguyên truyện; ngôn ngữ khác = dịch ngắn gọn từ truyện gốc)
     flow_project_url: str = ""     # project Google Flow gắn với dự án này (dùng chung mọi chương)
     flow_model: str = "Veo 3.1 - Fast"
     flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)

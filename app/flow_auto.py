@@ -255,7 +255,7 @@ class FlowAuto:
         pg = self.page
         self._goto(p.flow_project_url)
         n0 = pg.locator(S.TILE).count()
-        dur = credits.pick_duration(s.narration) if (p.flow_auto_duration and p.flow_model == credits.OMNI) else 8
+        dur = credits.pick_duration(s.narration, p.narration_lang) if (p.flow_auto_duration and p.flow_model == credits.OMNI) else 8
         s.duration = dur
         self.configure(p.flow_model, p.aspect_ratio, p.flow_resolution, dur)
         for n in s.characters[:3]:
