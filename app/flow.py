@@ -32,6 +32,18 @@ def reveal(path: Path) -> None:
     subprocess.Popen(cmd)
 
 
+def reveal_file(path: Path) -> None:
+    """Mở thư mục chứa file và CHỌN sẵn file đó (Finder / Explorer); Linux chỉ mở thư mục cha."""
+    path = Path(path)
+    if sys.platform == "darwin":
+        cmd = ["open", "-R", str(path)]
+    elif sys.platform == "win32":
+        cmd = ["explorer", f"/select,{path}"]
+    else:
+        cmd = ["xdg-open", str(path.parent)]
+    subprocess.Popen(cmd)
+
+
 def _natkey(f: str):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", Path(f).name)]
 

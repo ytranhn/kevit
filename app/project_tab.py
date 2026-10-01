@@ -413,11 +413,18 @@ class ProjectTab(QWidget):
 
         # --- thẻ 3: Xem trước ---
         self.view_seg = Segmented()
-        self.view_seg.addItems(["Clip scene", "Video ghép"])
+        self.view_seg.addItems(["Scene", "Ghép"])               # ngắn để chừa chỗ cho nút Thư mục trong thẻ hẹp
+        self.view_seg.setToolTip("Scene: xem clip của scene đang chọn  ·  Ghép: xem video ghép của cả chương")
         self.view_seg.currentIndexChanged.connect(self.on_view_changed)
+        self.btn_reveal = QPushButton("Thư mục")
+        self.btn_reveal.setFixedHeight(32)
+        self.btn_reveal.setMinimumWidth(78)
+        self.btn_reveal.clicked.connect(self.reveal_current)
+        self.view_seg.setMinimumWidth(self.view_seg.sizeHint().width())     # không để nút bên cạnh bóp cụt chữ của bộ chuyển
         h3 = QHBoxLayout()
         h3.addWidget(self.view_seg)
         h3.addStretch(1)
+        h3.addWidget(self.btn_reveal)
         f3 = QHBoxLayout()
         f3.addWidget(self.preview.controls)
         card3 = make_card(card_bar(h3, HEADER_H), card_body(self.preview.stack), card_bar(f3, FOOTER_H))
@@ -905,6 +912,10 @@ class ProjectTab(QWidget):
         pop.separator()
         pop.section("Dự án")
         pop.item("Ghép tất cả chương thành 1 video", "Cần mọi chương đã gen xong", self.merge_project)
+        pop.item("Hiện video ghép của chương", "Mở thư mục và chọn sẵn file", self.reveal_merged,
+                 enabled=bool(self.project and self.chapter and self.merged_path().exists()))
+        pop.item("Hiện video ghép cả dự án", "Mở thư mục và chọn sẵn file", lambda: self.reveal_merged(True),
+                 enabled=bool(self.project and self.project.full_path.exists()))
         pop.item("Mở thư mục dự án", "", lambda: self.project and flow.reveal(self.project.dir))
         pop.item("Dọn thùng rác…", f"{n} file  ·  {size / 1_048_576:.1f} MB" if n else "Đang trống", self.empty_trash_dialog)
 
@@ -1332,9 +1343,11 @@ class ProjectTab(QWidget):
     def load_preview(self, row: int, autoplay: bool = False):
         if not 0 <= row < len(self.scenes):
             self.preview.load(None)
+            self.update_reveal()
             return
         s = self.scenes[row]
         self.preview.load(s.clip or s.raw_clip, autoplay)
+        self.update_reveal()
 
     def merged_path(self) -> Path:
         return self.project.merged_path(self.chapter)
@@ -1343,6 +1356,40 @@ class ProjectTab(QWidget):
         self.view_seg.blockSignals(True)
         self.view_seg.setCurrentIndex(i)
         self.view_seg.blockSignals(False)
+        self.update_reveal()
+
+    def reveal_target(self) -> Path | None:
+        """File đang xem ở khung xem trước: video ghép của chương (chế độ 'Video ghép') hoặc clip của scene đang chọn."""
+        if not self.project or not self.chapter:
+            return None
+        if self.view_seg.currentIndex() == 1:
+            f = self.merged_path()
+        else:
+            s = self.scenes[self._row] if 0 <= self._row < len(self.scenes) else None
+            f = Path(s.clip or s.raw_clip) if s and (s.clip or s.raw_clip) else None
+        return f if f and f.exists() else None
+
+    def update_reveal(self):
+        f = self.reveal_target()
+        self.btn_reveal.setEnabled(f is not None)
+        self.btn_reveal.setToolTip(f"Mở thư mục chứa {f.name} (chọn sẵn file)" if f else
+                                   "Chưa có file để mở: gen xong rồi bấm ③ Ghép video")
+
+    def reveal_current(self):
+        f = self.reveal_target()
+        if f:
+            flow.reveal_file(f)
+
+    def reveal_merged(self, whole_project: bool = False):
+        """Hiện video ghép (của chương đang chọn, hoặc của cả dự án) trong Finder/Explorer."""
+        if not self.project:
+            return
+        f = self.project.full_path if whole_project else (self.merged_path() if self.chapter else None)
+        if f and f.exists():
+            flow.reveal_file(f)
+        else:
+            QMessageBox.information(self, "Chưa có video ghép", "Chưa có file video ghép. Bấm ③ Ghép video sau khi gen xong các scene"
+                                    + (" của tất cả chương." if whole_project else " của chương."))
 
     def on_view_changed(self, i: int):
         if i == 1:
