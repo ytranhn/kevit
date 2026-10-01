@@ -7,14 +7,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelectionModel, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QFontMetrics, QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QItemSelectionModel, QRect, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QFontMetrics, QBrush, QColor, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QListWidget, QListWidgetItem, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSlider, QSpinBox, QSplitter,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+    QStyle, QStyleOptionViewItem, QAbstractItemView, QApplication, QCheckBox, QDialog, QDialogButtonBox, QFrame, QListWidget, QListWidgetItem, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSlider, QSpinBox, QSplitter,
+    QStackedWidget, QStyledItemDelegate, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import credits, langs, flow, flow_auto, flow_selectors, llm, pipeline, scene_ops, scene_planner, trash, tts, veo_client
 from .merger import merge
@@ -42,6 +42,61 @@ PROVIDER_LABELS = {"edge": "Edge · miễn phí", "gemini": "Gemini"}
 def _fmt(ms: int) -> str:
     s = max(ms, 0) // 1000
     return f"{s // 60}:{s % 60:02d}"
+
+
+class SceneDelegate(QStyledItemDelegate):
+    """Vẽ bảng scene theo thiết kế mới: vạch nhấn ở dòng đang chọn (cột #), nhãn trạng thái dạng pill có chấm màu (cột 3), nút '···' (cột 4)."""
+
+    def __init__(self, table):
+        super().__init__(table)
+        self.table = table
+
+    def _background(self, painter: QPainter, option, index) -> None:
+        """Nền dòng (chọn/hover) theo stylesheet, KHÔNG vẽ chữ: các cột tự vẽ nội dung riêng."""
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        opt.icon = QIcon()
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, opt, painter, option.widget)
+
+    def paint(self, painter: QPainter, option, index):
+        col = index.column()
+        selected = bool(option.state & QStyle.State_Selected)
+        if col == 2:                                           # trạng thái: pill + chấm màu
+            self._background(painter, option, index)
+            color = index.data(Qt.ForegroundRole)
+            c = color.color() if color is not None else QColor(theme.T["muted"])
+            text = index.data(Qt.DisplayRole) or ""
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            fm = painter.fontMetrics()
+            w = min(option.rect.width() - 12, fm.horizontalAdvance(text) + 36)
+            r = QRect(option.rect.left() + 6, option.rect.center().y() - 13, w, 26)
+            tint = QColor(c)
+            tint.setAlpha(36)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(tint)
+            painter.drawRoundedRect(r, 13, 13)
+            painter.setBrush(c)
+            painter.drawEllipse(r.left() + 11, r.center().y() - 3, 7, 7)
+            painter.setPen(c)
+            painter.drawText(QRect(r.left() + 24, r.top(), r.width() - 28, r.height()), Qt.AlignVCenter | Qt.AlignLeft,
+                             fm.elidedText(text, Qt.ElideRight, r.width() - 28))
+            painter.restore()
+            return
+        if col == 3:                                           # nút '···'
+            self._background(painter, option, index)
+            pm = icons.pixmap("more", 20, theme.T["muted"])
+            painter.drawPixmap(option.rect.center().x() - 10, option.rect.center().y() - 10, pm)
+            return
+        super().paint(painter, option, index)
+        if col == 0 and selected:                              # vạch nhấn bên trái
+            painter.save()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme.T["accent"]))
+            painter.drawRoundedRect(QRect(option.rect.left(), option.rect.top() + 4, 4, option.rect.height() - 8), 2, 2)
+            painter.restore()
 
 
 class PreviewPanel(QWidget):
@@ -77,6 +132,18 @@ class PreviewPanel(QWidget):
         row.addWidget(self.btn)
         row.addWidget(self.slider, 1)
         row.addWidget(self.time)
+        self.btn_vol = QPushButton("")
+        self.btn_full = QPushButton("")
+        for b, ic in ((self.btn_vol, "volume"), (self.btn_full, "expand")):
+            b.setProperty("ghost", True)
+            b.setFixedSize(34, 34)
+            icons.attach(b, ic, 18)
+            row.addWidget(b)
+        self.btn_vol.setToolTip("Bật/tắt tiếng")
+        self.btn_full.setToolTip("Toàn màn hình (Esc để thoát)")
+        self.btn_vol.clicked.connect(self.toggle_mute)
+        self.btn_full.clicked.connect(lambda: self.video.setFullScreen(True) if self.stack.currentIndex() == 1 else None)
+        self.controls.installEventFilter(self)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.stack, 1)
@@ -89,6 +156,18 @@ class PreviewPanel(QWidget):
         self.player.playbackStateChanged.connect(
             lambda s: icons.attach(self.btn, "pause" if s == QMediaPlayer.PlayingState else "play", 20))
         self.player.mediaStatusChanged.connect(self._on_status)
+    def toggle_mute(self):
+        self.audio.setMuted(not self.audio.isMuted())
+        icons.attach(self.btn_vol, "volume_off" if self.audio.isMuted() else "volume", 18)
+
+    def eventFilter(self, obj, ev):
+        """Thẻ xem trước hẹp thì ẩn nút tiếng/toàn màn hình để thanh tua còn đủ chỗ; rộng thì hiện."""
+        if obj is self.controls and ev.type() == QEvent.Resize:
+            wide = obj.width() >= 290
+            self.btn_vol.setVisible(wide)
+            self.btn_full.setVisible(wide)
+        return super().eventFilter(obj, ev)
+
     def _on_pos(self, pos: int):
         if not self.slider.isSliderDown():
             self.slider.setValue(pos)
@@ -151,16 +230,35 @@ class ProjectTab(QWidget):
         # combo ẩn chỉ giữ trạng thái và tín hiệu cho phần còn lại của mã; người dùng chuyển qua danh sách nhanh (popover)
         self.combo = Combo()
         self.chap_combo = Combo()
-        self.nav_project = NavButton()
+        self.nav_project = NavButton(icon="folder")
         self.nav_project.setMinimumWidth(200)
-        self.nav_chapter = NavButton(with_pill=True)
-        self.nav_chapter.setMinimumWidth(240)
+        self.nav_chapter = NavButton(with_pill=True, icon="doc", show_pill=False)      # tiến độ hiện ở ô riêng bên cạnh (chap_prog)
+        self.nav_chapter.setMinimumWidth(200)
+        self.chap_bar = QProgressBar()
+        self.chap_bar.setProperty("acctbar", True)
+        self.chap_bar.setProperty("greenbar", True)
+        self.chap_bar.setTextVisible(False)
+        self.chap_bar.setFixedHeight(8)
+        self.chap_count = QLabel("")
+        self.chap_count.setStyleSheet("font-weight: 600; background: transparent;")
+        self.chap_check = QLabel()
+        self.chap_prog = QFrame()
+        self.chap_prog.setProperty("banner", True)
+        self.chap_prog.setFixedHeight(40)
+        cpl = QHBoxLayout(self.chap_prog)
+        cpl.setContentsMargins(SP.m, 0, SP.m, 0)
+        cpl.setSpacing(SP.s)
+        cpl.addWidget(self.chap_bar, 1)
+        cpl.addWidget(self.chap_count)
+        cpl.addWidget(self.chap_check)
+        self.chap_prog.setMinimumWidth(150)
+        self.chap_prog.setToolTip("Tiến độ gen video của chương đang mở")
         self.btn_prev = QPushButton("")
         self.btn_next = QPushButton("")
         icons.attach(self.btn_prev, "left", 20)
         icons.attach(self.btn_next, "right", 20)
         for b in (self.btn_prev, self.btn_next):
-            b.setFixedSize(36, 36)                       # nút vuông có viền như các nút khác: nhìn là biết bấm được
+            b.setFixedSize(40, 40)                       # nút vuông có viền như các nút khác: nhìn là biết bấm được
             b.setToolTip("Chương trước" if b is self.btn_prev else "Chương sau")
         self.btn_prev.clicked.connect(lambda: self.step_chapter(-1))
         self.btn_next.clicked.connect(lambda: self.step_chapter(+1))
@@ -182,7 +280,7 @@ class ProjectTab(QWidget):
         top = QHBoxLayout()
         top.setSpacing(SP.s)
         for w in (self.sync_btn, self.more, self.btn_settings):
-            w.setFixedHeight(36)                         # cùng một chiều cao: mọi điều khiển trong hàng thẳng hàng
+            w.setFixedHeight(40)                         # cùng một chiều cao: mọi điều khiển trong hàng thẳng hàng
         steps = QHBoxLayout()                           # cặp ‹ › đi liền nhau, đứng sau nút chương
         steps.setSpacing(SP.xs)
         steps.addWidget(self.btn_prev)
@@ -190,6 +288,7 @@ class ProjectTab(QWidget):
         top.addWidget(self.nav_project, 3)
         top.addWidget(sep, 0, Qt.AlignVCenter)
         top.addWidget(self.nav_chapter, 4)
+        top.addWidget(self.chap_prog, 2)
         top.addLayout(steps)
         top.addSpacing(SP.xl - SP.s)                    # cộng với spacing 8 của hàng = ngăn nhóm 24px
         top.addWidget(self.sync_btn)
@@ -242,21 +341,28 @@ class ProjectTab(QWidget):
         self.story.setPlaceholderText("Dán đoạn truyện (chapter) vào đây rồi bấm ① Tạo scene...")
         self.synopsis = QPlainTextEdit()
         self.synopsis.setPlaceholderText("Tóm tắt/bối cảnh bộ truyện (ngữ cảnh khi tách scene)")
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["#", "Scene", "Trạng thái"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["#", "Scene", "Trạng thái", ""])
+        self.table.setItemDelegate(SceneDelegate(self.table))
+        self.table.setShowGrid(False)
+        self.table.setMouseTracking(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)   # Shift/⌘+click, kéo chuột, ⌘A
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
         self.table.setWordWrap(False)
         self.table.setTextElideMode(Qt.ElideRight)
-        self.table.verticalHeader().setDefaultSectionSize(36)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         hh = self.table.horizontalHeader()
+        hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hh.setSectionResizeMode(0, hh.ResizeMode.ResizeToContents)   # luôn đủ chỗ cho số 2-3 chữ số
         hh.setSectionResizeMode(1, hh.ResizeMode.Stretch)
         hh.setSectionResizeMode(2, hh.ResizeMode.Fixed)      # cố định: bộ đếm giờ khi đang gen không làm bảng nhảy
-        self.table.setColumnWidth(2, 136)
-        hh.setMinimumSectionSize(46)
+        self.table.setColumnWidth(2, 150)
+        hh.setSectionResizeMode(3, hh.ResizeMode.Fixed)
+        self.table.setColumnWidth(3, 44)
+        hh.setMinimumSectionSize(40)
+        self.table.cellClicked.connect(self.on_cell_clicked)
         self.table.currentCellChanged.connect(self.on_row_changed)
         self.table.itemSelectionChanged.connect(self.update_sel_label)
         for key in (Qt.Key_Delete, Qt.Key_Backspace):
@@ -282,6 +388,40 @@ class ProjectTab(QWidget):
         self.sel_label.setFixedWidth(112)                  # cố định: đổi nội dung không làm xê dịch các nút bên cạnh
         self.sel_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sel_bar.addWidget(self.sel_label)
+        self.scene_search = QLineEdit()
+        self.scene_search.setPlaceholderText("Tìm scene…")
+        self.scene_search.setClearButtonEnabled(True)
+        self.scene_search.setFixedHeight(36)
+        self.scene_search.addAction(QIcon(icons.pixmap("search", 18, theme.T["muted"])), QLineEdit.LeadingPosition)
+        self.scene_search.textChanged.connect(self.apply_scene_filter)
+        self.scene_filter = "all"
+        self.btn_filter = QPushButton()
+        self.btn_filter.setProperty("iconbtn", True)
+        self.btn_filter.setFixedSize(36, 36)
+        icons.attach(self.btn_filter, "filter", 18)
+        fm = QMenu(self.btn_filter)
+        for key, label in (("all", "Tất cả scene"), ("done", "Đã xong"), ("todo", "Chưa xong"), ("error", "Lỗi")):
+            fm.addAction(label, lambda k=key: self.set_scene_filter(k))
+        self.btn_filter.setMenu(fm)
+        self.btn_filter.setToolTip("Lọc theo trạng thái")
+        find_bar = QHBoxLayout()
+        find_bar.setSpacing(SP.s)
+        find_bar.addWidget(self.scene_search, 1)
+        find_bar.addWidget(self.btn_filter)
+        self.prog_dot = QFrame()
+        self.prog_dot.setFixedSize(9, 9)
+        self.prog_text = QLabel("")
+        self.prog_text.setProperty("caption", True)
+        self.scene_bar = QProgressBar()
+        self.scene_bar.setProperty("acctbar", True)
+        self.scene_bar.setProperty("greenbar", True)
+        self.scene_bar.setTextVisible(False)
+        self.scene_bar.setFixedHeight(8)
+        prog_bar = QHBoxLayout()
+        prog_bar.setSpacing(SP.s)
+        prog_bar.addWidget(self.prog_dot, 0, Qt.AlignVCenter)
+        prog_bar.addWidget(self.prog_text)
+        prog_bar.addWidget(self.scene_bar, 1)
         self.manage_btn = QPushButton("Quản lý")
         icons.attach(self.manage_btn, "down", 18)
         self.manage_btn.setLayoutDirection(Qt.RightToLeft)
@@ -293,6 +433,8 @@ class ProjectTab(QWidget):
         spl.setContentsMargins(0, 0, 0, 0)
         spl.setSpacing(SP.s)
         spl.addLayout(sel_bar)
+        spl.addLayout(find_bar)
+        spl.addLayout(prog_bar)
         self.empty_title = QLabel("Chưa có scene")
         self.empty_title.setAlignment(Qt.AlignCenter)
         self.empty_title.setProperty("heading", True)
@@ -352,9 +494,6 @@ class ProjectTab(QWidget):
         b_gen_one.clicked.connect(lambda: self.flow_auto_run("current"))
         b_voice_one.clicked.connect(lambda: self.revoice(only_current=True))
         b_copy.clicked.connect(self.flow_copy)
-        self.b_copy_err = QPushButton("Copy lỗi")
-        self.b_copy_err.setProperty("flat", True)
-        self.b_copy_err.clicked.connect(self.copy_error)
         self._busy_widgets += [b_gen_one, b_voice_one]
 
         def caption(text: str) -> QLabel:
@@ -393,7 +532,17 @@ class ProjectTab(QWidget):
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(SP.m)                             # khoảng cách giữa các NHÓM trường
 
-        def group(title: str, widget: QWidget, header_extra: QWidget | None = None) -> QWidget:
+        def copy_btn(edit) -> QPushButton:
+            b = QPushButton()
+            b.setProperty("ghost", True)
+            b.setFixedSize(24, 16)
+            b.setStyleSheet("padding: 0;")
+            icons.attach(b, "copy", 14, role="muted")
+            b.setToolTip("Copy nội dung")
+            b.clicked.connect(lambda: QApplication.clipboard().setText(edit.toPlainText()))
+            return b
+
+        def group(title: str, widget: QWidget, header_extra: QWidget | None = None, copy_of=None) -> QWidget:
             g = QWidget()
             gv = QVBoxLayout(g)
             gv.setContentsMargins(0, 0, 0, 0)
@@ -404,19 +553,29 @@ class ProjectTab(QWidget):
             head.addStretch()
             if header_extra is not None:
                 head.addWidget(header_extra)
+            if copy_of is not None:
+                head.addWidget(copy_btn(copy_of))
             gv.addLayout(head)
             gv.addWidget(widget, 1)
             return g
         dl.addWidget(group("Tiêu đề", self.d_title))
         dl.addWidget(group("Nhân vật", self.d_chars))
-        dl.addWidget(group("Đoạn truyện gốc", self.d_src), 2)
-        dl.addWidget(group("Thuyết minh", self.d_narr, self.narr_count), 2)
-        dl.addWidget(group("Visual (prompt gửi Flow)", self.d_visual), 2)
+        dl.addWidget(group("Đoạn truyện gốc", self.d_src, copy_of=self.d_src), 2)
+        dl.addWidget(group("Thuyết minh", self.d_narr, self.narr_count, copy_of=self.d_narr), 2)
+        dl.addWidget(group("Visual (prompt gửi Flow)", self.d_visual, copy_of=self.d_visual), 2)
+        self.btn_sprev, self.btn_snext = QPushButton(""), QPushButton("")
+        for b, ic, tip, d in ((self.btn_sprev, "left", "Scene trước", -1), (self.btn_snext, "right", "Scene sau", 1)):
+            b.setProperty("iconbtn", True)
+            b.setFixedSize(36, 36)
+            icons.attach(b, ic, 18)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, k=d: self.step_scene(k))
         h2 = QHBoxLayout()
         h2.addWidget(self.d_badge)
         h2.addWidget(self.d_err, 1)
-        h2.addWidget(self.b_view_err)
-        h2.addWidget(self.b_copy_err)
+        h2.addWidget(self.b_view_err)           # 'Copy lỗi' nằm trong hộp thoại xem lỗi (đầu thẻ hẹp không đủ chỗ cho cả hai)
+        h2.addWidget(self.btn_sprev)
+        h2.addWidget(self.btn_snext)
         f2 = QHBoxLayout()
         for b in (b_gen_one, b_voice_one, b_copy):
             b.setFixedHeight(36)
@@ -706,13 +865,14 @@ class ProjectTab(QWidget):
             r = self.table.rowCount()
             self.table.insertRow(r)
             label, color = self.status_text(s)
-            vals = [str(s.index), s.title, label]
+            vals = [str(s.index), s.title, label, ""]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 if c == 2:
                     it.setForeground(QBrush(QColor(color)))
                 self.table.setItem(r, c, it)
         self.table.blockSignals(False)
+        self.apply_scene_filter()
         n = len(scenes)
         self.refresh_counts()
         self.update_empty_state()
@@ -912,9 +1072,19 @@ class ProjectTab(QWidget):
             n = len(ch.scenes)
             self.nav_chapter.set_title(ch.name)
             self.nav_chapter.set_pill(f"{ch.done}/{n}" if n else "trống", "ok" if n and ch.done == n else "info")
+            self.chap_bar.setRange(0, max(n, 1))
+            self.chap_bar.setValue(ch.done)
+            self.chap_count.setText(f"{ch.done}/{n}" if n else "trống")
+            icons.attach(self.chap_check, "check", 18, role="muted")
+            self.chap_check.setVisible(bool(n) and ch.done == n)
+            if n and ch.done == n:
+                self.chap_check.setStyleSheet(f"color: {theme.T['ok']}; background: transparent;")
         else:
             self.nav_chapter.set_title("Chưa có chương")
             self.nav_chapter.set_pill("", "info")
+            self.chap_bar.setValue(0)
+            self.chap_count.setText("")
+            self.chap_check.setVisible(False)
         total = len(p.chapters) if p else 0
         self.btn_prev.setEnabled(not self._busy and self._chap_idx > 0)
         self.btn_next.setEnabled(not self._busy and 0 <= self._chap_idx < total - 1)
@@ -1287,6 +1457,41 @@ class ProjectTab(QWidget):
         self._ctx_pop = Popover(self, self.build_context_pop, 400)       # giữ tham chiếu để không bị thu hồi
         self._ctx_pop.show_at(self.table.viewport().mapToGlobal(pos))
 
+    def step_scene(self, delta: int) -> None:
+        r = self._row + delta
+        if 0 <= r < self.table.rowCount():
+            while 0 <= r < self.table.rowCount() and self.table.isRowHidden(r):      # bỏ qua dòng đang bị lọc ẩn
+                r += delta
+            if 0 <= r < self.table.rowCount():
+                self.table.setCurrentCell(r, 0)
+
+    def on_cell_clicked(self, row: int, col: int) -> None:
+        """Bấm vào nút '···' ở cuối dòng: mở menu thao tác của dòng đó (cùng menu chuột phải)."""
+        if col == 3 and 0 <= row < len(self.scenes):
+            idx = self.table.model().index(row, 3)
+            rect = self.table.visualRect(idx)
+            self.table.setCurrentCell(row, 0)
+            self.table_context_menu(rect.bottomLeft())
+
+    def set_scene_filter(self, key: str) -> None:
+        self.scene_filter = key
+        self.btn_filter.setProperty("active", key != "all")
+        repolish(self.btn_filter)
+        self.apply_scene_filter()
+
+    def apply_scene_filter(self, *_) -> None:
+        """Ô tìm + bộ lọc trạng thái chỉ ẨN/HIỆN dòng (không đổi thứ tự) nên số dòng vẫn khớp danh sách scene."""
+        import unicodedata
+        norm = lambda t: "".join(c for c in unicodedata.normalize("NFD", t.replace("đ", "d").replace("Đ", "D").lower()) if unicodedata.category(c) != "Mn")
+        q = norm(self.scene_search.text().strip())
+        for r, s in enumerate(self.scenes):
+            if r >= self.table.rowCount():
+                break
+            ok = (not q or q in norm(f"{s.index} {s.title} {s.narration} {s.visual}")) and \
+                 (self.scene_filter == "all" or (self.scene_filter == "done" and s.status == "done")
+                  or (self.scene_filter == "todo" and s.status != "done") or (self.scene_filter == "error" and s.status == "error"))
+            self.table.setRowHidden(r, not ok)
+
     def on_row_changed(self, cur: int, _prev: int):
         self.commit_detail()
         self._row = cur
@@ -1302,7 +1507,6 @@ class ProjectTab(QWidget):
             w.clear()
         self.d_badge.setText("")
         self.d_err.set_full("")
-        self.b_copy_err.setVisible(False)
         self.b_view_err.setVisible(False)
 
     def load_detail(self, row: int):
@@ -1522,6 +1726,10 @@ class ProjectTab(QWidget):
         total, total_done = len(allp), sum(1 for _, s in allp if s.status == "done")
         self.progress.setText(f"Chương: {done}/{n} scene  ·  Dự án: {total_done}/{total}")
         self._progress_text = f"{done}/{n} xong" if n else ""
+        self.scene_bar.setRange(0, max(n, 1))
+        self.scene_bar.setValue(done)
+        self.prog_text.setText(self._progress_text)
+        self.prog_dot.setStyleSheet(f"background: {theme.T['ok'] if n and done == n else theme.T['info']}; border-radius: 4px;")
         self.update_sel_label()
         self.refresh_chapter_labels()
 
@@ -1533,7 +1741,6 @@ class ProjectTab(QWidget):
         label, color = self.status_text(s)
         self.d_badge.setText(f'<b style="color:{color}">Scene {s.index}: {label}</b>')
         self.d_err.set_full(s.error)
-        self.b_copy_err.setVisible(bool(s.error))
         self.b_view_err.setVisible(bool(s.error))
 
     def update_steps(self):

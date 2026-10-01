@@ -293,3 +293,67 @@ class TopBar(QFrame):
         self.acct_name.setText(name)
         self.avatar.setText((name or "?").strip()[:1].upper() or "?")
         self.pill.setFixedWidth(max(120, self.acct_name.fontMetrics().horizontalAdvance(name) + 90))
+
+
+class CharRow(QFrame):
+    """Một nhân vật trong danh sách: số thứ tự, ảnh tròn, tên + vai trò, menu '···'."""
+    selected = Signal()
+    action = Signal(str)
+
+    def __init__(self, index: int, name: str, role: str, pix, has_image: bool):
+        super().__init__()
+        self.setProperty("provrow", True)
+        self.setFixedHeight(68)
+        self.name_text = name
+        num = QLabel(str(index))
+        num.setProperty("navtile", True)
+        num.setAlignment(Qt.AlignCenter)
+        num.setFixedSize(34, 34)
+        num.setStyleSheet("font-weight: 600;")
+        pic = QLabel()
+        pic.setFixedSize(46, 46)
+        if pix is not None:
+            pic.setPixmap(pix)
+        else:                                       # chưa có ảnh: avatar chữ cái đầu của tên
+            pic.setText((name or "?").strip()[:1].upper())
+            pic.setAlignment(Qt.AlignCenter)
+            color = LOGO_COLORS["default"] if not name else list(LOGO_COLORS.values())[sum(map(ord, name)) % len(LOGO_COLORS)]
+            pic.setStyleSheet(f"background: {color}; color: #FFFFFF; border-radius: 23px; font-weight: 700; font-size: 18px;")
+        n = ElidedLabel()
+        n.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
+        n.set_full(name)
+        r = ElidedLabel()
+        r.setProperty("caption", True)
+        r.set_full(role or ("Chưa có vai trò" if has_image else "Chưa có ảnh"))
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.addStretch(1)
+        col.addWidget(n)
+        col.addWidget(r)
+        col.addStretch(1)
+        from PySide6.QtWidgets import QMenu
+        more = QPushButton()
+        more.setProperty("iconbtn", True)
+        icons.attach(more, "more", 20)
+        menu = QMenu(more)
+        menu.addAction("Gen lại ảnh (AI)…", lambda: self.action.emit("ai"))
+        menu.addAction("Chọn ảnh…", lambda: self.action.emit("image"))
+        menu.addSeparator()
+        menu.addAction("Xoá", lambda: self.action.emit("delete"))
+        more.setMenu(menu)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, 0, SP.s, 0)
+        row.setSpacing(SP.m)
+        row.addWidget(num, 0, Qt.AlignVCenter)
+        row.addWidget(pic, 0, Qt.AlignVCenter)
+        row.addLayout(col, 1)
+        row.addWidget(more, 0, Qt.AlignVCenter)
+
+    def mousePressEvent(self, e):
+        self.selected.emit()
+        super().mousePressEvent(e)
+
+    def set_selected(self, on: bool) -> None:
+        self.setProperty("selected", on)
+        repolish(self)

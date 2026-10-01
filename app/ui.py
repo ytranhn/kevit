@@ -3,20 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
+    QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from . import accounts, theme, characters_pack, flow_auto, llm, models, settings, trash
+from . import accounts, theme, characters_pack, flow_auto, icons, llm, models, settings, trash
 from .settings_tab import SettingsTab
 from .models import Character
 from .project_tab import ProjectTab
 from .pack_guide import PackGuideDialog, confirm_text
 from .welcome import Welcome
 from .theme import SP
-from .shell import TopBar
+from .shell import CharRow, TopBar
 from .widgets import Popover, StatusStrip, avatar, repolish, rounded_pixmap
 
 
@@ -35,23 +35,31 @@ class CharactersTab(QWidget):
         self._chars: list[Character] = []
         self._mtime = 0.0
         self.list = QListWidget()
+        self.list.setObjectName("provList")
+        self.list.setSpacing(SP.s)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setSelectionMode(QListWidget.ExtendedSelection)   # Shift/⌘+click để xoá nhiều nhân vật
         self.hint = QLabel("", self.list.viewport())                # trạng thái trống: hướng dẫn thay vì ô trắng
         self.hint.setProperty("caption", True)
         self.hint.setAlignment(Qt.AlignCenter)
         self.hint.setWordWrap(True)
         self.list.viewport().installEventFilter(self)
+        self.list.itemSelectionChanged.connect(self.mark_rows)
         self.name, self.aliases, self.role, self.zh = QLineEdit(), QLineEdit(), QLineEdit(), QLineEdit()
         self.desc = QPlainTextEdit()
         self.desc.setPlaceholderText("Ví dụ: young man, long black hair, dark green robe with gold trim")
         self.desc_vi = QPlainTextEdit()
         self.desc_vi.setPlaceholderText("Mô tả gốc tiếng Việt")
-        self.desc_vi.setMaximumHeight(92)
         self.img_path, self.preview = "", QLabel("Chưa có ảnh")
-        self.preview.setFixedSize(178, 178)       # +2px viền của khung giữ chỗ
+        self.preview.setFixedSize(224, 224)
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setProperty("avatarph", True)
-        self.desc_vi.setFixedHeight(88)
+        self.btn_edit_img = QPushButton(self.preview)          # nút bút chì nổi trên góc ảnh
+        self.btn_edit_img.setProperty("iconbtn", True)
+        self.btn_edit_img.setFixedSize(34, 34)
+        self.btn_edit_img.move(224 - 34 - 10, 10)
+        icons.attach(self.btn_edit_img, "edit", 18)
+        self.btn_edit_img.setToolTip("Đổi ảnh")
 
         def field(label: str, w: QWidget) -> QWidget:
             box = QWidget()
@@ -59,82 +67,186 @@ class CharactersTab(QWidget):
             v.setContentsMargins(0, 0, 0, 0)
             v.setSpacing(SP.xs)
             cap = QLabel(label)
-            cap.setProperty("caption", True)
+            cap.setStyleSheet("font-weight: 500; background: transparent;")
             v.addWidget(cap)
             v.addWidget(w)
             return box
 
-        btn_img, btn_save, btn_new, btn_del, btn_pack = (QPushButton(t) for t in
-                                                         ("Chọn ảnh…", "Lưu", "+ Thêm mới", "Xoá", "Nhập gói…"))
+        def text_card(title: str, edit: QPlainTextEdit, count: bool) -> QFrame:
+            """Khung mô tả: tiêu đề + số từ + nút copy, ô nhập bên dưới."""
+            f = QFrame()
+            f.setProperty("banner", True)
+            cap = QLabel(title)
+            cap.setProperty("caption", True)
+            cnt = QLabel("")
+            cnt.setProperty("caption", True)
+            cp = QPushButton()
+            cp.setProperty("ghost", True)
+            cp.setFixedSize(30, 30)
+            icons.attach(cp, "copy", 16, role="muted")
+            cp.setToolTip("Copy nội dung")
+            cp.clicked.connect(lambda: QGuiApplication.clipboard().setText(edit.toPlainText()))
+            head = QHBoxLayout()
+            head.setSpacing(SP.s)
+            head.addWidget(cap, 1)
+            head.addWidget(cnt)
+            head.addWidget(cp)
+            v = QVBoxLayout(f)
+            v.setContentsMargins(SP.l, SP.m, SP.l, SP.l)
+            v.setSpacing(SP.s)
+            v.addLayout(head)
+            v.addWidget(edit, 1)
+            edit.setMinimumHeight(92)
+            if count:
+                edit.textChanged.connect(lambda: cnt.setText(f"{len(edit.toPlainText().split())} từ"))
+            return f
+
+        btn_img, btn_save, btn_new, btn_del, btn_pack, btn_cancel = (QPushButton(t) for t in
+                                                                      ("Chọn ảnh…", "Lưu", "Thêm mới", "Xoá", "Nhập gói…", "Huỷ"))
         btn_save.setProperty("primary", True)
+        btn_new.setProperty("primary", True)
         btn_del.setProperty("danger", True)
+        icons.attach(btn_img, "image", 18)
+        icons.attach(btn_save, "save", 18)
+        icons.attach(btn_new, "plus", 18)
+        icons.attach(btn_del, "trash", 18)
+        icons.attach(btn_pack, "info", 18)
+        for b in (btn_img, btn_save, btn_new, btn_del, btn_pack, btn_cancel):
+            b.setFixedHeight(40)
         btn_img.clicked.connect(self.pick_image)
+        self.btn_edit_img.clicked.connect(self.pick_image)
         btn_save.clicked.connect(self.save)
         btn_new.clicked.connect(self.new)
         btn_del.clicked.connect(self.delete)
+        btn_cancel.clicked.connect(self.revert)
         btn_pack.clicked.connect(lambda _checked=False: self.import_pack())     # clicked gửi thêm 'checked': không được lọt vào tham số source
-
-        top = QHBoxLayout()
-        top.setSpacing(SP.l)
-        btn_img.setFixedHeight(36)
         self.btn_ai = btn_ai = QPushButton("Tạo ảnh (AI)…")      # đổi thành "Gen lại ảnh (AI)…" khi nhân vật đã có ảnh
-        btn_ai.setFixedHeight(36)
+        btn_ai.setFixedHeight(40)
         btn_ai.setProperty("primary", True)
+        icons.attach(btn_ai, "sparkle", 18)
         btn_ai.clicked.connect(self.make_image_ai)
-        picbox = QWidget()                      # khối ảnh + nút có kích thước cố định: cửa sổ thấp cũng không bị nén đè lên nhau
+
+        # ---- thẻ phải: thông tin nhân vật ----
+        self.idx_pill = QLabel("mới")
+        self.idx_pill.setProperty("pill", "info")
+        title = QLabel("Thông tin nhân vật")
+        title.setProperty("subheading", True)
+        more = QPushButton()
+        more.setProperty("iconbtn", True)
+        icons.attach(more, "more", 20)
+        mmenu = QMenu(more)
+        mmenu.addAction("Gen lại ảnh (AI)…", self.make_image_ai)
+        mmenu.addAction("Chọn ảnh…", self.pick_image)
+        mmenu.addAction("Nhân bản", self.duplicate)
+        more.setMenu(mmenu)
+        trash_btn = QPushButton()
+        trash_btn.setProperty("iconbtn", True)
+        icons.attach(trash_btn, "trash", 20, role="danger")
+        trash_btn.setToolTip("Xoá nhân vật đang chọn")
+        trash_btn.clicked.connect(self.delete)
+        head = QHBoxLayout()
+        head.setSpacing(SP.s)
+        head.addWidget(title)
+        head.addWidget(self.idx_pill)
+        head.addStretch(1)
+        head.addWidget(trash_btn)
+        head.addWidget(more)
+        picbox = QWidget()                      # khối ảnh + nút có kích thước cố định
         pic = QVBoxLayout(picbox)
         pic.setContentsMargins(0, 0, 0, 0)
         pic.setSpacing(SP.s)
         pic.addWidget(self.preview)
         pic.addWidget(btn_img)
         pic.addWidget(btn_ai)
-        picbox.setFixedSize(178, 178 + (SP.s + 36) * 2)
+        picbox.setFixedSize(224, 224 + (SP.s + 40) * 2)
+        fields = QVBoxLayout()
+        fields.setSpacing(SP.m)
+        fields.addWidget(field("Tên chuẩn", self.name))
+        fields.addWidget(field("Tên Hán", self.zh))
+        fields.addWidget(field("Vai trò", self.role))
+        fields.addWidget(field("Tên gọi khác (cách nhau dấu phẩy)", self.aliases))
+        fields.addStretch(1)
+        top = QHBoxLayout()
+        top.setSpacing(SP.xl)
         top.addWidget(picbox, 0, Qt.AlignTop)
-        main = QVBoxLayout()
-        main.setSpacing(SP.m)
-        main.addWidget(field("Tên chuẩn", self.name))
-        main.addWidget(field("Tên Hán", self.zh))
-        main.addWidget(field("Vai trò", self.role))
-        top.addLayout(main, 1)
-
-        card = QFrame()
-        card.setProperty("card", True)
-        cv = QVBoxLayout(card)
-        cv.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
-        cv.setSpacing(SP.m)
-        title = QLabel("Thông tin nhân vật")
-        title.setProperty("subheading", True)
-        cv.addWidget(title)
-        cv.addLayout(top)
-        cv.addWidget(field("Tên gọi khác (cách nhau dấu phẩy)", self.aliases))
-        cv.addWidget(field("Mô tả (prompt, tiếng Anh): đưa thẳng vào prompt Flow, nên khớp với ảnh tham chiếu", self.desc), 1)
-        cv.addWidget(field("Mô tả gốc tiếng Việt (từ gói nhân vật, chỉ để tham khảo)", self.desc_vi))
+        top.addLayout(fields, 1)
+        body = QWidget()
+        bv = QVBoxLayout(body)
+        bv.setContentsMargins(0, 0, SP.s, 0)
+        bv.setSpacing(SP.l)
+        bv.addLayout(top)
+        bv.addWidget(text_card("Mô tả (prompt, tiếng Anh): đưa thẳng vào prompt Flow, nên khớp với ảnh tham chiếu", self.desc, True))
+        bv.addWidget(text_card("Mô tả gốc tiếng Việt (từ gói nhân vật, chỉ để tham khảo)", self.desc_vi, False))
+        scroll = QScrollArea()                  # cửa sổ thấp thì cuộn thay vì nén các ô nhập đè lên nhau
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
+        scroll.setWidget(body)
         foot = QHBoxLayout()
         foot.setSpacing(SP.s)
         foot.addWidget(btn_del)
         foot.addStretch()
+        foot.addWidget(btn_cancel)
         foot.addWidget(btn_save)
+        card = QFrame()
+        card.setProperty("card", True)
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(SP.xl, SP.l, SP.xl, SP.l)
+        cv.setSpacing(SP.m)
+        cv.addLayout(head)
+        cv.addWidget(scroll, 1)
         cv.addLayout(foot)
 
-        lcol = QVBoxLayout()
-        lcol.setSpacing(SP.m)
-        lcol.addWidget(self.list, 1)
-        lr = QHBoxLayout()
-        lr.setSpacing(SP.s)
-        lr.addWidget(btn_new, 1)
-        lr.addWidget(btn_pack, 1)
-        lcol.addLayout(lr)
+        # ---- thẻ trái: danh sách ----
+        self.count_pill = QLabel("0")
+        self.count_pill.setProperty("pill", "info")
+        ltitle = QLabel("Danh sách nhân vật")
+        ltitle.setProperty("subheading", True)
+        lhead = QHBoxLayout()
+        lhead.setSpacing(SP.s)
+        lhead.addWidget(ltitle)
+        lhead.addWidget(self.count_pill)
+        lhead.addStretch(1)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Tìm nhân vật…")
+        self.search.setClearButtonEnabled(True)
+        self.search.setFixedHeight(40)
+        self.search.addAction(QIcon(icons.pixmap("search", 18, theme.T["muted"])), QLineEdit.LeadingPosition)
+        self.search.textChanged.connect(self.apply_filter)
+        self.filter = QComboBox()
+        for label, key in (("Tất cả", "all"), ("Có ảnh", "image"), ("Chưa có ảnh", "noimage"), ("Đang dùng", "used")):
+            self.filter.addItem(label, key)
+        self.filter.setFixedHeight(40)
+        self.filter.setFixedWidth(130)
+        self.filter.currentIndexChanged.connect(self.apply_filter)
+        srow = QHBoxLayout()
+        srow.setSpacing(SP.s)
+        srow.addWidget(self.search, 1)
+        srow.addWidget(self.filter)
         btn_gen = QPushButton("Tạo nhân vật từ truyện (AI)…")
+        btn_gen.setFixedHeight(40)
+        icons.attach(btn_gen, "sparkle", 18)
         btn_gen.clicked.connect(self.generate_from_story)
-        lcol.addWidget(btn_gen)
+        lr = QGridLayout()
+        lr.setHorizontalSpacing(SP.s)
+        lr.setColumnStretch(0, 1)
+        lr.setColumnStretch(1, 1)
+        lr.addWidget(btn_new, 0, 0)
+        lr.addWidget(btn_pack, 0, 1)
+        lr.addWidget(btn_gen, 1, 0, 1, 2)
+        left = QFrame()
+        left.setProperty("card", True)
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
+        lv.setSpacing(SP.m)
+        lv.addLayout(lhead)
+        lv.addLayout(srow)
+        lv.addWidget(self.list, 1)
+        lv.addLayout(lr)
         lay = QHBoxLayout(self)
         lay.setSpacing(SP.l)
-        lay.addLayout(lcol, 4)
-        scroll = QScrollArea()                  # cửa sổ thấp thì cuộn thay vì nén các ô nhập đè lên nhau
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidget(card)
-        lay.addWidget(scroll, 7)
+        lay.addWidget(left, 4)
+        lay.addWidget(card, 7)
         self.list.currentRowChanged.connect(self.show_char)
         self.refresh()
 
@@ -181,10 +293,76 @@ class CharactersTab(QWidget):
         self.hint.setVisible(not self._chars)
         self.list.blockSignals(True)
         self.list.clear()
-        self.list.setIconSize(QSize(34, 34))
-        for c in self._chars:
-            self.list.addItem(QListWidgetItem(QIcon(avatar(c.image, 34)), c.name + (f"  ·  {c.role}" if c.role else "")))
+        for i, c in enumerate(self._chars):
+            it = QListWidgetItem()
+            it.setSizeHint(QSize(0, 68))
+            self.list.addItem(it)
+            has = bool(c.image and Path(c.image).exists())
+            row = CharRow(i + 1, c.name, c.role, avatar(c.image, 46) if has else None, has)
+            row.selected.connect(lambda r=i: self.select_row(r))
+            row.action.connect(lambda k, r=i: self.row_action(r, k))
+            self.list.setItemWidget(it, row)
         self.list.blockSignals(False)
+        self.count_pill.setText(str(len(self._chars)))
+        self.apply_filter()
+        self.mark_rows()
+
+    def select_row(self, r: int) -> None:
+        """Bấm vào hàng: chọn hàng đó (Shift/⌘ + bấm để chọn nhiều thì dùng danh sách như thường)."""
+        if not (QGuiApplication.keyboardModifiers() & (Qt.ShiftModifier | Qt.ControlModifier | Qt.MetaModifier)):
+            self.list.clearSelection()
+            self.list.setCurrentRow(r)
+
+    def row_action(self, r: int, key: str) -> None:
+        self.list.clearSelection()
+        self.list.setCurrentRow(r)
+        QTimer.singleShot(0, {"ai": self.make_image_ai, "image": self.pick_image, "delete": self.delete}[key])
+
+    def mark_rows(self) -> None:
+        sel = {i.row() for i in self.list.selectedIndexes()}
+        for i in range(self.list.count()):
+            w = self.list.itemWidget(self.list.item(i))
+            if w is not None:
+                w.set_selected(i in sel or i == self.list.currentRow() and not sel)
+
+    def apply_filter(self, *_) -> None:
+        """Ô tìm + bộ lọc chỉ ẨN/HIỆN hàng (không đổi thứ tự) nên số dòng vẫn khớp danh sách nhân vật."""
+        import unicodedata
+        norm = lambda t: "".join(c for c in unicodedata.normalize("NFD", t.replace("đ", "d").replace("Đ", "D").lower()) if unicodedata.category(c) != "Mn")
+        q, mode = norm(self.search.text().strip()), self.filter.currentData()
+        used = self.usage_counter([c.name for c in self._chars]) if callable(self.usage_counter) and mode == "used" else {}
+        for i, c in enumerate(self._chars):
+            has = bool(c.image and Path(c.image).exists())
+            ok = (not q or q in norm(c.name + " " + c.role + " " + " ".join(c.aliases))) and \
+                 (mode == "all" or (mode == "image" and has) or (mode == "noimage" and not has) or (mode == "used" and used.get(c.name, 0) > 0))
+            it = self.list.item(i)
+            if it is not None:
+                it.setHidden(not ok)
+
+    def revert(self) -> None:
+        """Nút Huỷ: bỏ các sửa đổi chưa lưu, nạp lại nhân vật đang chọn (hoặc xoá ô nhập nếu đang tạo mới)."""
+        r = self.list.currentRow()
+        if 0 <= r < len(self._chars):
+            self.show_char(r)
+        else:
+            self.new()
+
+    def duplicate(self) -> None:
+        r = self.list.currentRow()
+        if not (0 <= r < len(self._chars)):
+            return
+        c = self._chars[r]
+        names = {x.name for x in self._chars}
+        name, n = f"{c.name} (bản sao)", 2
+        while name in names:
+            name, n = f"{c.name} (bản sao {n})", n + 1
+        import dataclasses
+        self._chars.append(dataclasses.replace(c, name=name))
+        models.save_characters(self.project_name, self._chars)
+        self._mtime = models.characters_mtime(self.project_name)
+        self.refresh()
+        self.chars_changed.emit()
+        self.list.setCurrentRow(len(self._chars) - 1)
 
     def new(self):
         self.list.clearSelection()
@@ -193,6 +371,7 @@ class CharactersTab(QWidget):
         self.desc.clear()
         self.desc_vi.clear()
         self.img_path = ""
+        self.idx_pill.setText("mới")
         self.set_preview()
 
     def show_char(self, i):
@@ -206,6 +385,7 @@ class CharactersTab(QWidget):
         self.desc.setPlainText(c.description)
         self.desc_vi.setPlainText(c.description_vi)
         self.img_path = c.image
+        self.idx_pill.setText(f"#{i + 1}")
         self.set_preview()
 
     def set_preview(self):
@@ -213,7 +393,7 @@ class CharactersTab(QWidget):
         self.btn_ai.setText("Gen lại ảnh (AI)…" if has else "Tạo ảnh (AI)…")
         if has:
             self.preview.setProperty("avatarph", False)
-            self.preview.setPixmap(rounded_pixmap(self.img_path, 176, 16))
+            self.preview.setPixmap(rounded_pixmap(self.img_path, 222, 16))
         else:
             self.preview.setProperty("avatarph", True)
             self.preview.setPixmap(QPixmap())

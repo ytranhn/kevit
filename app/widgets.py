@@ -721,15 +721,21 @@ class SegStack:
 class NavButton(QPushButton):
     """Nút chuyển dự án/chương: tên (tự cắt '…') + nhãn tiến độ tuỳ chọn + mũi tên; bấm để mở danh sách chuyển nhanh."""
 
-    def __init__(self, with_pill: bool = False):
+    def __init__(self, with_pill: bool = False, icon: str = "", show_pill: bool = True):
         super().__init__()
         self.setProperty("navbtn", True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(36)
+        self.setFixedHeight(40)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._show_pill = show_pill
         row = QHBoxLayout(self)
         row.setContentsMargins(SP.m, 0, SP.m, 0)
         row.setSpacing(SP.s)
+        if icon:
+            lead = QLabel()
+            icons.attach(lead, icon, 20, role="muted")
+            lead.setAttribute(Qt.WA_TransparentForMouseEvents)
+            row.addWidget(lead, 0, Qt.AlignVCenter)
         self.title = ElidedLabel()
         self.title.setAttribute(Qt.WA_TransparentForMouseEvents)
         row.addWidget(self.title, 1)
@@ -750,7 +756,7 @@ class NavButton(QPushButton):
         if not self._with_pill:
             return
         self.pill.setText(text)
-        self.pill.setVisible(bool(text))
+        self.pill.setVisible(bool(text) and self._show_pill)
         if self.pill.property("pill") != kind:
             self.pill.setProperty("pill", kind)
             repolish(self.pill)
