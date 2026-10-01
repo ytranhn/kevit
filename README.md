@@ -56,7 +56,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 ## Tính năng
 
 **Từ truyện đến scene**
-- **Tách scene bằng AI.** Claude (qua proxy hoặc API chính thức) hoặc Gemini chia chương thành các scene khoảng 8 giây.
+- **Tách scene bằng AI, nhiều mô hình.** Thêm bao nhiêu mô hình tuỳ ý (Claude qua proxy hoặc API chính thức, Gemini, OpenAI và mọi dịch vụ theo chuẩn OpenAI như OpenRouter, DeepSeek, Ollama chạy trên máy) và đổi nhanh ở chip LLM; mô hình đang dùng chia chương thành các scene khoảng 8 giây.
 - **Quản lý theo cấu trúc** Dự án → Chương → Scene → Video: chọn một, nhiều hoặc tất cả scene để tạo; gộp scene thông minh; xoá scene, video, chương hoặc cả dự án, tất cả đều vào thùng rác và khôi phục được.
 
 **Nhân vật nhất quán**
@@ -143,7 +143,7 @@ flowchart LR
     N -. tham chiếu .-> C
 ```
 
-1. **Cài đặt:** chọn Claude hoặc Gemini và nhập key (hoặc đặt biến môi trường `ANTHROPIC_API_KEY` / `GEMINI_API_KEY`). Bấm *Lưu và thử kết nối*.
+1. **Cài đặt:** vào *Cài đặt → Mô hình AI*, thêm mô hình (chọn mẫu Claude, Gemini, OpenAI, OpenRouter, DeepSeek, Ollama…), nhập key (hoặc đặt biến môi trường `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`), bấm *Lưu và thử kết nối* rồi *Dùng mô hình này*. Tab Cài đặt chia mục: Mô hình AI · Gemini · Google Flow · Dữ liệu.
 2. **Google Flow:** bấm *Mở Chrome Flow*, đăng nhập Google **một lần** trong cửa sổ Chrome riêng đó. Tool chỉ thao tác trên tab Flow.
 3. **Nhân vật:** thêm từng nhân vật (ảnh, mô tả tiếng Anh dùng làm prompt, tên gọi khác), nhập theo lô, hoặc để AI đề xuất từ truyện.
 4. **Dự án:** tạo dự án, dán truyện từng chương vào tab *Truyện*, rồi đi lần lượt ba bước **① Tạo scene → ② Gen video → ③ Ghép video**.
