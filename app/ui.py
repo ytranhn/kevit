@@ -612,6 +612,7 @@ class MainWindow(QMainWindow):
         self.chip_timer.timeout.connect(self.refresh_chips)
         self.chip_timer.start()
         self.refresh_chips()
+        QTimer.singleShot(900, self.refresh_chips)     # lần đầu: kết quả kiểm tra Chrome ở luồng nền đã về, cập nhật chip ngay
 
     LOG_HEIGHT = 230
 
@@ -653,7 +654,7 @@ class MainWindow(QMainWindow):
     def refresh_chips(self):
         ok, _ = llm.is_configured()
         self.strip.set_chip("llm", f"LLM · {llm.short_name()}" if ok else "LLM · chưa cấu hình", ok)
-        up = flow_auto._cdp_up()
+        up = flow_auto.cdp_state()
         self.strip.set_chip("flow", "Flow ● sẵn sàng" if up else "Flow ○ chưa mở Chrome", up)
         voice = self.proj.project.voice.split("-")[-1].replace("Neural", "") if self.proj.project else "—"
         self.strip.set_chip("voice", f"Giọng · {voice}", True)
@@ -664,7 +665,7 @@ class MainWindow(QMainWindow):
         if key == "llm":
             self.tabs.setCurrentWidget(self.settings_tab)
         elif key == "flow":
-            if not flow_auto._cdp_up():
+            if not flow_auto.cdp_state(0):
                 self.proj.launch_flow_chrome()
         elif key == "voice":
             self.tabs.setCurrentWidget(self.proj)

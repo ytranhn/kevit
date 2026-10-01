@@ -124,6 +124,7 @@ class PreviewPanel(QWidget):
 
 class ProjectTab(QWidget):
     opened = Signal(str)
+    voices_ready = Signal()              # danh mục giọng Edge vừa tải xong ở luồng nền
     activity = Signal(str, str)          # (nội dung, mức: info/ok/warn/error) -> thanh trạng thái
     busy_changed = Signal(bool, bool)    # (đang chạy, có thể dừng)
     progress_changed = Signal(int, int)  # (xong, tổng); tổng 0 = chưa biết
@@ -443,6 +444,8 @@ class ProjectTab(QWidget):
 
         self.s1.clicked.connect(self.plan)
         self.s3.clicked.connect(self.merge_all)
+        self.voices_ready.connect(self.fill_voices)
+        tts.on_catalog_ready(self.voices_ready.emit)
         self.combo.currentTextChanged.connect(self.open_project)
         self.chap_combo.currentIndexChanged.connect(self.on_chapter_selected)
         self.reload_projects()

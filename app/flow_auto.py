@@ -45,11 +45,32 @@ class FlowError(RuntimeError):
 
 
 def _cdp_up() -> bool:
+    """Chrome Flow có đang mở cổng gỡ lỗi không. CHẶN tới 2s nếu Chrome treo: chỉ gọi ở luồng nền; giao diện dùng cdp_state()."""
     try:
         urllib.request.urlopen(S.CDP_URL + "/json/version", timeout=2)
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+_cdp_cache = {"up": False, "t": 0.0, "busy": False}
+
+
+def cdp_state(max_age: float = 3.0) -> bool:
+    """Trạng thái Chrome Flow cho giao diện: trả về NGAY giá trị đã biết, và nếu cũ hơn max_age giây thì kiểm tra lại ở luồng nền
+    (Chrome treo không còn làm đứng giao diện 2 giây mỗi lần)."""
+    import threading
+    now = time.time()
+    if now - _cdp_cache["t"] > max_age and not _cdp_cache["busy"]:
+        _cdp_cache["busy"] = True
+
+        def run():
+            try:
+                _cdp_cache["up"] = _cdp_up()
+            finally:
+                _cdp_cache["t"], _cdp_cache["busy"] = time.time(), False
+        threading.Thread(target=run, name="cdp-check", daemon=True).start()
+    return _cdp_cache["up"]
 
 
 def _chrome_exe() -> str | None:

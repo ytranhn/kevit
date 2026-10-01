@@ -4,8 +4,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from google import genai
-from google.genai import types
 
 from .models import Character, Project, Scene
 from .settings import VEO_MODEL, get_api_key
@@ -30,6 +28,8 @@ def build_prompt(project: Project, scene: Scene, chars: dict[str, Character]) ->
 
 def generate_clip(project: Project, scene: Scene, chars: dict[str, Character],
                   out_dir: Path, log=print) -> Path:
+    from google import genai          # nhập muộn: thư viện nặng (~0,3s), chỉ cần khi thật sự gọi Gemini/Veo
+    from google.genai import types
     client = genai.Client(api_key=get_api_key())
     refs = []
     for n in scene.characters[:3]:

@@ -8,8 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 import wave
 from pathlib import Path
 
-from google import genai
-from google.genai import types
 
 from .settings import TTS_MODEL, get_api_key
 
@@ -69,41 +67,119 @@ def _fetch_edge_voices() -> list[dict]:
         return ex.submit(lambda: asyncio.run(edge_tts.list_voices())).result(timeout=12)
 
 
-def edge_catalog(refresh: bool = False) -> dict[str, list[tuple[str, str]]]:
-    """{mã ngôn ngữ: [(tên giọng, 'M'|'F'), ...]} cho toàn bộ giọng Edge. Thứ tự: giọng ưu tiên trước, rồi nam/nữ theo vùng."""
-    global _catalog
-    if _catalog is not None and not refresh:
-        return _catalog
-    import json
-    raw = None
-    f = _cache_file()
-    try:
-        if f.exists() and not refresh and time.time() - f.stat().st_mtime < 7 * 86400:
-            raw = json.loads(f.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        raw = None
-    if raw is None:
-        try:
-            raw = [{"n": v["ShortName"], "g": v["Gender"][0], "l": v["Locale"]} for v in _fetch_edge_voices()]
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        except Exception:  # noqa: BLE001 - không có mạng: dùng bảng dự phòng
-            raw = [{"n": x.split(":")[0], "g": x.split(":")[1], "l": "-".join(x.split("-")[:2])} for xs in _FALLBACK.values() for x in xs]
+_CACHE_TTL, _FAIL_TTL = 7 * 86400, 3600
+_refreshing = False
+_ready_listeners: list = []
+
+
+def on_catalog_ready(cb) -> None:
+    """Đăng ký hàm gọi (từ luồng nền) khi danh mục giọng Edge vừa được tải xong từ mạng."""
+    _ready_listeners.append(cb)
+
+
+def _fail_file() -> Path:
+    return _cache_file().with_suffix(".fail")
+
+
+def _build(raw: list[dict]) -> dict[str, list[tuple[str, str]]]:
     cat: dict[str, list[tuple[str, str]]] = {}
     for v in raw:
         cat.setdefault(v["l"].split("-")[0].lower(), []).append((v["n"], v["g"]))
     for lang, voices in cat.items():
         pref = _PREFERRED.get(lang)
         voices.sort(key=lambda x: (x[0] != pref, x[1] != "M", x[0]))
-    _catalog = cat
     return cat
+
+
+def _fallback_raw() -> list[dict]:
+    return [{"n": x.split(":")[0], "g": x.split(":")[1], "l": "-".join(x.split("-")[:2])} for xs in _FALLBACK.values() for x in xs]
+
+
+def _read_cache() -> tuple[list[dict] | None, float]:
+    import json
+    f = _cache_file()
+    try:
+        if f.exists():
+            return json.loads(f.read_text(encoding="utf-8")), time.time() - f.stat().st_mtime
+    except Exception:  # noqa: BLE001
+        pass
+    return None, 0.0
+
+
+def _download_and_cache() -> list[dict]:
+    import json
+    raw = [{"n": v["ShortName"], "g": v["Gender"][0], "l": v["Locale"]} for v in _fetch_edge_voices()]
+    f = _cache_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    return raw
+
+
+def _refresh_async() -> None:
+    """Tải danh mục giọng ở luồng nền (mạng chậm/mất mạng không làm đứng giao diện). Thất bại thì nghỉ _FAIL_TTL giây rồi mới thử lại."""
+    global _refreshing
+    if _refreshing:
+        return
+    ff = _fail_file()
+    try:
+        if ff.exists() and time.time() - ff.stat().st_mtime < _FAIL_TTL:
+            return
+    except OSError:
+        pass
+    _refreshing = True
+
+    def run():
+        global _refreshing, _catalog
+        try:
+            _download_and_cache()
+            _catalog = None                       # lần gọi sau dựng lại từ danh mục mới
+            ff.unlink(missing_ok=True)
+            for cb in list(_ready_listeners):
+                try:
+                    cb()
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            try:
+                ff.parent.mkdir(parents=True, exist_ok=True)
+                ff.write_text(str(time.time()))
+            except OSError:
+                pass
+        finally:
+            _refreshing = False
+
+    threading.Thread(target=run, name="edge-voices", daemon=True).start()
+
+
+def edge_catalog(refresh: bool = False, wait: bool = True) -> dict[str, list[tuple[str, str]]]:
+    """{mã ngôn ngữ: [(tên giọng, 'M'|'F'), ...]} cho toàn bộ giọng Edge. Thứ tự: giọng ưu tiên trước, rồi nam/nữ theo vùng.
+    wait=False (dùng trên luồng giao diện): KHÔNG chờ mạng. Dùng bản đã lưu (kể cả cũ) hoặc bảng dự phòng ngay lập tức, và nếu
+    thiếu/cũ thì tải lại ở luồng nền (xong sẽ gọi các hàm đăng ký bằng on_catalog_ready)."""
+    global _catalog
+    if _catalog is not None and not refresh:
+        return _catalog
+    raw, age = _read_cache()
+    if not wait and not refresh:
+        if raw is None or age > _CACHE_TTL:
+            _refresh_async()
+        cat = _build(raw if raw is not None else _fallback_raw())
+        if raw is not None:
+            _catalog = cat                        # bản dự phòng thì không nhớ: lần sau còn cơ hội dùng danh mục tải về
+        return cat
+    if raw is None or refresh or age > _CACHE_TTL:
+        try:
+            raw = _download_and_cache()
+        except Exception:  # noqa: BLE001 - không có mạng: dùng bản cũ nếu có, không thì bảng dự phòng
+            raw = raw if raw is not None else _fallback_raw()
+    _catalog = _build(raw)
+    return _catalog
 
 
 def voices_for(provider: str, lang: str = "vi") -> list[tuple[str, str]]:
     """Danh sách giọng [(mã giọng, nhãn hiển thị)] theo nhà cung cấp và ngôn ngữ thuyết minh."""
     if provider == "edge":
         out = []
-        for name, g in edge_catalog().get(lang, []) or [(v, "M") for v in EDGE_VOICES if lang == "vi"]:
+        for name, g in edge_catalog(wait=False).get(lang, []) or [(v, "M") for v in EDGE_VOICES if lang == "vi"]:
             nice = name.replace("Neural", "").replace("Multilingual", " Đa ngữ")
             out.append((name, f"{nice}  ·  {'Nam' if g == 'M' else 'Nữ'}"))
         return out
@@ -155,6 +231,8 @@ def _edge(text: str, voice: str, style: str, dst: Path) -> Path:
 
 
 def _gemini(text: str, voice: str, style: str, dst: Path) -> Path:
+    from google import genai
+    from google.genai import types
     client = genai.Client(api_key=get_api_key())
     prompt = f"{style}:\n{text}" if style.strip() else text
     resp = client.models.generate_content(
