@@ -50,9 +50,16 @@ def resource_path(rel: str) -> Path:
     return base / rel
 
 
-def _saved_data_dir() -> str:
+def qsettings():
+    """Cấu hình người dùng (QSettings). Đặt KEVIT_SETTINGS_FILE để dùng một file .ini riêng thay cho cấu hình thật:
+    bắt buộc với mọi bài kiểm thử, vì đổi thư mục dữ liệu trong test từng ghi đè cấu hình thật và làm app 'mất' dữ liệu."""
     from PySide6.QtCore import QSettings
-    return str(QSettings("veo-story-studio", "veo-story-studio").value("data_dir", "") or "")
+    f = os.environ.get("KEVIT_SETTINGS_FILE")
+    return QSettings(f, QSettings.IniFormat) if f else QSettings("veo-story-studio", "veo-story-studio")
+
+
+def _saved_data_dir() -> str:
+    return str(qsettings().value("data_dir", "") or "")
 
 
 def _data_dir() -> Path:
@@ -84,9 +91,8 @@ def has_projects(data_dir: Path) -> bool:
 
 def set_data_dir(path: Path) -> None:
     """Lưu lựa chọn thư mục dữ liệu và cập nhật các đường dẫn đang dùng (cửa sổ đang mở cần khởi động lại để nạp lại)."""
-    from PySide6.QtCore import QSettings
     global DATA_DIR, PROJ_DIR
-    QSettings("veo-story-studio", "veo-story-studio").setValue("data_dir", str(path))
+    qsettings().setValue("data_dir", str(path))
     DATA_DIR = Path(path)
     PROJ_DIR = DATA_DIR / "projects"
     fa = sys.modules.get("app.flow_auto")
@@ -102,14 +108,12 @@ def remember_dev_data_dir() -> None:
     """Chạy từ mã nguồn thì ghi nhớ thư mục data đang dùng, để bản đóng gói lần đầu mở có thể đề nghị dùng lại."""
     if FROZEN:
         return
-    from PySide6.QtCore import QSettings
-    QSettings("veo-story-studio", "veo-story-studio").setValue("dev_data_dir", str(DATA_DIR))
+    qsettings().setValue("dev_data_dir", str(DATA_DIR))
 
 
 def legacy_data_dir() -> Path | None:
     """Thư mục data của bản chạy từ mã nguồn (nếu còn và có dự án) mà bản đóng gói chưa dùng."""
-    from PySide6.QtCore import QSettings
-    v = str(QSettings("veo-story-studio", "veo-story-studio").value("dev_data_dir", "") or "")
+    v = str(qsettings().value("dev_data_dir", "") or "")
     return Path(v) if v and Path(v) != DATA_DIR and has_projects(Path(v)) else None
 
 
