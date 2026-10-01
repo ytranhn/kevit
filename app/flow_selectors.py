@@ -41,6 +41,11 @@ IMAGE_TILE = "flow-image-tile"
 PENDING_TILE = "flow-pending-tile"       # ô đang render (cả ảnh lẫn video)
 RADIO_IMAGE = T("Hình ảnh", "Image")     # chế độ tạo ảnh (model Nano Banana, thường 0 tín dụng)
 
+# Tài khoản / credit
+ACCOUNT_LABELS = ("Account details", "Chi tiết tài khoản", "Thông tin tài khoản")          # aria-label của nút avatar/gói ở góc phải
+CREDIT_LINE = T("Flow credits", "tín dụng Google Flow", "tín dụng Flow", "credit Flow")   # dòng '1,002 Google Flow credits' trong hộp thoại tài khoản
+ONE_ACTIVITY_URL = ("https://one.google.com/ai/activity?utm_source=flow&utm_medium=web&utm_campaign=flow_ai_credits_page&pli=1&g1_landing_page=0")  # trang Google One của Flow (thiếu tham số nguồn sẽ ra trang chung): credit hằng ngày, làm mới hằng tháng
+
 # Màn hình clip
 BTN_DOWNLOAD = T("Tải nội dung nghe nhìn xuống", "Download")
 MENU_IMAGE_ORIGINAL = T("Kích thước gốc", "Original size", "Original")   # ảnh: 1K gốc; 2K/4K là bản nâng độ phân giải

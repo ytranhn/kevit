@@ -44,6 +44,24 @@ class FlowError(RuntimeError):
     pass
 
 
+class NoCreditError(FlowError):
+    """Tài khoản Flow không đủ credit cho scene tiếp theo (đã biết trước khi bấm tạo). Scene chưa gửi KHÔNG bị tính là lỗi: để chuyển tài khoản."""
+
+
+class Budget:
+    """Credit còn lại của tài khoản đang dùng trong một lượt gen: trừ dần theo giá thật của từng scene đã gửi. left=None: chưa biết, không chặn."""
+
+    def __init__(self, left: int | None = None):
+        self.left = left
+
+    def can_afford(self, cost: int | None) -> bool:
+        return self.left is None or cost is None or cost <= self.left
+
+    def spend(self, cost: int | None) -> None:
+        if self.left is not None and cost:
+            self.left = max(0, self.left - cost)
+
+
 def use_account(acc) -> None:
     """Chuyển mọi thao tác Flow sang tài khoản `acc` (accounts.Account): cổng debug và hồ sơ Chrome riêng của nó."""
     global PROFILE_DIR
@@ -149,15 +167,18 @@ def launch_chrome(acc=None) -> None:
 
 
 class FlowAuto:
-    def __init__(self, log=print, dry_run: bool = False):
-        self.log, self.dry_run = log, dry_run
+    def __init__(self, log=print, dry_run: bool = False, acc=None):
+        """acc: tài khoản (accounts.Account) cần điều khiển; None = tài khoản đang dùng. Mỗi tài khoản có Chrome/cổng riêng nên
+        có thể điều khiển tài khoản khác với tài khoản đang dùng mà không phải đổi cài đặt chung."""
+        self.log, self.dry_run, self.acc = log, dry_run, acc
+        self.last_cost: int | None = None            # giá credit thật Flow báo cho cấu hình vừa chọn
         self.pw = self.browser = self.page = None
 
     # ---- kết nối ----
     def __enter__(self):
-        launch_chrome()
+        launch_chrome(self.acc)
         self.pw = sync_playwright().start()
-        self.browser = self.pw.chromium.connect_over_cdp(S.CDP_URL)
+        self.browser = self.pw.chromium.connect_over_cdp(self.acc.cdp_url if self.acc else S.CDP_URL)
         ctx = self.browser.contexts[0]
         try:   # trang không được gọi hộp thoại lưu file của hệ điều hành: buộc dùng đường tải xuống thường để tool nhận file
             ctx.add_init_script("try { delete window.showSaveFilePicker; } catch (e) {} "
@@ -248,6 +269,66 @@ class FlowAuto:
         self._store_url(p, ch, pg.url)
         return pg.url
 
+    # ---- credit và gói của tài khoản ----
+    def read_credits(self, deep: bool = False) -> dict | None:
+        """Đọc credit Flow còn lại ở hộp thoại tài khoản (góc phải Flow). deep=True: mở thêm trang Google One để lấy credit tặng hằng ngày
+        và thông tin làm mới/gia hạn. Trả {credits, email, daily, renew} hoặc None nếu không đọc được (đổi giao diện, chưa đăng nhập...).
+        Không bao giờ chặn việc chạy chỉ vì không đọc được. Chỉ gọi khi không có tác vụ nào khác đang dùng tab Flow (nó điều hướng tab)."""
+        pg = self.page
+        try:
+            self._goto(S.HOME_URL)
+            btn = pg.locator(", ".join(f"[aria-label='{a}']" for a in S.ACCOUNT_LABELS)).first
+            btn.wait_for(state="visible", timeout=15000)
+            btn.click()
+            pg.wait_for_timeout(1500)
+            text = pg.evaluate("document.querySelector('.cdk-overlay-container')?.innerText || ''")
+            pg.keyboard.press("Escape")
+        except FlowError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Không đọc được credit trên Flow: {type(e).__name__}")
+            return None
+        amount = next((credits.parse_amount(ln) for ln in text.splitlines() if S.CREDIT_LINE.search(ln) and credits.parse_amount(ln) is not None), None)
+        if amount is None:
+            self.log("Không thấy dòng credit trong hộp thoại tài khoản Flow.")
+            return None
+        email = (re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", text) or [None])[0] or ""
+        info = {"credits": amount, "email": email, "daily": None, "renew": ""}
+        if deep:
+            info.update(self._read_plan_details())
+        return info
+
+    def _read_plan_details(self) -> dict:
+        """Trang Google One → Google Flow activity: credit tặng hằng ngày còn lại và thời gian làm mới/gia hạn (nếu trang có ghi). Lỗi thì trả rỗng."""
+        out = {"daily": None, "renew": ""}
+        page = None
+        try:
+            page = self.page.context.new_page()
+            page.goto(S.ONE_ACTIVITY_URL)
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(4500)
+            txt = page.evaluate("document.body.innerText || ''")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Không đọc được trang gói Google One: {type(e).__name__}")
+            return out
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        m = re.search(r"(\d[\d.,]*)\s+daily\s+(?:Google\s+)?Flow\s+credits?\s+remaining", txt, re.I) \
+            or re.search(r"còn\s+(\d[\d.,]*)\s+(?:tín dụng|credit)[^\n]{0,30}(?:hằng ngày|mỗi ngày)", txt, re.I)
+        if m:
+            out["daily"] = credits.parse_amount(m.group(1))
+        d = re.search(r"(?:renews?|refreshes|resets?|expires?|gia hạn|làm mới)[^\n\d]{0,30}"
+                      r"(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})", txt, re.I)
+        if d:
+            out["renew"] = d.group(1)
+        elif re.search(r"refresh\s+monthly|làm mới hằng tháng|làm mới mỗi tháng", txt, re.I):
+            out["renew"] = "làm mới hằng tháng" + (" (+50/ngày)" if re.search(r"\b50\b[^\n]{0,40}daily|daily[^\n]{0,40}\b50\b", txt, re.I) else "")
+        return out
+
     # ---- cấu hình tạo video ----
     def _ensure_classic_mode(self) -> None:
         """Giao diện Flow mới mở sẵn chế độ 'Agent' trong ô nhập: nút cài đặt tạo clip bị ẩn. Bấm vào nhãn Agent để tắt rồi mới cấu hình."""
@@ -300,6 +381,7 @@ class FlowAuto:
                 r.first.click()
                 pg.wait_for_timeout(600)   # chờ Flow cập nhật giá sau mỗi lần đổi
         cost = self._stable_cost()
+        self.last_cost = credits.parse_amount(cost)
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(500)
         self.log(f"Cấu hình: {model}, {'khổ theo Flow' if aspect == 'flow' else aspect}, x1" + (f", {res}, {dur}s" if model == credits.OMNI else "") + f". {cost}")
@@ -344,7 +426,7 @@ class FlowAuto:
         pg.wait_for_timeout(1200)
 
     # ---- 1 scene ----
-    def submit_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character]) -> int:
+    def submit_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character], budget: "Budget | None" = None) -> int:
         """Cấu hình + điền prompt + bấm tạo, rồi chờ tới khi Flow nhận (xuất hiện thêm 1 ô clip). KHÔNG chờ render xong.
         Trả về số ô clip trước khi gửi. Trả None-clip khi dry_run."""
         pg = self.page
@@ -353,6 +435,8 @@ class FlowAuto:
         dur = credits.pick_duration(s.narration, p.narration_lang) if (p.flow_auto_duration and p.flow_model == credits.OMNI) else 8
         s.duration = dur
         self.configure(p.flow_model, p.aspect_ratio, p.flow_resolution, dur)
+        if budget is not None and not budget.can_afford(self.last_cost):
+            raise NoCreditError(f"Không đủ credit cho scene {s.index}: cần {self.last_cost}, tài khoản còn {budget.left}.")
         for n in s.characters[:3]:
             c = chars.get(n)
             if c and c.image and Path(c.image).exists():
@@ -373,7 +457,9 @@ class FlowAuto:
                                 f"Thử lại sau ít phút. Thông báo của Flow: {why[:110]}")
             raise FlowError("Flow không nhận yêu cầu (không thấy clip mới xuất hiện sau khi bấm tạo). "
                             "Kiểm tra cửa sổ Chrome Flow xem có thông báo lỗi không.")
-        self.log(f"Scene {s.index}: đã gửi lên Flow.")
+        if budget is not None:
+            budget.spend(self.last_cost)
+        self.log(f"Scene {s.index}: đã gửi lên Flow." + (f" (còn ~{budget.left} credit)" if budget is not None and budget.left is not None else ""))
         return n0
 
     def _overload_text(self) -> str:
@@ -399,8 +485,9 @@ class FlowAuto:
                 return False
         return False
 
-    def generate_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character], out_dir: Path) -> Path | None:
-        n0 = self.submit_scene(p, ch, s, chars)
+    def generate_scene(self, p: Project, ch: Chapter, s: Scene, chars: dict[str, Character], out_dir: Path,
+                       budget: "Budget | None" = None) -> Path | None:
+        n0 = self.submit_scene(p, ch, s, chars, budget)
         if n0 < 0:
             return None
         pg = self.page
@@ -422,16 +509,19 @@ class FlowAuto:
 
     # ---- gen song song kiểu cửa sổ trượt ----
     def generate_sliding(self, p: Project, ch: Chapter, scenes: list[Scene], chars: dict[str, Character], out_dir_for, window: int,
-                         on_event=None, on_clip=None, cancel=None, max_wait: int = 1500) -> None:
+                         on_event=None, on_clip=None, cancel=None, max_wait: int = 1500, budget: "Budget | None" = None) -> list[Scene]:
         """Luôn giữ tối đa `window` scene đang render trên Flow: clip nào xong thì tải về và gửi ngay scene kế tiếp vào chỗ trống.
         on_event(scene, "sent"|"error", thông_báo): scene vừa được gửi / vừa lỗi. on_clip(scene): scene đã có clip gốc (làm giọng...).
         Scene gửi lỗi không chặn scene khác, trừ khi Flow báo quá tải: khi đó dừng gửi và báo lỗi các scene còn lại.
-        Huỷ (`cancel`): ngừng gửi và ngừng chờ; scene đã gửi vẫn render trên Flow (lấy lại bằng Đồng bộ Flow, không tốn credit)."""
+        Huỷ (`cancel`): ngừng gửi và ngừng chờ; scene đã gửi vẫn render trên Flow (lấy lại bằng Đồng bộ Flow, không tốn credit).
+        budget: credit còn lại của tài khoản; scene nào không đủ credit thì KHÔNG gửi và KHÔNG báo lỗi mà trả về trong danh sách kết quả
+        (các scene chưa gửi vì hết credit) để nơi gọi chuyển sang tài khoản khác."""
         pg = self.page
         notify = on_event or (lambda *a: None)
         pending, inflight = list(scenes), []          # inflight: [(scene, thời điểm gửi)]
         base: int | None = None                       # số ô clip trước khi gửi scene đầu tiên
         halt, quiet = "", 0
+        unsent: list[Scene] = []                      # chưa gửi vì không đủ credit
         cancelled = lambda: cancel is not None and cancel.is_set()
 
         def fail(s, msg):
@@ -443,13 +533,18 @@ class FlowAuto:
             while pending and len(inflight) < window and not halt and not cancelled():
                 s = pending.pop(0)
                 try:
-                    n0 = self.submit_scene(p, ch, s, chars)
+                    n0 = self.submit_scene(p, ch, s, chars, budget)
                     if n0 < 0:
                         continue
                     base = n0 if base is None else base
                     inflight.append((s, time.time()))
                     notify(s, "sent", "")
                     pg.wait_for_timeout(1500)
+                except NoCreditError as e:
+                    self.log(str(e))
+                    unsent.append(s)
+                    unsent.extend(pending)                # mọi scene sau cũng chưa gửi: nhường tài khoản khác
+                    pending.clear()
                 except Exception as e:  # noqa: BLE001
                     fail(s, str(e)[:500])
                     if "quá tải" in str(e):
@@ -489,6 +584,7 @@ class FlowAuto:
         if cancelled():
             for s, _ in inflight:
                 fail(s, "Đã huỷ khi đang chờ render (chưa thấy clip). Bấm ⟳ Đồng bộ Flow để lấy clip nếu Flow đã render xong.")
+        return unsent
 
     def _type_prompt(self, text: str) -> None:
         """Nhập prompt (thay hẳn chữ cũ nếu có) rồi chờ nút 'Bắt đầu tạo' sáng lên (Flow cần vài giây để nhận prompt)."""

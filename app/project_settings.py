@@ -91,6 +91,7 @@ class ProjectSettingsDialog(QDialog):
             "Google Flow", "Model và độ dài ảnh hưởng trực tiếp đến credit.",
             _row("Tài khoản Flow", "Tài khoản Google dùng để gen video của dự án này (credit tính theo tài khoản). Thêm tài khoản ở tab Cài đặt. "
                  "Đổi tài khoản thì mỗi chương sẽ có project Flow mới trên tài khoản đó; clip đã tải về máy không bị ảnh hưởng.", tab.flow_account),
+            _row("Credit của tài khoản", "Đọc lần gần nhất từ Flow. Không đủ credit thì tiến trình gen bị chặn (hoặc tự chuyển tài khoản nếu bật ở Cài đặt → Google Flow).", tab.account_info),
             _row("Model", "Veo 3.1 Lite rẻ nhất ở 720p; Omni linh hoạt thời lượng.", tab.flow_model),
             _row("Độ phân giải", "Chỉ Omni có 360p (rẻ, hợp bản nháp).", tab.flow_res),
             tab.flow_auto_dur,

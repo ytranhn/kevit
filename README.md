@@ -67,6 +67,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 **Tạo clip trên Google Flow**
 - **Tự động hoá qua Chrome của chính bạn.** Mỗi chương một project Flow riêng (đặt tên «Dự án · Chương»), tải ảnh nhân vật, tạo clip, tải bản gốc về.
 - **Nhiều tài khoản Google Flow.** Mỗi tài khoản có cửa sổ Chrome, đăng nhập và credit riêng (mở song song được); mỗi dự án gắn một tài khoản, đổi nhanh ở chip Flow dưới cùng hoặc trong Cài đặt dự án.
+- **Theo dõi credit từng tài khoản và tự chuyển tài khoản.** Kevit đọc credit còn lại (và credit tặng hằng ngày, thời gian làm mới) của mỗi tài khoản Flow; tài khoản đích không đủ credit thì **cảnh báo và không cho chạy**. Bật *tự động chuyển tài khoản* để phần scene còn lại tự sang tài khoản khác còn credit, không gián đoạn phiên làm việc.
 - **Gen song song.** Gửi nhiều scene một lượt rồi thu clip về, credit không đổi.
 - **Đồng bộ Flow.** Lấy lại clip đã render mà app chưa tải, không tốn credit.
 - **Chọn khổ video:** 9:16 dọc, 16:9 ngang, hoặc **Theo Flow**.
@@ -180,6 +181,16 @@ Chọn nơi tạo ảnh tham chiếu ở hộp thoại:
 *Cài đặt → Tài khoản Google Flow* quản lý danh sách tài khoản: thêm, đổi tên, gỡ, đặt tài khoản mặc định cho dự án mới, và **Mở Chrome để đăng nhập** (đăng nhập Google một lần cho từng tài khoản). Mỗi tài khoản dùng một hồ sơ Chrome và một cổng debug riêng (tài khoản chính giữ hồ sơ cũ nên không phải đăng nhập lại).
 
 Mỗi dự án gắn một tài khoản: chọn ở chip **Flow** (thanh dưới cùng) hoặc *Cài đặt dự án → Google Flow → Tài khoản Flow*. Project Flow là của riêng từng tài khoản, nên khi đổi tài khoản, mỗi chương sẽ gen vào project mới trên tài khoản đó; địa chỉ project của tài khoản cũ được cất lại và nạp lại khi bạn đổi về. Clip đã tải về máy không bị ảnh hưởng. Gỡ một tài khoản thì các dự án đang dùng nó chuyển về tài khoản chính.
+
+</details>
+
+<details>
+<summary><b>Credit và tự chuyển tài khoản</b></summary>
+
+*Cài đặt → Google Flow* hiện credit của từng tài khoản (đọc từ hộp thoại tài khoản của Flow, kèm credit tặng hằng ngày và ghi chú làm mới/gia hạn nếu Google công bố). Bấm **Cập nhật credit** (tài khoản đang chọn) hoặc **Cập nhật tất cả**; Kevit cũng đọc lại credit khi bắt đầu và kết thúc mỗi lượt gen.
+
+- **Chặn khi không đủ credit:** trước khi gen, Kevit so credit ước tính của lượt chạy với credit tài khoản đích. Thiếu thì hiện cảnh báo (kèm nút *Kiểm tra lại credit* và *Bật tự chuyển tài khoản*) và **không chạy**. Credit đã lưu quá 6 giờ hoặc chưa đọc được thì không dùng để chặn: Kevit đọc lại thật rồi mới quyết định.
+- **Tự động chuyển tài khoản** (ô ở *Cài đặt → Google Flow* hoặc chip **Flow**): scene nào vừa credit thì gen ở tài khoản hiện tại, phần còn lại tự chuyển sang tài khoản còn credit nhiều nhất (đã đăng nhập). Chrome của tài khoản dự phòng được mở sẵn nên không phải chờ. Dự án chuyển hẳn sang tài khoản mới; mỗi tài khoản có project Flow theo chương riêng.
 
 </details>
 

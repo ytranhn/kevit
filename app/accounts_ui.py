@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QGridLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QGridLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 from . import accounts, flow_auto, icons
 from .theme import SP
@@ -20,7 +20,7 @@ class AccountsPanel(QWidget):
         self._up: dict[str, bool] = {}
         self.worker = None
         self.list = QListWidget()
-        self.list.setFixedHeight(168)
+        self.list.setFixedHeight(220)
         self.list.setSpacing(2)
         self.list.currentRowChanged.connect(self.update_buttons)
         self.list.itemDoubleClicked.connect(lambda *_: self.open_chrome())
@@ -32,6 +32,14 @@ class AccountsPanel(QWidget):
         self.b_default = QPushButton("Mặc định cho dự án mới")
         self.b_remove = QPushButton("Gỡ")
         self.b_remove.setProperty("danger", True)
+        self.b_credit = QPushButton("Cập nhật credit")
+        icons.attach(self.b_credit, "refresh", 18)
+        self.b_credit_all = QPushButton("Cập nhật tất cả")
+        self.auto = QCheckBox("Tự động chuyển tài khoản khi không đủ credit")
+        self.auto.setChecked(accounts.auto_switch())
+        self.auto.setToolTip("Khi gen mà tài khoản của dự án không đủ credit, tự chuyển phần còn lại sang tài khoản khác còn credit "
+                             "(mở sẵn Chrome của tài khoản dự phòng để không phải chờ). Tắt: tiến trình bị chặn và báo cảnh báo.")
+        self.auto.toggled.connect(lambda on: (accounts.set_auto_switch(on), self.changed.emit()))
         self.note = QLabel("Mỗi tài khoản có một cửa sổ Chrome và đăng nhập Google riêng (credit Flow riêng), mở song song được. "
                            "Bấm “Mở Chrome để đăng nhập” rồi đăng nhập Google một lần cho từng tài khoản. Mỗi dự án gắn một tài khoản "
                            "(chọn ở chip Flow dưới cùng hoặc trong Cài đặt dự án).")
@@ -46,13 +54,15 @@ class AccountsPanel(QWidget):
         grid.setVerticalSpacing(SP.s)
         for col in range(3):
             grid.setColumnStretch(col, 1)
-        for b in (self.b_add, self.b_open, self.b_rename, self.b_default, self.b_remove):
+        for b in (self.b_add, self.b_open, self.b_rename, self.b_default, self.b_remove, self.b_credit, self.b_credit_all):
             b.setFixedHeight(36)
         grid.addWidget(self.b_add, 0, 0)
         grid.addWidget(self.b_open, 0, 1, 1, 2)
         grid.addWidget(self.b_rename, 1, 0)
         grid.addWidget(self.b_default, 1, 1)
         grid.addWidget(self.b_remove, 1, 2)
+        grid.addWidget(self.b_credit, 2, 0)
+        grid.addWidget(self.b_credit_all, 2, 1, 1, 2)
         self.grid = grid
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
@@ -60,12 +70,15 @@ class AccountsPanel(QWidget):
         v.addWidget(self.note)
         v.addWidget(self.list)
         v.addLayout(grid)
+        v.addWidget(self.auto)
         v.addWidget(self.msg)
         self.b_add.clicked.connect(self.add)
         self.b_open.clicked.connect(self.open_chrome)
         self.b_rename.clicked.connect(self.rename)
         self.b_default.clicked.connect(self.make_default)
         self.b_remove.clicked.connect(self.remove)
+        self.b_credit.clicked.connect(lambda: self.update_credits(False))
+        self.b_credit_all.clicked.connect(lambda: self.update_credits(True))
         self._status.connect(self._on_status)
         self.refresh()
 
@@ -84,7 +97,7 @@ class AccountsPanel(QWidget):
             up = self._up.get(a.id)
             state = "Chrome đang mở" if up else ("Chrome chưa mở" if up is False else "…")
             tags = ("  ·  mặc định cho dự án mới" if a.id == dflt else "") + ("  ·  đang dùng" if a.id == accounts.active().id else "")
-            it = QListWidgetItem(f"{a.name}{tags}\n{state}  ·  cổng {a.port}  ·  {n} dự án")
+            it = QListWidgetItem(f"{a.name}{tags}\n{state}  ·  cổng {a.port}  ·  {n} dự án\n{accounts.describe_credits(a)}")
             it.setData(Qt.UserRole, a.id)
             self.list.addItem(it)
         row = next((i for i, a in enumerate(accs) if a.id == keep), 0)
@@ -101,14 +114,59 @@ class AccountsPanel(QWidget):
         for i in range(self.list.count()):
             it = self.list.item(i)
             if it.data(Qt.UserRole) == acc_id:
-                head, _, tail = it.text().partition("\n")
-                parts = tail.split("  ·  ")
+                lines = it.text().split("\n")
+                parts = lines[1].split("  ·  ")
                 parts[0] = "Chrome đang mở" if up else "Chrome chưa mở"
-                it.setText(head + "\n" + "  ·  ".join(parts))
+                lines[1] = "  ·  ".join(parts)
+                it.setText("\n".join(lines))
+
+    def set_busy(self, busy: bool) -> None:
+        """Đang có tác vụ Flow chạy nền: không mở/đọc credit (sẽ giành tab Flow của tác vụ đó)."""
+        self._busy = busy
+        self.update_buttons()
+
+    def update_credits(self, all_accounts: bool) -> None:
+        """Đọc credit (và ngày gia hạn) của tài khoản đang chọn hoặc tất cả, mở Chrome của tài khoản nếu chưa mở."""
+        if self.worker is not None or getattr(self, "_busy", False):
+            return
+        accs = accounts.all_accounts() if all_accounts else ([self.current()] if self.current() else [])
+        if not accs:
+            return
+        self.msg.setText("Đang đọc credit" + (" của tất cả tài khoản" if all_accounts else f" của “{accs[0].name}”") + "… (có thể mở Chrome của tài khoản)")
+
+        def job(log):
+            res = []
+            for a in accs:
+                try:
+                    with flow_auto.FlowAuto(log, acc=a) as f:
+                        info = f.read_credits(deep=True)
+                except Exception as e:  # noqa: BLE001
+                    res.append(f"“{a.name}”: không đọc được ({str(e)[:80]})")
+                    continue
+                if info:
+                    accounts.save_credits(a.id, info["credits"], info.get("daily"), info.get("renew", ""), info.get("email", ""))
+                    res.append(f"“{a.name}”: {accounts.fmt_credits(info['credits'])} credit")
+                else:
+                    res.append(f"“{a.name}”: không đọc được credit (đã đăng nhập Google Flow chưa?)")
+            return res
+        self.worker = Worker(job)
+        self.worker.done.connect(lambda res: self._credits_done("; ".join(res)))
+        self.worker.failed.connect(lambda e: self._credits_done(f"Lỗi: {e}"))
+        self.update_buttons()
+        self.worker.start()
+
+    def _credits_done(self, text: str) -> None:
+        self.worker = None
+        self.msg.setText(text)
+        self.refresh()
+        self.changed.emit()
 
     def update_buttons(self, *_):
         a = self.current()
-        self.b_open.setEnabled(a is not None and self.worker is None)
+        free = self.worker is None and not getattr(self, "_busy", False)
+        self.b_credit.setEnabled(a is not None and free)
+        self.b_credit_all.setEnabled(free)
+        self.b_open.setEnabled(a is not None and free)
         self.b_rename.setEnabled(a is not None)
         self.b_default.setEnabled(a is not None and a.id != accounts.default_new_id())
         self.b_remove.setEnabled(a is not None and a.id != accounts.DEFAULT_ID)

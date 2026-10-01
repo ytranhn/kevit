@@ -372,6 +372,7 @@ class MainWindow(QMainWindow):
         self.settings_tab.accounts_changed.connect(proj.on_accounts_changed)
         self.settings_tab.llm_changed.connect(lambda: self.refresh_chips())
         proj.account_changed.connect(lambda *_: (self.refresh_chips(), self.settings_tab.accounts_panel.refresh()))
+        proj.busy_changed.connect(lambda busy, *_: self.settings_tab.accounts_panel.set_busy(busy))
         proj.welcome = Welcome(proj, lambda: tabs.setCurrentWidget(self.settings_tab), proj.new_project, proj.launch_flow_chrome)
         proj.update_welcome()
         tabs.addTab(proj, "Dự án")
@@ -458,8 +459,10 @@ class MainWindow(QMainWindow):
         self.strip.set_chip("llm", f"LLM · {llm.short_name()}" if ok else f"LLM · {prof.name} chưa nhập key", ok)
         up = flow_auto.cdp_state()
         accs = accounts.all_accounts()
-        who = f" · {accounts.active().name}" if len(accs) > 1 else ""         # chỉ nêu tên tài khoản khi có nhiều hơn một
-        self.strip.set_chip("flow", f"Flow{who} ● sẵn sàng" if up else f"Flow{who} ○ chưa mở Chrome", up)
+        act = accounts.active()
+        who = f" · {act.name}" if len(accs) > 1 else ""         # chỉ nêu tên tài khoản khi có nhiều hơn một
+        cr = f" · {accounts.fmt_credits(act.credits)} cr" if act.credits is not None else ""
+        self.strip.set_chip("flow", f"Flow{who}{cr} ● sẵn sàng" if up else f"Flow{who}{cr} ○ chưa mở Chrome", up)
         voice = self.proj.project.voice.split("-")[-1].replace("Neural", "") if self.proj.project else "—"
         self.strip.set_chip("voice", f"Giọng · {voice}", True)
         if self.proj.welcome.isVisible():
@@ -470,8 +473,15 @@ class MainWindow(QMainWindow):
         cur = accounts.active().id
         pop.section("Tài khoản Flow của dự án" if self.proj.project else "Tài khoản Flow")
         for a in accounts.all_accounts():
-            pop.item(a.name, f"Cổng {a.port}" + ("  ·  mặc định cho dự án mới" if a.id == accounts.default_new_id() else ""),
+            pop.item(a.name, accounts.describe_credits(a) + ("  ·  mặc định cho dự án mới" if a.id == accounts.default_new_id() else ""),
                      (lambda i=a.id: self.proj.set_account(i)), shortcut="✓" if a.id == cur else "", enabled=bool(self.proj.project))
+        pop.separator()
+        on = accounts.auto_switch()
+        pop.item("Tự chuyển tài khoản: " + ("BẬT" if on else "tắt"),
+                 "Hết credit thì tự sang tài khoản khác còn credit" if not on else "Bấm để tắt: hết credit sẽ chặn và báo cảnh báo",
+                 lambda: (accounts.set_auto_switch(not on), self.settings_tab.accounts_panel.auto.setChecked(not on)))
+        pop.item("Cập nhật credit tài khoản này", "Đọc lại credit từ Flow (mở Chrome nếu chưa mở)",
+                 lambda: self.proj.refresh_credits([accounts.active()], deep=True), enabled=not self.proj._busy)
         pop.separator()
         if not flow_auto.cdp_state(0):
             pop.item("Mở Chrome cho tài khoản này", "Đăng nhập Google Flow một lần trong cửa sổ đó", self.proj.launch_flow_chrome)

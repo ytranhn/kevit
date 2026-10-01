@@ -217,6 +217,9 @@ class ProjectTab(QWidget):
         self.voice.setMinimumWidth(240)
         self.voice_style = QLineEdit()
         self.flow_account = Combo()              # tài khoản Google Flow của dự án (đổi có hiệu lực ngay, không đợi bấm Lưu)
+        self.account_info = QLabel("")           # credit + gia hạn của tài khoản đó
+        self.account_info.setProperty("caption", True)
+        self.account_info.setWordWrap(True)
         self.account_changed.connect(self.fill_accounts)
         self.flow_account.activated.connect(lambda i: self.set_account(self.flow_account.itemData(i)))
         self.flow_model = Combo()
@@ -667,6 +670,7 @@ class ProjectTab(QWidget):
             self.flow_account.addItem(a.name, a.id)
         self.flow_account.setCurrentIndex(max(0, self.flow_account.findData(cur)))
         self.flow_account.blockSignals(False)
+        self.account_info.setText(accounts.describe_credits(accounts.get(cur)) + ("  ·  tự chuyển tài khoản: BẬT" if accounts.auto_switch() else ""))
 
     def current_voice(self) -> str:
         return self.voice.currentData() or self.voice.currentText()
@@ -1633,7 +1637,7 @@ class ProjectTab(QWidget):
             return True
         return False
 
-    def run(self, fn, on_done, cancelable: bool = False):
+    def run(self, fn, on_done, cancelable: bool = False, on_fail=None):
         self._cancelable = cancelable
         self._cancel.clear()
         self._prog = (0, 0)
@@ -1641,6 +1645,8 @@ class ProjectTab(QWidget):
         self.worker = Worker(fn)
         self.worker.log.connect(self.log)
         self.worker.failed.connect(lambda e: self.log(f"LỖI: {e}"))
+        if on_fail:
+            self.worker.failed.connect(on_fail)
         self.worker.done.connect(on_done)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.start()
@@ -1815,6 +1821,81 @@ class ProjectTab(QWidget):
             log("Xong: đã cập nhật thuyết minh và giọng đọc. Bấm ③ Ghép video để ghép lại.")
         self.run(job, lambda _: None)
 
+    # ---- credit: cổng chặn trước khi gen + làm mới ----
+    def credit_message(self, v: dict) -> str:
+        """Nội dung cảnh báo khi tài khoản không đủ credit (v: kết quả accounts.check_budget)."""
+        cur = v["current"]
+        lines = [f"Tài khoản Flow «{cur.name}» của dự án còn {accounts.fmt_credits(v['cur_credits'])} credit, "
+                 f"nhưng lượt gen này cần khoảng {accounts.fmt_credits(v['need'])} credit.",
+                 f"({accounts.describe_credits(cur)})"]
+        if cur.renew:
+            lines.append(f"Thời gian làm mới/gia hạn: {cur.renew}.")
+        if v.get("auto"):
+            others = ", ".join(f"«{a.name}» {accounts.fmt_credits(c)}" for a, c in v["others"]) or "không có tài khoản khác"
+            lines.append(f"Đã bật tự chuyển tài khoản nhưng tổng credit các tài khoản ({accounts.fmt_credits(v['total'])}) vẫn không đủ. "
+                         f"Các tài khoản khác: {others}.")
+        else:
+            others = [(a, c) for a, c in v["others"] if c is not None and c >= v["need"]]
+            if others:
+                lines.append("Tài khoản khác đủ credit: " + ", ".join(f"«{a.name}» ({accounts.fmt_credits(c)})" for a, c in others)
+                             + ". Đổi tài khoản của dự án (chip Flow) hoặc bật tự chuyển tài khoản.")
+            else:
+                lines.append("Hãy nạp thêm credit, đợi đến kỳ làm mới, đổi sang tài khoản khác, hoặc giảm số scene gen.")
+        return "\n".join(lines)
+
+    def credit_gate(self, need: int, retry) -> bool:
+        """Chặn việc gen nếu tài khoản đích CHẮC CHẮN không đủ credit (theo credit đã lưu, còn mới). True = được chạy tiếp.
+        Credit đã lưu có thể cũ (vừa nạp thêm): có nút 'Kiểm tra lại credit' đọc lại từ Flow rồi tự chạy lại."""
+        v = accounts.check_budget(need, self.project.account_id)
+        if v["ok"] is not False:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Không đủ credit")
+        box.setText("Không đủ credit để chạy tiến trình này.")
+        box.setInformativeText(self.credit_message(v))
+        b_re = box.addButton("Kiểm tra lại credit", QMessageBox.AcceptRole)
+        b_auto = box.addButton("Bật tự chuyển tài khoản", QMessageBox.ActionRole) if not v["auto"] and len(v["others"]) else None
+        box.addButton("Đóng", QMessageBox.RejectRole)
+        box.setDefaultButton(b_re)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_re:
+            self.refresh_credits([accounts.active()], retry)
+        elif b_auto is not None and clicked is b_auto:
+            accounts.set_auto_switch(True)
+            self.account_changed.emit(self.project.account_id)
+            QTimer.singleShot(0, retry)
+        return False
+
+    def refresh_credits(self, accs: list | None = None, then=None, deep: bool = False):
+        """Đọc lại credit của các tài khoản từ Flow (mở Chrome của tài khoản nếu chưa mở), lưu lại rồi gọi `then`."""
+        if self._busy:
+            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong rồi cập nhật credit.")
+            return
+        accs = accs or [accounts.active()]
+
+        def job(log):
+            out = []
+            for a in accs:
+                try:
+                    with flow_auto.FlowAuto(log, acc=a) as f:
+                        info = f.read_credits(deep=deep)
+                except Exception as e:  # noqa: BLE001
+                    log(f"«{a.name}»: không đọc được credit ({str(e)[:100]})")
+                    continue
+                if info:
+                    accounts.save_credits(a.id, info["credits"], info.get("daily"), info.get("renew", ""), info.get("email", ""))
+                    log(f"«{a.name}»: còn {accounts.fmt_credits(info['credits'])} credit" + (f", gia hạn: {info['renew']}" if info.get("renew") else ""))
+                    out.append(a.id)
+            return out
+
+        def done(res):
+            self.account_changed.emit(self.project.account_id if self.project else "")
+            if then:
+                QTimer.singleShot(0, then)
+        self.run(job, done)
+
     def flow_auto_run(self, mode: str = "pending"):
         if not self.need_project():
             return
@@ -1829,11 +1910,17 @@ class ProjectTab(QWidget):
             return
         redo = sum(1 for s in todo if s.status == "done")
         est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration, p.narration_lang)
+        if not self.credit_gate(est, lambda: self.flow_auto_run(mode)):
+            return
         cfg = p.flow_model + (f" {p.flow_resolution}" if p.flow_model == credits.OMNI else "")
+        acc_now = accounts.get(p.account_id)
+        auto = accounts.auto_switch()
         if QMessageBox.question(self, "Xác nhận trừ credit",
                                 f"Sẽ tạo {len(todo)} clip ({ch.name}: {self.MODE_LABEL[mode]}) bằng {cfg} trên Google Flow.\n"
                                 + (f"⚠ {redo} scene đã xong sẽ bị gen LẠI và ghi đè clip cũ.\n" if redo else "") +
                                 f"Ước tính khoảng {est} credit (giá thật hiện trong nhật ký).\n"
+                                f"Tài khoản Flow: «{acc_now.name}» ({accounts.describe_credits(acc_now)})"
+                                + ("; tự chuyển sang tài khoản khác khi hết credit.\n" if auto and len(accounts.all_accounts()) > 1 else ".\n")
                                 + (f"Gửi song song {p.flow_parallel} scene mỗi lượt (đổi trong Cài đặt dự án).\n" if p.flow_parallel > 1 and len(todo) > 1 else "") +
                                 "Chrome Flow phải đã đăng nhập. Tiếp tục?") != QMessageBox.Yes:
             return
@@ -1844,100 +1931,217 @@ class ProjectTab(QWidget):
             s.status, s.error = "queued", ""
         self._prog = (0, len(todo))
         self.fill_table(self._row)
+        acc_start = accounts.active()
+        costs_of = lambda scs: credits.scene_costs(p.flow_model, p.flow_resolution, scs, p.flow_auto_duration, p.narration_lang)
 
         def job(log):
-            with flow_auto.FlowAuto(log) as f:
-                f.ensure_project(p, ch)
-                # scene lỗi do ngắt/tải thất bại có thể đã render xong trên Flow: lấy lại thay vì trả credit lần nữa
-                maybe = [s for s in todo if prev[id(s)][0] == "error"
-                         and any(k in (prev[id(s)][1] or "") for k in ("Bị ngắt", "Không tải được", "quá 15 phút", "chưa thấy clip"))]
-                recovered = []
-                if maybe:
-                    log("Kiểm tra clip đã render sẵn trên Flow trước khi gen lại (tránh trả credit trùng)...")
-                    recovered = f.sync_clips(p, ch, maybe, lambda s: p.chapter_dir(ch) / "clips")
-                    for s in recovered:
-                        try:
-                            s.status, s.error = "raw", ""
-                            pipeline.apply_voice(p, ch, s, log)
-                            s.status = "done"
-                        except Exception as e:  # noqa: BLE001
-                            s.status, s.error = "error", str(e)[:1500]
-                        p.save()
-                finished = len(recovered)
-                self._prog = (finished, len(todo))
-                rest = [x for x in todo if x not in recovered]
-                par = max(1, p.flow_parallel)
-                # Làm giọng + ghép là việc chạy trên máy, không phụ thuộc Flow: cho chạy nền nhiều luồng để không chặn việc
-                # gửi/nhận clip tiếp theo. (Phần điều khiển Flow vẫn một luồng vì chỉ có một trình duyệt.)
-                lock = threading.Lock()
-                pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="giong")
+            # Làm giọng + ghép là việc chạy trên máy, không phụ thuộc Flow: cho chạy nền nhiều luồng để không chặn việc
+            # gửi/nhận clip tiếp theo. (Phần điều khiển Flow vẫn một luồng cho mỗi tài khoản vì chỉ có một trình duyệt.)
+            lock = threading.Lock()
+            pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="giong")
+            finished = 0
+            par = max(1, p.flow_parallel)
 
-                def save():
-                    with lock:
-                        p.save()
+            def save():
+                with lock:
+                    p.save()
 
-                def count_done():
-                    nonlocal finished
-                    with lock:
-                        finished += 1
-                        self._prog = (finished, len(todo))
+            def count_done():
+                nonlocal finished
+                with lock:
+                    finished += 1
+                    self._prog = (finished, len(todo))
 
-                def finish_work(s):
+            def finish_work(s):
+                try:
+                    s.status = "raw"
+                    pipeline.apply_voice(p, ch, s, log)
+                    s.status = "done"
+                    log(f"[{ch.name}] Scene {s.index} xong.")
+                except Exception as e:  # noqa: BLE001
+                    s.status, s.error = "error", str(e)[:1500]
+                    log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
+                save()
+                count_done()
+
+            def finish(s):
+                pool.submit(finish_work, s)
+
+            def run_batch(f, batch, budget):
+                """Gen `batch` trên phiên Flow `f`. Trả về các scene CHƯA gửi vì không đủ credit (để chuyển tài khoản)."""
+                if par > 1 and len(batch) > 1:
+                    log(f"Gen song song: luôn giữ {par} scene đang render trên Flow, clip nào xong thì gửi scene kế tiếp.")
+                    out_dir = lambda s: p.chapter_dir(ch) / "clips"
+                    overloaded = []
+
+                    def on_event(s, kind, msg):     # giao diện cập nhật từng scene ngay khi gửi / lỗi
+                        if kind == "sent":
+                            s.status, s.error = "generating", ""
+                        else:
+                            s.status, s.error = "error", msg
+                            count_done()
+                            if "quá tải" in msg:
+                                overloaded.append(s)
+                        save()
+
+                    unsent = f.generate_sliding(p, ch, batch, chars, out_dir, par, on_event, finish, self._cancel, budget=budget) or []
+                    if overloaded:
+                        log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
+                    elif self._cancel.is_set():
+                        log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
+                    return unsent
+                unsent = []
+                for i, s in enumerate(batch):
+                    if self._cancel.is_set():
+                        log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
+                        break
+                    s.status, s.error = "generating", ""
+                    save()
                     try:
-                        s.status = "raw"
-                        pipeline.apply_voice(p, ch, s, log)
-                        s.status = "done"
-                        log(f"[{ch.name}] Scene {s.index} xong.")
+                        s.raw_clip = str(f.generate_scene(p, ch, s, chars, p.chapter_dir(ch) / "clips", budget))
+                    except flow_auto.NoCreditError as e:
+                        log(str(e))
+                        s.status, s.error = "queued", ""
+                        unsent = batch[i:]
+                        break
                     except Exception as e:  # noqa: BLE001
                         s.status, s.error = "error", str(e)[:1500]
                         log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
-                    save()
+                        save()
+                        count_done()
+                        continue
+                    finish(s)               # làm giọng chạy nền trong lúc Flow gen scene kế tiếp
+                return unsent
+
+            def out_of_credit(scs, why):
+                for s in scs:
+                    s.status, s.error = "error", why
                     count_done()
+                save()
 
-                def finish(s):
-                    pool.submit(finish_work, s)
-
-                try:
-                    if par > 1 and len(rest) > 1:
-                        log(f"Gen song song: luôn giữ {par} scene đang render trên Flow, clip nào xong thì gửi scene kế tiếp.")
-                        out_dir = lambda s: p.chapter_dir(ch) / "clips"
-                        overloaded = []
-
-                        def on_event(s, kind, msg):     # giao diện cập nhật từng scene ngay khi gửi / lỗi
-                            if kind == "sent":
-                                s.status, s.error = "generating", ""
+            acc, used, first, remaining = acc_start, set(), True, list(todo)
+            try:
+                while remaining and not self._cancel.is_set():
+                    # ---- mở phiên Flow của tài khoản `acc` và đọc credit thật ----
+                    try:
+                        f_ctx = flow_auto.FlowAuto(log, acc=acc)
+                        f = f_ctx.__enter__()
+                    except Exception as e:  # noqa: BLE001
+                        if first:
+                            raise
+                        log(f"Không dùng được tài khoản «{acc.name}» ({str(e)[:100]}), thử tài khoản khác.")
+                        used.add(acc.id)
+                        acc = next_account(used)
+                        if acc is None:
+                            break
+                        continue
+                    try:
+                        left = None
+                        try:
+                            info = f.read_credits(deep=False)
+                        except flow_auto.FlowError as e:
+                            if first:
+                                raise
+                            log(f"Tài khoản «{acc.name}» chưa đăng nhập Flow: {str(e)[:100]}")
+                            info = False
+                        if info:
+                            left = info["credits"]
+                            accounts.save_credits(acc.id, left, email=info.get("email", ""))
+                            log(f"Tài khoản «{acc.name}»: còn {accounts.fmt_credits(left)} credit.")
+                        elif info is None:
+                            log(f"Không đọc được credit của «{acc.name}»: cứ chạy, Flow sẽ báo nếu thiếu.")
+                        usable = info is not False
+                        if usable:
+                            f.ensure_project(p, ch)
+                            if first:
+                                # scene lỗi do ngắt/tải thất bại có thể đã render xong trên Flow: lấy lại thay vì trả credit lần nữa
+                                maybe = [s for s in todo if prev[id(s)][0] == "error"
+                                         and any(k in (prev[id(s)][1] or "") for k in ("Bị ngắt", "Không tải được", "quá 15 phút", "chưa thấy clip"))]
+                                if maybe:
+                                    log("Kiểm tra clip đã render sẵn trên Flow trước khi gen lại (tránh trả credit trùng)...")
+                                    recovered = f.sync_clips(p, ch, maybe, lambda s: p.chapter_dir(ch) / "clips")
+                                    for s in recovered:
+                                        try:
+                                            s.status, s.error = "raw", ""
+                                            pipeline.apply_voice(p, ch, s, log)
+                                            s.status = "done"
+                                        except Exception as e:  # noqa: BLE001
+                                            s.status, s.error = "error", str(e)[:1500]
+                                        p.save()
+                                    finished = len(recovered)
+                                    self._prog = (finished, len(todo))
+                                    remaining = [x for x in remaining if x not in recovered]
+                                if not remaining:
+                                    break
+                            take_i, rest_i = accounts.split_by_credits(costs_of(remaining), left)
+                            if first and rest_i and not auto:
+                                need = sum(costs_of(remaining))
+                                raise flow_auto.NoCreditError(
+                                    f"Không đủ credit: tài khoản «{acc.name}» còn {accounts.fmt_credits(left)}, cần khoảng {accounts.fmt_credits(need)}. "
+                                    "Chưa gen gì. Nạp thêm credit, đổi tài khoản (chip Flow) hoặc bật tự chuyển tài khoản.")
+                            batch = [remaining[i] for i in take_i]
+                            later = [remaining[i] for i in rest_i]
+                            if first and auto and (rest_i or left is None):
+                                warm = [a for a in accounts.order_candidates({acc.id}) if not flow_auto._cdp_up(a.cdp_url)][:1]
+                                for a in warm:                      # mở sẵn Chrome của tài khoản dự phòng để chuyển không phải chờ
+                                    threading.Thread(target=lambda a=a: _quiet(flow_auto.launch_chrome, a), daemon=True).start()
+                            if batch:
+                                if len(batch) < len(remaining):
+                                    log(f"Tài khoản «{acc.name}» đủ credit cho {len(batch)}/{len(remaining)} scene; phần còn lại sẽ chuyển tài khoản khác.")
+                                unsent = run_batch(f, batch, flow_auto.Budget(left))
                             else:
-                                s.status, s.error = "error", msg
-                                count_done()
-                                if "quá tải" in msg:
-                                    overloaded.append(s)
-                            save()
+                                unsent = []
+                            remaining = unsent + later
+                            try:                                    # cập nhật credit còn lại sau lượt gen (không bắt buộc)
+                                info2 = f.read_credits(deep=False)
+                                if info2:
+                                    accounts.save_credits(acc.id, info2["credits"], email=info2.get("email", ""))
+                            except Exception:  # noqa: BLE001
+                                pass
+                    finally:
+                        f_ctx.__exit__(None, None, None)
+                    first = False
+                    if not remaining or self._cancel.is_set():
+                        break
+                    # ---- còn scene chưa gen vì hết credit: chuyển tài khoản (nếu bật) ----
+                    used.add(acc.id)
+                    nxt = next_account(used) if auto else None
+                    if nxt is None:
+                        why = (f"Hết credit trên tài khoản «{acc.name}»" + ("" if not auto else " và không tài khoản nào khác đủ credit")
+                               + ". Nạp thêm credit/đổi tài khoản rồi gen lại các scene còn lại.")
+                        log(why)
+                        out_of_credit(remaining, why)
+                        remaining = []
+                        break
+                    log(f"Chuyển tài khoản Flow: «{acc.name}» → «{nxt.name}» (còn {len(remaining)} scene).")
+                    p.use_flow_account(nxt.id)
+                    p.save()
+                    accounts.activate(nxt.id)
+                    self.account_changed.emit(nxt.id)
+                    acc = nxt
+            finally:
+                pool.shutdown(wait=True)        # đợi các scene còn đang làm giọng/ghép
 
-                        f.generate_sliding(p, ch, rest, chars, out_dir, par, on_event, finish, self._cancel)
-                        if overloaded:
-                            log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
-                        elif self._cancel.is_set():
-                            log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                    else:
-                        for s in rest:
-                            if self._cancel.is_set():
-                                log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                                break
-                            s.status, s.error = "generating", ""
-                            save()
-                            try:
-                                s.raw_clip = str(f.generate_scene(p, ch, s, chars, p.chapter_dir(ch) / "clips"))
-                            except Exception as e:  # noqa: BLE001
-                                s.status, s.error = "error", str(e)[:1500]
-                                log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
-                                save()
-                                count_done()
-                                continue
-                            finish(s)               # làm giọng chạy nền trong lúc Flow gen scene kế tiếp
-                finally:
-                    pool.shutdown(wait=True)        # đợi các scene còn đang làm giọng/ghép
+        def next_account(used):
+            """Tài khoản kế tiếp để thử: nhiều credit (đã biết) trước; bỏ qua tài khoản đã biết là không đủ cho scene rẻ nhất."""
+            cheapest = min(costs_of(todo) or [0])
+            for a in accounts.order_candidates(used):
+                c = accounts.known_credits(a)
+                if c is None or c >= cheapest:
+                    return a
+            return None
+
+        def _quiet(fn, *a):
+            try:
+                fn(*a)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def on_fail(msg):
+            if "Không đủ credit" in msg:
+                QMessageBox.warning(self, "Không đủ credit", msg)
         self._prog = (0, len(todo))
-        self.run(job, lambda _: None, cancelable=True)
+        self.run(job, lambda _: None, cancelable=True, on_fail=on_fail)
 
     def flow_sync(self):
         """Đối soát với Flow, không tốn credit: (1) scene đã có clip gốc nhưng chưa xong -> tạo giọng + ghép;
