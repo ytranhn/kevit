@@ -6,6 +6,7 @@ import sys
 import os
 import re
 import shutil
+import threading
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -37,6 +38,7 @@ def nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
 
 
+_SAVE_LOCK = threading.RLock()
 APP_NAME = "Kevit"
 LEGACY_APP_NAME = "Veo Story Studio"      # tên cũ của app: thư mục dữ liệu cũ vẫn được dùng tiếp nếu đã tồn tại
 FROZEN = bool(getattr(sys, "frozen", False))      # chạy từ bản đóng gói (PyInstaller)
@@ -196,9 +198,12 @@ class Project:
         return [(c, s) for c in self.chapters for s in c.scenes]
 
     def save(self) -> None:
-        self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / "project.json").write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+        """Ghi an toàn khi nhiều luồng cùng lưu (làm giọng chạy song song): có khoá + ghi file tạm rồi đổi tên nguyên tử."""
+        with _SAVE_LOCK:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.dir / "project.json.tmp"
+            tmp.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, self.dir / "project.json")
 
     @classmethod
     def load(cls, name: str) -> "Project":

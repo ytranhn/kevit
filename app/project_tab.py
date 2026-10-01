@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer, QUrl, Signal
@@ -1536,9 +1537,22 @@ class ProjectTab(QWidget):
                 self._prog = (finished, len(todo))
                 rest = [x for x in todo if x not in recovered]
                 par = max(1, p.flow_parallel)
+                # Làm giọng + ghép là việc chạy trên máy, không phụ thuộc Flow: cho chạy nền nhiều luồng để không chặn việc
+                # gửi/nhận clip tiếp theo. (Phần điều khiển Flow vẫn một luồng vì chỉ có một trình duyệt.)
+                lock = threading.Lock()
+                pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="giong")
 
-                def finish(s):
+                def save():
+                    with lock:
+                        p.save()
+
+                def count_done():
                     nonlocal finished
+                    with lock:
+                        finished += 1
+                        self._prog = (finished, len(todo))
+
+                def finish_work(s):
                     try:
                         s.status = "raw"
                         pipeline.apply_voice(p, ch, s, log)
@@ -1547,51 +1561,51 @@ class ProjectTab(QWidget):
                     except Exception as e:  # noqa: BLE001
                         s.status, s.error = "error", str(e)[:1500]
                         log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
-                    p.save()
-                    finished += 1
-                    self._prog = (finished, len(todo))
+                    save()
+                    count_done()
 
-                if par > 1 and len(rest) > 1:
-                    log(f"Gen song song: luôn giữ {par} scene đang render trên Flow, clip nào xong thì gửi scene kế tiếp.")
-                    out_dir = lambda s: p.chapter_dir(ch) / "clips"
-                    overloaded = []
+                def finish(s):
+                    pool.submit(finish_work, s)
 
-                    def on_event(s, kind, msg):     # giao diện cập nhật từng scene ngay khi gửi / lỗi
-                        nonlocal finished
-                        if kind == "sent":
-                            s.status, s.error = "generating", ""
-                        else:
-                            s.status, s.error = "error", msg
-                            finished += 1
-                            self._prog = (finished, len(todo))
-                            if "quá tải" in msg:
-                                overloaded.append(s)
-                        p.save()
+                try:
+                    if par > 1 and len(rest) > 1:
+                        log(f"Gen song song: luôn giữ {par} scene đang render trên Flow, clip nào xong thì gửi scene kế tiếp.")
+                        out_dir = lambda s: p.chapter_dir(ch) / "clips"
+                        overloaded = []
 
-                    f.generate_sliding(p, rest, chars, out_dir, par, on_event, finish, self._cancel)
-                    if overloaded:
-                        log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
-                    elif self._cancel.is_set():
-                        log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                else:
-                    for s in [x for x in todo if x not in recovered]:
-                        if self._cancel.is_set():
+                        def on_event(s, kind, msg):     # giao diện cập nhật từng scene ngay khi gửi / lỗi
+                            if kind == "sent":
+                                s.status, s.error = "generating", ""
+                            else:
+                                s.status, s.error = "error", msg
+                                count_done()
+                                if "quá tải" in msg:
+                                    overloaded.append(s)
+                            save()
+
+                        f.generate_sliding(p, rest, chars, out_dir, par, on_event, finish, self._cancel)
+                        if overloaded:
+                            log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
+                        elif self._cancel.is_set():
                             log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                            break
-                        s.status, s.error = "generating", ""
-                        p.save()
-                        try:
-                            s.raw_clip = str(f.generate_scene(p, s, chars, p.chapter_dir(ch) / "clips"))
-                            s.status = "raw"
-                            pipeline.apply_voice(p, ch, s, log)
-                            s.status = "done"
-                            log(f"[{ch.name}] Scene {s.index} xong.")
-                        except Exception as e:  # noqa: BLE001
-                            s.status, s.error = "error", str(e)[:1500]
-                            log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
-                        p.save()
-                        finished += 1
-                        self._prog = (finished, len(todo))
+                    else:
+                        for s in rest:
+                            if self._cancel.is_set():
+                                log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
+                                break
+                            s.status, s.error = "generating", ""
+                            save()
+                            try:
+                                s.raw_clip = str(f.generate_scene(p, s, chars, p.chapter_dir(ch) / "clips"))
+                            except Exception as e:  # noqa: BLE001
+                                s.status, s.error = "error", str(e)[:1500]
+                                log(f"[{ch.name}] Scene {s.index} lỗi: {e}")
+                                save()
+                                count_done()
+                                continue
+                            finish(s)               # làm giọng chạy nền trong lúc Flow gen scene kế tiếp
+                finally:
+                    pool.shutdown(wait=True)        # đợi các scene còn đang làm giọng/ghép
         self._prog = (0, len(todo))
         self.run(job, lambda _: None, cancelable=True)
 
@@ -1623,13 +1637,20 @@ class ProjectTab(QWidget):
 
         def job(log):
             if heal:
-                log(f"{len(heal)} scene đã có clip nhưng chưa hoàn tất: đang tạo giọng và ghép...")
-                for k, s in enumerate(heal):
+                log(f"{len(heal)} scene đã có clip nhưng chưa hoàn tất: đang tạo giọng và ghép (3 luồng song song)...")
+                done_n = [0]
+
+                def one(s):
                     if self._cancel.is_set():
-                        log("Đã dừng theo yêu cầu.")
                         return
-                    self._prog = (k, len(heal))
                     finish(s, log)
+                    done_n[0] += 1
+                    self._prog = (done_n[0], len(heal))
+                with ThreadPoolExecutor(max_workers=3, thread_name_prefix="giong") as pool:
+                    list(pool.map(one, heal))
+                if self._cancel.is_set():
+                    log("Đã dừng theo yêu cầu.")
+                    return
             if missing:
                 with flow_auto.FlowAuto(log) as f:
                     got = f.sync_clips(p, missing, lambda s: p.chapter_dir(owner[id(s)]) / "clips")
