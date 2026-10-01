@@ -588,12 +588,20 @@ class ProjectTab(QWidget):
             self.project.save()
             self.refresh_chapter_labels()
 
-    def delete_chapter(self):
-        ch, p = self.chapter, self.project
-        if not ch:
+    def delete_chapter(self, idx: int | None = None):
+        """Xoá một chương (mặc định chương đang mở), thẳng từ danh sách mà không cần chuyển sang chương đó trước."""
+        p = self.project
+        if not p:
             return
+        idx = self._chap_idx if idx is None else idx
+        if not 0 <= idx < len(p.chapters):
+            return
+        ch = p.chapters[idx]
         if len(p.chapters) == 1:
             QMessageBox.information(self, "Không thể xoá", "Dự án phải còn ít nhất một chương.")
+            return
+        if self._busy:
+            QMessageBox.information(self, "Đang chạy tác vụ", "Hãy đợi tác vụ nền xong (hoặc bấm Dừng) rồi xoá chương.")
             return
         videos = sum(len(scene_ops.scene_files(s)) for s in ch.scenes)
         box = QMessageBox(self)
@@ -603,18 +611,21 @@ class ProjectTab(QWidget):
         box.setInformativeText("File sẽ được chuyển vào thùng rác của dự án (khôi phục được, chỉ mất hẳn khi bạn dọn thùng rác).")
         b_all = box.addButton("Xoá chương và file", QMessageBox.DestructiveRole)
         b_keep = box.addButton("Chỉ gỡ khỏi dự án (giữ file trên ổ đĩa)", QMessageBox.ActionRole)
-        box.addButton("Huỷ", QMessageBox.RejectRole)
+        b_cancel = box.addButton("Huỷ", QMessageBox.RejectRole)
+        box.setDefaultButton(b_cancel)
         box.exec()
         clicked = box.clickedButton()
         if clicked not in (b_all, b_keep):
             return
+        cur = self._chap_idx
         moved = scene_ops.delete_chapter(p, ch, delete_files=clicked is b_all)
         p.save()
         self.log(f"Đã xoá '{ch.name}'" + (f", {moved} mục chuyển vào thùng rác." if moved else " (giữ nguyên file)."))
-        idx = min(self._chap_idx, len(p.chapters) - 1)
+        # giữ nguyên chương đang xem nếu xoá chương khác; xoá chính chương đang xem thì sang chương gần nhất
+        new = cur - 1 if idx < cur else min(cur, len(p.chapters) - 1)
         self._chap_idx = -1
-        self.fill_chapter_combo(idx)
-        self.show_chapter(idx)
+        self.fill_chapter_combo(new)
+        self.show_chapter(new)
 
     def fill_voices(self, keep=None):
         self.voice.clear()
@@ -812,7 +823,8 @@ class ProjectTab(QWidget):
         for i, c in enumerate(chs):
             sub = f"{c.done}/{len(c.scenes)} scene xong" if c.scenes else ("Có truyện, chưa tạo scene" if c.story.strip() else "Chưa có nội dung")
             pop.item(c.name, sub, (lambda k=i: self.chap_combo.setCurrentIndex(k)),
-                     shortcut="✓" if i == self._chap_idx else "", progress=(c.done, len(c.scenes)))
+                     shortcut="✓" if i == self._chap_idx else "", progress=(c.done, len(c.scenes)),
+                     action=("Xoá", (lambda k=i: self.delete_chapter(k))) if len(chs) > 1 else None)
         pop.end_scroll()
         pop.separator()
         pop.item("+ Chương mới…", "Dán truyện rồi tạo scene", self.new_chapter)
@@ -822,8 +834,6 @@ class ProjectTab(QWidget):
         pop.item("Đổi tên chương", ch.name if ch else "", self.rename_chapter, enabled=bool(ch))
         pop.item("Mở thư mục chương", "Xem file clip và giọng trên ổ đĩa",
                  lambda: flow.reveal(self.project.chapter_dir(self.chapter)), enabled=bool(ch))
-        pop.item("Xoá chương…", "Chuyển vào thùng rác của dự án, khôi phục được", self.delete_chapter,
-                 enabled=bool(ch) and len(chs) > 1, danger=True)
 
     def switch_project(self, name: str):
         if name and name != self.combo.currentText():
