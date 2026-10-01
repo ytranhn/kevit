@@ -1552,40 +1552,27 @@ class ProjectTab(QWidget):
                     self._prog = (finished, len(todo))
 
                 if par > 1 and len(rest) > 1:
-                    log(f"Gen song song: gửi {par} scene mỗi lượt lên Flow.")
+                    log(f"Gen song song: luôn giữ {par} scene đang render trên Flow, clip nào xong thì gửi scene kế tiếp.")
                     out_dir = lambda s: p.chapter_dir(ch) / "clips"
-                    for i in range(0, len(rest), par):
-                        group = rest[i:i + par]
-                        if self._cancel.is_set():
-                            log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
-                            break
-                        def on_event(s, kind, msg):      # giao diện cập nhật từng scene ngay khi gửi / lỗi
-                            if kind == "sent":
-                                s.status, s.error = "generating", ""
-                            else:
-                                s.status, s.error = "error", msg
-                            p.save()
-                        got, failed, missing = f.generate_parallel(p, group, chars, out_dir, on_event, self._cancel)
-                        for s in got:
-                            finish(s)
-                        for s in group:
-                            if id(s) in failed:
-                                s.status, s.error = "error", failed[id(s)]
-                            elif s in missing and self._cancel.is_set():
-                                s.status, s.error = "error", "Đã huỷ khi đang chờ render. Bấm ⟳ Đồng bộ Flow để lấy clip nếu Flow đã render xong (chưa thấy clip)."
-                            elif s in missing:
-                                s.status = "error"
-                                s.error = ("Đã gửi lên Flow nhưng chưa thấy clip (Flow báo lỗi hoặc quá thời gian chờ). "
-                                           "Bấm ⟳ Đồng bộ Flow để thử lấy lại, không tốn credit.")
-                            else:
-                                continue
-                            log(f"[{ch.name}] Scene {s.index} lỗi: {s.error}")
-                            p.save()
+                    overloaded = []
+
+                    def on_event(s, kind, msg):     # giao diện cập nhật từng scene ngay khi gửi / lỗi
+                        nonlocal finished
+                        if kind == "sent":
+                            s.status, s.error = "generating", ""
+                        else:
+                            s.status, s.error = "error", msg
                             finished += 1
                             self._prog = (finished, len(todo))
-                        if any("quá tải" in v for v in failed.values()):
-                            log("Flow đang quá tải: dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
-                            break
+                            if "quá tải" in msg:
+                                overloaded.append(s)
+                        p.save()
+
+                    f.generate_sliding(p, rest, chars, out_dir, par, on_event, finish, self._cancel)
+                    if overloaded:
+                        log("Flow đang quá tải: đã dừng gen các scene còn lại, hãy thử lại sau ít phút (credit của yêu cầu lỗi được Flow hoàn).")
+                    elif self._cancel.is_set():
+                        log("Đã dừng theo yêu cầu. Các scene còn lại giữ nguyên trạng thái trước đó.")
                 else:
                     for s in [x for x in todo if x not in recovered]:
                         if self._cancel.is_set():

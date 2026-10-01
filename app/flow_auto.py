@@ -2,6 +2,7 @@
 Chỉ thao tác trên tab flow.google.com, không chạm tab khác. Gặp CAPTCHA/đăng nhập thì dừng báo lỗi."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -74,9 +75,32 @@ def chrome_command() -> list[str]:
     return [exe, *flags]
 
 
+FLOW_ORIGINS = ("https://flow.google.com:443,*", "https://labs.google:443,*")
+
+
+def seed_download_prefs(profile: Path | None = None) -> bool:
+    """Cho phép tải nhiều file tự động cho riêng flow.google.com / labs.google trong profile Chrome của tool, và tắt hỏi nơi lưu,
+    để Chrome không bật popup 'trang web muốn tải xuống nhiều tệp' mỗi lần tool tải clip. Chỉ ghi khi Chrome CHƯA chạy bằng profile này
+    (Chrome ghi đè file khi thoát). Trả True nếu đã ghi."""
+    prof = Path(profile or PROFILE_DIR)
+    f = prof / "Default" / "Preferences"
+    try:
+        d = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+        ex = d.setdefault("profile", {}).setdefault("content_settings", {}).setdefault("exceptions", {}).setdefault("automatic_downloads", {})
+        for o in FLOW_ORIGINS:
+            ex[o] = {"setting": 1}
+        d.setdefault("download", {})["prompt_for_download"] = False
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        return True
+    except Exception:  # noqa: BLE001 - tuỳ chọn tiện lợi, không để làm hỏng việc mở Chrome
+        return False
+
+
 def launch_chrome() -> None:
     if not _cdp_up():
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        seed_download_prefs()
         subprocess.Popen(chrome_command())
         for _ in range(20):
             if _cdp_up():
@@ -292,73 +316,75 @@ class FlowAuto:
             raise FlowError(f"Scene {s.index}: quá 15 phút chưa xong.")
         return self._download_first(s, out_dir)
 
-    # ---- gen song song: gửi nhiều scene liền nhau, chờ render cùng lúc, rồi thu clip về ----
-    def wait_idle(self, expect_new: int, n0: int, timeout: int = 1200, cancel=None, stall: int = 150) -> int:
-        """Chờ tới khi đủ `expect_new` ô clip mới và không còn ô nào đang render (hiện %). Trả về số ô báo lỗi.
-        Dừng sớm khi: người dùng huỷ; hoặc `stall` giây liền không có ô nào đang render và chưa đủ ô mới (Flow không nhận/quá tải);
-        hoặc quá `timeout`."""
-        pg, t0, idle_since = self.page, time.time(), None
-        while time.time() - t0 < timeout:
+    # ---- gen song song kiểu cửa sổ trượt ----
+    def generate_sliding(self, p: Project, scenes: list[Scene], chars: dict[str, Character], out_dir_for, window: int,
+                         on_event=None, on_clip=None, cancel=None, max_wait: int = 1500) -> None:
+        """Luôn giữ tối đa `window` scene đang render trên Flow: clip nào xong thì tải về và gửi ngay scene kế tiếp vào chỗ trống.
+        on_event(scene, "sent"|"error", thông_báo): scene vừa được gửi / vừa lỗi. on_clip(scene): scene đã có clip gốc (làm giọng...).
+        Scene gửi lỗi không chặn scene khác, trừ khi Flow báo quá tải: khi đó dừng gửi và báo lỗi các scene còn lại.
+        Huỷ (`cancel`): ngừng gửi và ngừng chờ; scene đã gửi vẫn render trên Flow (lấy lại bằng Đồng bộ Flow, không tốn credit)."""
+        pg = self.page
+        notify = on_event or (lambda *a: None)
+        pending, inflight = list(scenes), []          # inflight: [(scene, thời điểm gửi)]
+        base: int | None = None                       # số ô clip trước khi gửi scene đầu tiên
+        halt, quiet = "", 0
+        cancelled = lambda: cancel is not None and cancel.is_set()
+
+        def fail(s, msg):
+            notify(s, "error", msg)
+            self.log(f"Scene {s.index}: {msg}")
+
+        def refill():
+            nonlocal base, halt
+            while pending and len(inflight) < window and not halt and not cancelled():
+                s = pending.pop(0)
+                try:
+                    n0 = self.submit_scene(p, s, chars)
+                    if n0 < 0:
+                        continue
+                    base = n0 if base is None else base
+                    inflight.append((s, time.time()))
+                    notify(s, "sent", "")
+                    pg.wait_for_timeout(1500)
+                except Exception as e:  # noqa: BLE001
+                    fail(s, str(e)[:500])
+                    if "quá tải" in str(e):
+                        halt = str(e)[:500]
+            if halt:
+                while pending:
+                    fail(pending.pop(0), halt)
+
+        refill()
+        while inflight and not cancelled():
             pg.wait_for_timeout(6000)
-            if cancel is not None and cancel.is_set():
-                self.log("Đã huỷ: ngừng chờ render (các scene đã gửi vẫn render trên Flow, dùng ⟳ Đồng bộ Flow để lấy sau).")
-                break
             self._check_login()
             texts = pg.locator(S.TILE).all_inner_texts()
             rendering = sum(1 for t in texts if "%" in t)
-            if len(texts) >= n0 + expect_new and not rendering:
-                break
-            if rendering:
-                idle_since = None
-            else:
-                idle_since = idle_since or time.time()
-                if time.time() - idle_since > stall:
+            self.log(f"Flow đang render {rendering} clip · chờ {len(inflight)} · còn {len(pending)} scene chưa gửi.")
+            got: list[Scene] = []
+            if rendering < len(inflight):              # có clip đã xong (hoặc lỗi): đối chiếu và tải về
+                got = self.sync_clips(p, [s for s, _ in inflight], out_dir_for,
+                                      limit=len(texts) - (base or 0), skip_rendering=True)
+                inflight[:] = [(s, t) for s, t in inflight if s not in got]
+                quiet = quiet + 1 if (not got and rendering == 0) else 0
+                if quiet >= 2:                         # không còn gì render mà vẫn thiếu clip: Flow đã từ chối/lỗi
                     why = self._overload_text()
-                    self.log("Không có clip nào đang render và chưa đủ clip mới: " + (f"Flow báo: {why[:100]}" if why else
-                             "Flow có thể đã từ chối yêu cầu.") + " Ngừng chờ.")
-                    break
-            self.log(f"Flow đang render: {rendering} clip ({len(texts) - n0}/{expect_new} ô mới)...")
-        return sum(1 for t in pg.locator(S.TILE).all_inner_texts() if re.search(ERROR_RE, t, re.I))
-
-    def generate_parallel(self, p: Project, scenes: list[Scene], chars: dict[str, Character], out_dir_for,
-                          on_event=None, cancel=None) -> tuple[list[Scene], dict[int, str], list[Scene]]:
-        """Gửi cả nhóm `scenes` lên Flow, chờ render cùng lúc, rồi tải clip về bằng đối chiếu prompt (sync_clips).
-        on_event(scene, "sent"|"error", thông_báo) được gọi ngay khi từng scene được gửi/lỗi để giao diện cập nhật.
-        Trả về (đã_lấy_được, {id(scene): lỗi_khi_gửi}, đã_gửi_nhưng_chưa_thấy_clip).
-        Scene gửi lỗi không chặn scene khác, trừ khi Flow báo quá tải: khi đó bỏ cả phần còn lại của nhóm cho khỏi tốn thời gian."""
-        pg = self.page
-        notify = on_event or (lambda *a: None)
-        failed: dict[int, str] = {}
-        submitted: list[Scene] = []
-        n_start = None
-        halt = ""
-        for s in scenes:
-            if halt or (cancel is not None and cancel.is_set()):
-                if halt:
-                    failed[id(s)] = halt
-                    notify(s, "error", halt)
-                continue
-            try:
-                n0 = self.submit_scene(p, s, chars)
-                if n0 < 0:
-                    continue
-                n_start = n0 if n_start is None else n_start
-                submitted.append(s)
-                notify(s, "sent", "")
-                pg.wait_for_timeout(1500)
-            except Exception as e:  # noqa: BLE001
-                failed[id(s)] = str(e)[:500]
-                notify(s, "error", failed[id(s)])
-                self.log(f"Scene {s.index}: gửi lỗi: {e}")
-                if "quá tải" in str(e):
-                    halt = str(e)[:500]
-        if not submitted:
-            return [], failed, []
-        errs = self.wait_idle(len(submitted), n_start or 0, cancel=cancel)
-        if errs:
-            self.log(f"Flow báo lỗi ở {errs} clip trong nhóm (credit có thể đã được hoàn).")
-        got = self.sync_clips(p, submitted, out_dir_for)
-        return got, failed, [s for s in submitted if s not in got]
+                    for s, _ in inflight:
+                        fail(s, "Đã gửi lên Flow nhưng chưa thấy clip" + (f" (Flow báo: {why[:80]})" if why else "")
+                                + ". Bấm ⟳ Đồng bộ Flow để thử lấy lại, không tốn credit.")
+                    inflight.clear()
+                    quiet = 0
+            for s, t in list(inflight):
+                if time.time() - t > max_wait:
+                    fail(s, f"Quá {max_wait // 60} phút chưa thấy clip (chưa thấy clip). Bấm ⟳ Đồng bộ Flow để thử lấy lại.")
+                    inflight.remove((s, t))
+            refill()                                   # lấp chỗ trống TRƯỚC, rồi mới xử lý clip vừa tải (làm giọng)
+            for s in got:
+                if on_clip:
+                    on_clip(s)
+        if cancelled():
+            for s, _ in inflight:
+                fail(s, "Đã huỷ khi đang chờ render (chưa thấy clip). Bấm ⟳ Đồng bộ Flow để lấy clip nếu Flow đã render xong.")
 
     def _open_first_tile(self):
         pg = self.page
@@ -401,7 +427,8 @@ class FlowAuto:
     def _norm(x: str) -> str:
         return re.sub(r"\s+", " ", x).strip().lower()
 
-    def sync_clips(self, p: Project, scenes: list[Scene], out_dir_for) -> list[Scene]:
+    def sync_clips(self, p: Project, scenes: list[Scene], out_dir_for, limit: int | None = None,
+                   skip_rendering: bool = False) -> list[Scene]:
         """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
         tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
         pg = self.page
@@ -410,6 +437,8 @@ class FlowAuto:
         got: list[Scene] = []
         self._goto(url)
         total = pg.locator(S.TILE).count()
+        if limit is not None:        # chỉ quét các ô mới nhất (clip vừa gửi), không lội qua cả lịch sử cũ
+            total = min(total, max(limit, 0))
         self.log(f"Project Flow có {total} clip video, đang đối chiếu với {len(remaining)} scene...")
         for i in range(total):
             if not remaining:
@@ -418,6 +447,8 @@ class FlowAuto:
             tiles = pg.locator(S.TILE)
             if i >= tiles.count():
                 break
+            if skip_rendering and "%" in tiles.nth(i).inner_text():
+                continue                                  # còn đang render: chưa tải được
             tiles.nth(i).click()
             pg.wait_for_url(re.compile(r"/edit/"), timeout=20000)
             text = ""
