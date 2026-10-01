@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QFontMetrics, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -309,7 +309,10 @@ class ProjectTab(QWidget):
         self.narr_count.setProperty("caption", True)
         self.d_narr.textChanged.connect(self.update_narr_count)
         self.d_badge = QLabel("")
-        self.d_badge.setFixedWidth(150)
+        f = self.d_badge.font()
+        f.setBold(True)
+        # đủ rộng cho nhãn dài nhất ("Scene 999: Đang gen… 99:59") nên không bị cắt chữ; vẫn cố định để không xê dịch bố cục
+        self.d_badge.setFixedWidth(QFontMetrics(f).horizontalAdvance("Scene 999: Đang gen… 99:59") + 12)
         self.d_err = ElidedLabel()
         self.d_err.setProperty("caption", True)
         self.b_view_err = QPushButton("Xem lỗi")
