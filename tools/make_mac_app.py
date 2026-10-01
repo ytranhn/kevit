@@ -1,5 +1,5 @@
-"""Tạo "Veo Story Studio.app" (macOS) để Dock/Launchpad hiện đúng tên + biểu tượng thay vì "Python".
-Chạy: .venv/bin/python tools/make_mac_app.py   -> tạo ./Veo Story Studio.app (kéo vào Dock hoặc Applications)."""
+"""Tạo "Kevit.app" (macOS) để Dock/Launchpad hiện đúng tên + biểu tượng thay vì "Python".
+Chạy: .venv/bin/python tools/make_mac_app.py   -> tạo ./Kevit.app (kéo vào Dock hoặc Applications)."""
 import sys as _sys
 _sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # console Windows (cp1252) không in được tiếng Việt
 
@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAME = "Veo Story Studio"
+NAME = "Kevit"
 APP = ROOT / f"{NAME}.app"
 
 
@@ -24,7 +24,7 @@ def main() -> None:
     (APP / "Contents/Resources").mkdir()
     shutil.copy2(ROOT / "assets/icon.icns", APP / "Contents/Resources/icon.icns")
     plistlib.dump({
-        "CFBundleName": NAME, "CFBundleDisplayName": NAME, "CFBundleIdentifier": "local.veo.story.studio",
+        "CFBundleName": NAME, "CFBundleDisplayName": NAME, "CFBundleIdentifier": "local.kevit",
         "CFBundleExecutable": "launcher", "CFBundleIconFile": "icon", "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1.0", "CFBundleShortVersionString": "1.0", "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "11.0",

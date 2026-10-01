@@ -28,7 +28,7 @@ jobs:
         run: python tools/build_app.py
       - uses: actions/upload-artifact@v4
         with:
-          name: VeoStoryStudio-${{ runner.os }}
+          name: Kevit-${{ runner.os }}
           path: |
             dist/*.dmg
             dist/*.zip

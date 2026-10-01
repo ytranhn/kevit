@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/icon.png" width="96" alt="Veo Story Studio">
+  <img src="assets/icon.png" width="96" alt="Kevit">
 </p>
 
-<h1 align="center">Veo Story Studio</h1>
+<h1 align="center">Kevit</h1>
 
 <p align="center">
-  Biến truyện chữ thành <b>video kể chuyện</b> (9:16, 16:9 hoặc theo Flow) có người dẫn truyện, chỉ với vài thao tác.<br>
+  <b>Kevit</b> (Kể + Vid) biến truyện chữ thành <b>video kể chuyện</b> (9:16, 16:9 hoặc theo Flow) có người dẫn truyện, chỉ với vài thao tác.<br>
   Tách chương thành scene · giữ nhân vật nhất quán · tạo clip trên Google Flow · lồng một giọng đọc duy nhất · ghép thành video hoàn chỉnh.
 </p>
 
@@ -75,8 +75,8 @@ Thư mục chứa `character_index.csv` (UTF-8, cột `No`, `Tên`, `Tên Trung`
 ## Dữ liệu và bảo mật
 
 - **Dữ liệu nằm ngoài ứng dụng**, nên build lại hay cập nhật app **không làm mất** dự án, nhân vật, clip hay đăng nhập Flow.
-  Chạy từ mã nguồn: `data/` (đã nằm trong `.gitignore`). Bản đóng gói: `~/Library/Application Support/Veo Story Studio` (macOS)
-  hoặc `%APPDATA%\Veo Story Studio` (Windows).
+  Chạy từ mã nguồn: `data/` (đã nằm trong `.gitignore`). Bản đóng gói: `~/Library/Application Support/Kevit` (macOS)
+  hoặc `%APPDATA%\Kevit` (Windows).
 - **Dùng lại dữ liệu cũ trong bản đóng gói:** lần đầu mở, nếu thấy dữ liệu của bản chạy từ mã nguồn, app hỏi có dùng thư mục đó
   không (không sao chép). Hoặc vào *Cài đặt → Dữ liệu → Đổi thư mục…* và chọn thư mục chứa `projects`. Đặt biến `VEO_DATA_DIR`
   nếu muốn ép một thư mục khác.

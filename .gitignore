@@ -2,7 +2,7 @@
 __pycache__/
 data/
 .env
-Veo Story Studio.app/
+Kevit.app/
 build/
 dist/
 *.spec

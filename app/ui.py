@@ -498,7 +498,7 @@ class SettingsTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Veo Story Studio")
+        self.setWindowTitle("Kevit")
         scr = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1360, int(scr.width() * 0.94)), min(900, int(scr.height() * 0.88)))
         self.setMinimumSize(1200, 640)
@@ -622,11 +622,11 @@ def main():
     if sys.platform == "win32":   # để thanh tác vụ Windows dùng đúng biểu tượng của app thay vì biểu tượng Python
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("veo.story.studio")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("local.kevit")
         except Exception:  # noqa: BLE001
             pass
     app = QApplication(sys.argv)
-    app.setApplicationName("Veo Story Studio")
+    app.setApplicationName("Kevit")
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))   # cửa sổ, Dock (macOS), thanh tác vụ (Windows)
     theme.install(app)

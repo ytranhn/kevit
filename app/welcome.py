@@ -64,7 +64,7 @@ class Welcome(QWidget):
         if not pm.isNull():
             logo.setPixmap(pm.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         logo.setAlignment(Qt.AlignCenter)
-        title = QLabel("Chào mừng đến Veo Story Studio")
+        title = QLabel("Chào mừng đến Kevit")
         title.setProperty("heading", True)
         title.setAlignment(Qt.AlignCenter)
         sub = QLabel("Biến truyện chữ thành video kể chuyện (9:16, 16:9 hoặc theo Flow) có người dẫn truyện.\nLàm lần lượt các bước dưới đây, chỉ cần một lần.")

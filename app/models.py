@@ -37,7 +37,8 @@ def nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
 
 
-APP_NAME = "Veo Story Studio"
+APP_NAME = "Kevit"
+LEGACY_APP_NAME = "Veo Story Studio"      # tên cũ của app: thư mục dữ liệu cũ vẫn được dùng tiếp nếu đã tồn tại
 FROZEN = bool(getattr(sys, "frozen", False))      # chạy từ bản đóng gói (PyInstaller)
 
 
@@ -63,11 +64,16 @@ def _data_dir() -> Path:
         return Path(saved)
     if not FROZEN:
         return Path(__file__).resolve().parent.parent / "data"
+    new, old = _os_user_dir(APP_NAME), _os_user_dir(LEGACY_APP_NAME)
+    return new if new.exists() or not old.exists() else old
+
+
+def _os_user_dir(name: str) -> Path:
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
+        return Path.home() / "Library" / "Application Support" / name
     if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home())) / APP_NAME
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+        return Path(os.environ.get("APPDATA", Path.home())) / name
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / name
 
 
 def has_projects(data_dir: Path) -> bool:
