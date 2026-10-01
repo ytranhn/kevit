@@ -106,5 +106,5 @@ class Welcome(QWidget):
         self.s_llm.set_state(ok, f"Đã kết nối · {llm.short_name()}" if ok else "Chưa kết nối")
         names = models.Project.list_names()
         self.s_proj.set_state(bool(names), f"{len(names)} dự án" if names else "Chưa có")
-        up = flow_auto._cdp_up()
+        up = flow_auto.cdp_state()
         self.s_flow.set_state(up, "Chrome đang mở" if up else "Chưa mở")
