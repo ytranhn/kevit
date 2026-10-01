@@ -93,6 +93,9 @@ def set_data_dir(path: Path) -> None:
     if fa is not None:
         fa.PROFILE_DIR = DATA_DIR / "flow_profile"
         fa.DOWNLOAD_DIR = DATA_DIR / "flow_downloads"
+        ac = sys.modules.get("app.accounts")
+        if ac is not None:
+            ac.activate(ac._active_id)               # hồ sơ Chrome của tài khoản đang dùng nằm theo thư mục dữ liệu mới
 
 
 def remember_dev_data_dir() -> None:
@@ -174,6 +177,8 @@ class Project:
     flow_model: str = "Veo 3.1 - Fast"
     flow_resolution: str = "720p"      # chỉ áp dụng cho Omni (Veo cố định)
     flow_parallel: int = 1             # số scene gửi lên Flow cùng lúc (1 = lần lượt từng scene)
+    flow_account: str = ""             # tài khoản Google Flow của dự án (id trong accounts.json); rỗng = tài khoản chính
+    flow_stash: dict = field(default_factory=dict)   # địa chỉ project Flow của các tài khoản KHÁC (mỗi tài khoản có project riêng của nó)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
     chapters: list[Chapter] = field(default_factory=list)
@@ -198,6 +203,26 @@ class Project:
         ch.title = ch.title or f"Chương {nid}"
         self.chapters.append(ch)
         return ch
+
+    @property
+    def account_id(self) -> str:
+        return self.flow_account or "default"
+
+    def use_flow_account(self, acc_id: str) -> bool:
+        """Đổi tài khoản Flow của dự án. Project Flow là của riêng từng tài khoản nên địa chỉ project (cấp dự án và từng chương) được cất
+        theo tài khoản cũ và nạp lại địa chỉ của tài khoản mới (chưa có thì để trống, lần gen sau sẽ tạo project mới). True nếu có đổi."""
+        acc_id = acc_id or "default"
+        cur = self.account_id
+        if acc_id == cur:
+            return False
+        self.flow_stash[cur] = {"project": self.flow_project_url,
+                                "chapters": {c.id: c.flow_project_url for c in self.chapters if c.flow_project_url}}
+        st = self.flow_stash.pop(acc_id, {})
+        self.flow_project_url = st.get("project", "")
+        for c in self.chapters:
+            c.flow_project_url = st.get("chapters", {}).get(c.id, "")
+        self.flow_account = "" if acc_id == "default" else acc_id
+        return True
 
     def all_scenes(self) -> list[tuple[Chapter, Scene]]:
         return [(c, s) for c in self.chapters for s in c.scenes]
