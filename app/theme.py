@@ -85,7 +85,7 @@ QPushButton[primary="true"]:disabled { background: $accent_dis; color: $on_accen
 QPushButton[flat="true"] { padding: 4px 12px; min-height: 16px; font-size: 12px; border-radius: 9px; }
 QPushButton[danger="true"] { color: $err; }
 QPushButton[danger="true"]:hover { background: $err_tint; border-color: $err; }
-QPushButton[arrow="true"] { font-size: 20px; padding: 0 0 2px 0; }
+QPushButton[arrow="true"] { padding: 0; }
 QPushButton[ghost="true"] { border: none; background: transparent; color: $muted; padding: 4px 8px; }
 QPushButton[ghost="true"]:hover { background: $surface2; color: $text; }
 

@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout
 
+from . import icons
 from .theme import SP
 
 MIN_H, MAX_H = 72, 320
@@ -36,8 +37,10 @@ class ErrorDialog(QDialog):
         self.box.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self.btn_copy = QPushButton("Copy lỗi")
+        icons.attach(self.btn_copy, "copy", 18)
         self.btn_copy.clicked.connect(self.copy)
         self.btn_sync = QPushButton("Đồng bộ Flow")
+        icons.attach(self.btn_sync, "refresh", 18)
         self.btn_sync.setVisible(bool(sync_cb) and "Đồng bộ Flow" in text)
         self.btn_sync.clicked.connect(self.run_sync)
         self.btn_close = QPushButton("Đóng")
@@ -74,7 +77,8 @@ class ErrorDialog(QDialog):
 
     def copy(self) -> None:
         QGuiApplication.clipboard().setText(self._copy)
-        self.btn_copy.setText("Đã copy ✓")
+        self.btn_copy.setText("Đã copy")
+        icons.attach(self.btn_copy, "check", 18)
 
     def run_sync(self) -> None:
         self.accept()
