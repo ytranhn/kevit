@@ -232,7 +232,7 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
    | Facebook | App Meta + Trang Facebook bạn quản lý | Reels lên Trang; chọn «Riêng tư» thì lưu thành bản nháp |
    | Instagram | Tài khoản Professional liên kết với Trang | Dùng chung kết nối Meta; không có chế độ riêng tư nên chỉ đăng «Công khai» |
 
-2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn **tài khoản mà dự án này đăng lên** (mỗi dự án nhớ lựa chọn riêng) và chế độ hiển thị (nên thử ở «Riêng tư» trước).
+2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn **tài khoản mà dự án này đăng lên** (mỗi dự án nhớ lựa chọn riêng; chọn được ở tab này hoặc trong **Cài đặt dự án → Đăng video**) và chế độ hiển thị (nên thử ở «Riêng tư» trước).
 3. Bấm **Ghép + viết mô tả** để chuẩn bị và xem lại nội dung, hoặc **Đăng ngay** để làm trọn quy trình ghép → viết mô tả → đăng. Lịch sử và liên kết bài đã đăng nằm ở cuối trang.
 
 Hãy tuân thủ điều khoản của từng nền tảng (nhất là quy định gắn nhãn nội dung do AI tạo) khi đăng.

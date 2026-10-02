@@ -204,6 +204,7 @@ class PreviewPanel(QWidget):
 
 class ProjectTab(QWidget):
     opened = Signal(str)
+    publish_settings_changed = Signal()  # cài đặt đăng video của dự án vừa được lưu trong Cài đặt dự án
     generation_done = Signal()           # một đợt gen clip vừa chạy xong (tab Đăng video dùng để tự động đăng)
     account_changed = Signal(str)        # id tài khoản Flow đang dùng vừa đổi
     voices_ready = Signal()              # danh mục giọng Edge vừa tải xong ở luồng nền
@@ -1130,6 +1131,7 @@ class ProjectTab(QWidget):
             return
         old_lang = self.project.narration_lang
         if self.settings_dialog.open_for_project():
+            self.publish_settings_changed.emit()
             self.update_steps()
             self.log("Đã lưu cài đặt dự án.")
             if self.project.narration_lang != old_lang and any(c.scenes for c in self.project.chapters):

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget)
+    QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
-from . import credits
+from . import credits, publish
 from .theme import SP
 
 
@@ -104,6 +104,21 @@ class ProjectSettingsDialog(QDialog):
             _row("Giọng", "Giọng “Đa ngữ” đọc tốt nhiều ngôn ngữ, hợp khi đổi ngôn ngữ mà vẫn muốn giữ một chất giọng.", tab.voice),
             _field("Phong cách đọc", "Edge TTS không nhận chỉ dẫn phong cách.", tab.voice_style))
 
+        self.acc_box = QVBoxLayout()
+        self.acc_box.setSpacing(SP.s)
+        self.acc_checks: dict[str, QCheckBox] = {}
+        self.pub_privacy = QComboBox()
+        for k, label in (("private", "Riêng tư (an toàn để thử)"), ("unlisted", "Không công khai (có link)"), ("public", "Công khai")):
+            self.pub_privacy.addItem(label, k)
+        self.pub_auto = QCheckBox("Tự động đăng khi một chương gen xong")
+        acc_holder = QWidget()
+        acc_holder.setLayout(self.acc_box)
+        post = _card(
+            "Đăng video", "Chọn các tài khoản mà dự án này sẽ đăng lên (có thể chọn nhiều tài khoản, nhiều nền tảng). Thêm tài khoản ở Cài đặt → Đăng video.",
+            acc_holder,
+            _row("Chế độ hiển thị", "Nên thử ở “Riêng tư” trước. Chọn chương cụ thể và bấm đăng ở tab Đăng video.", self.pub_privacy),
+            self.pub_auto)
+
         body = QWidget()
         bv = QVBoxLayout(body)
         bv.setContentsMargins(0, 0, SP.m, 0)
@@ -114,7 +129,7 @@ class ProjectSettingsDialog(QDialog):
         head.setProperty("heading", True)
         bv.addWidget(head)
         bv.addWidget(self.sub)
-        for c in (visual, scenes, flow, voice):
+        for c in (visual, scenes, flow, voice, post):
             bv.addWidget(c)
         bv.addStretch()
         scroll = QScrollArea()
@@ -170,13 +185,50 @@ class ProjectSettingsDialog(QDialog):
         t.narr_lang.blockSignals(True); t.narr_lang.setCurrentIndex(s["lang"]); t.narr_lang.blockSignals(False)
         t.set_account(s["acct"]); t.provider.setCurrentIndex(s["provider"]); t.fill_voices(s["voice"]); t.voice_style.setText(s["vstyle"])
 
+    def fill_accounts(self) -> None:
+        """Danh sách tài khoản đã kết nối, nhóm theo nền tảng; tích sẵn những tài khoản dự án đã chọn."""
+        p = self.tab.project
+        chosen = set(p.publish_accounts) if p else set()
+        while self.acc_box.count():
+            w = self.acc_box.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        self.acc_checks = {}
+        last = None
+        for a in publish.accounts():
+            if a["platform"] != last:
+                last = a["platform"]
+                head = QLabel(publish.PLATFORMS[last].label)
+                head.setProperty("caption", True)
+                self.acc_box.addWidget(head)
+            cb = QCheckBox(a["label"] + (f"  ·  Trang {a['page_name']}" if a.get("page_name") else ""))
+            cb.setChecked(a["id"] in chosen)
+            self.acc_box.addWidget(cb)
+            self.acc_checks[a["id"]] = cb
+        if not self.acc_checks:
+            empty = QLabel("Chưa kết nối tài khoản nào. Vào Cài đặt → Đăng video để thêm.")
+            empty.setProperty("caption", True)
+            self.acc_box.addWidget(empty)
+        self.pub_privacy.setCurrentIndex(max(0, self.pub_privacy.findData(p.publish_privacy if p else "private")))
+        self.pub_auto.setChecked(bool(p and p.publish_auto))
+
+    def apply_publish(self) -> None:
+        p = self.tab.project
+        if not p:
+            return
+        p.publish_accounts = [k for k, cb in self.acc_checks.items() if cb.isChecked()] + [a for a in p.publish_accounts if a not in self.acc_checks]
+        p.publish_privacy = self.pub_privacy.currentData() or "private"
+        p.publish_auto = self.pub_auto.isChecked()
+
     def open_for_project(self) -> bool:
         """Hiện hộp thoại; trả True nếu người dùng bấm Lưu."""
         self.sub.setText(self.tab.project.name if self.tab.project else "")
+        self.fill_accounts()
         self.refresh_flow()
         self.refresh_voice()
         self._snap = self.snapshot()
         if self.exec() == QDialog.Accepted:
+            self.apply_publish()
             self.tab.save_edits()
             return True
         self.restore(self._snap)

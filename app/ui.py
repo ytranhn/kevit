@@ -575,6 +575,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(chars, "Nhân vật")
         self.publish_tab = PublishTab(lambda: proj.project, self.logbox.appendPlainText)
         proj.generation_done.connect(self.publish_tab.on_generation_done)
+        proj.publish_settings_changed.connect(self.publish_tab.reload)
         self.settings_tab.publish_changed.connect(self.publish_tab.refresh_accounts)
         tabs.addTab(self.publish_tab, "Đăng video")
         tabs.addTab(self.settings_tab, "Cài đặt")

@@ -123,3 +123,37 @@ class TestPublishTab(Tmp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProjectSettingsAccounts(Tmp):
+    """Chọn tài khoản đăng ngay trong Cài đặt dự án."""
+
+    def test_dialog_saves_accounts_and_syncs_publish_tab(self):
+        from app import theme, ui
+        from app.publish import store
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        for a, pl, lb in (("youtube:A", "youtube", "Kênh A"), ("youtube:B", "youtube", "Kênh B"), ("tiktok:1", "tiktok", "@na")):
+            store.set_account(a, {"platform": pl, "label": lb, "access_token": "x"})
+        models.Project("P1", publish_accounts=["youtube:A"]).save()
+        models.Project("P2").save()
+        w = ui.MainWindow()
+        self.addCleanup(w.close)
+        proj = w.proj
+        proj.combo.setCurrentText("P1")
+        proj.open_project("P1") if hasattr(proj, "open_project") else None
+        d = proj.settings_dialog
+        d.fill_accounts()
+        self.assertEqual({k: cb.isChecked() for k, cb in d.acc_checks.items()}, {"youtube:A": True, "youtube:B": False, "tiktok:1": False})
+        d.acc_checks["tiktok:1"].setChecked(True)
+        d.pub_privacy.setCurrentIndex(d.pub_privacy.findData("unlisted"))
+        d.pub_auto.setChecked(True)
+        d.apply_publish()
+        proj.project.save()
+        again = models.Project.load(proj.project.name)
+        self.assertEqual(sorted(again.publish_accounts), ["tiktok:1", "youtube:A"])
+        self.assertEqual((again.publish_privacy, again.publish_auto), ("unlisted", True))
+        w.publish_tab.reload()
+        self.assertEqual([k for k, cb in w.publish_tab.acc_checks.items() if cb.isChecked()], ["tiktok:1", "youtube:A"])
+        other = models.Project.load("P2" if proj.project.name == "P1" else "P1")
+        self.assertNotEqual(sorted(other.publish_accounts), ["tiktok:1", "youtube:A"])    # dự án kia không bị ảnh hưởng
