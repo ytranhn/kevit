@@ -85,7 +85,8 @@ class AccountCard(QFrame):
         state = {True: "Đang mở", False: "Chưa mở", None: "Đang kiểm tra…"}[up]          # ngắn hơn bản chi tiết: thẻ hẹp
         info = ElidedLabel()
         info.setProperty("caption", True)
-        info.set_full(f"Chrome {state.lower()}  ·  Cổng {a.port}  ·  {n_projects} dự án")
+        info.set_full("" if active else f"Chrome {state.lower()}  ·  Cổng {a.port}  ·  {n_projects} dự án")   # có nhãn 'Đang dùng' thì không đủ chỗ cho chữ: chấm màu + tooltip nói trạng thái Chrome
+        info.setToolTip(f"Chrome {state.lower()} · Cổng {a.port} · {n_projects} dự án")
         srow = QHBoxLayout()
         srow.setSpacing(SP.s)
         srow.setContentsMargins(0, 0, 0, 0)
@@ -96,14 +97,11 @@ class AccountCard(QFrame):
         col.setContentsMargins(0, 0, 0, 0)
         col.addWidget(name)
         col.addLayout(srow)
-        pills = QVBoxLayout()
-        pills.setSpacing(SP.xs)
-        pills.setContentsMargins(0, 0, 0, 0)
-        if active:
+        if active:                                     # nhãn nằm ở dòng trạng thái để tên tài khoản được rộng tối đa
             p1 = QLabel("Đang dùng")
             p1.setProperty("pill", "ok")
             p1.setFixedHeight(24)
-            pills.addWidget(p1, 0, Qt.AlignRight | Qt.AlignTop)
+            srow.addWidget(p1, 0, Qt.AlignVCenter)
         more = QPushButton()
         more.setProperty("iconbtn", True)
         icons.attach(more, "more", 20)
@@ -119,7 +117,6 @@ class AccountCard(QFrame):
         top.setSpacing(SP.m)
         top.addWidget(avatar_circle(a.name, a.id, 44), 0, Qt.AlignTop)
         top.addLayout(col, 1)
-        top.addLayout(pills)
         top.addWidget(more, 0, Qt.AlignTop)
         # ---- credit + thanh tiến độ ----
         pct = accounts.used_percent(a)
@@ -308,7 +305,8 @@ class AccountsPanel(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(SP.l)
-        root.addWidget(left, 5)
+        left.setMinimumWidth(340)                     # thẻ tài khoản đủ rộng để không bị cắt tên/nhãn/credit
+        root.addWidget(left, 4)
         root.addWidget(self.detail, 6)
 
         self.b_add.clicked.connect(self.add)
@@ -412,8 +410,11 @@ class AccountsPanel(QWidget):
         name = QLabel(a.name)
         name.setStyleSheet("font-weight: 600; font-size: 17px; background: transparent;")
         state = {True: "Chrome đang mở", False: "Chrome chưa mở", None: "Đang kiểm tra…"}[up]
-        info = QLabel(f"{state}  ·  Cổng {a.port}  ·  {len(accounts.usage(a.id))} dự án" + (f"  ·  {a.email}" if a.email and a.email != a.name else ""))
+        info_text = f"{state}  ·  Cổng {a.port}  ·  {len(accounts.usage(a.id))} dự án" + (f"  ·  {a.email}" if a.email and a.email != a.name else "")
+        info = ElidedLabel()                           # cắt '…' khi hẹp, không làm bề rộng tối thiểu của cả trang phình ra
         info.setProperty("caption", True)
+        info.set_full(info_text)
+        info.setToolTip(info_text)
         srow = QHBoxLayout()
         srow.setSpacing(SP.s)
         srow.setContentsMargins(0, 0, 0, 0)
