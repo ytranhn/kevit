@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGridLayout
 
 from . import flow, icons, publish, theme
 from .publish import base, describe, service
-from .shell import logo_tile, platform_tile, section
+from .shell import platform_tile, section
 from .theme import SP
 from .widgets import Combo, ElidedLabel, repolish
 from .workers import Worker
@@ -265,43 +265,47 @@ class Stepper(QWidget):
             repolish(dot)
 
 
-def account_tile(key: str, label: str, accs: list[dict], chosen: set, on_connect) -> tuple[QFrame, dict[str, QCheckBox]]:
-    """Thẻ một nền tảng: logo + tên + số tài khoản, dưới là ô tích cho từng tài khoản (hoặc nút Kết nối nếu chưa có). Dùng ở tab Đăng video và Cài đặt dự án."""
-    tile = QFrame()
-    tile.setProperty("platile", True)
-    name = QLabel(label)
-    name.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
-    status = QLabel(f"{len(accs)} tài khoản" if accs else "Chưa kết nối")
-    status.setProperty("caption", True)
-    head = QHBoxLayout()
-    head.setSpacing(SP.s)
-    head.addWidget(platform_tile(key, 32))
-    col = QVBoxLayout()
-    col.setSpacing(0)
-    col.addWidget(name)
-    col.addWidget(status)
-    head.addLayout(col, 1)
-    v = QVBoxLayout(tile)
-    v.setContentsMargins(SP.m, SP.m, SP.m, SP.m)
-    v.setSpacing(SP.s)
-    v.addLayout(head)
-    boxes: dict[str, QCheckBox] = {}
-    for a in accs:
-        cb = QCheckBox()
-        cb.setChecked(a["id"] in chosen)
-        text = a["label"] + (f"  ·  {a['page_name']}" if a.get("page_name") else "")
-        cb.setText(cb.fontMetrics().elidedText(text, Qt.ElideRight, 150))
-        cb.setToolTip(text)
-        cb.toggled.connect(lambda _on, t=tile, bs=boxes: (t.setProperty("on", any(c.isChecked() for c in bs.values())), repolish(t)))
-        boxes[a["id"]] = cb
-        v.addWidget(cb)
-    tile.setProperty("on", any(a["id"] in chosen for a in accs))
-    if not accs:
-        b = QPushButton("Kết nối")
-        b.clicked.connect(on_connect)
-        v.addWidget(b)
-    v.addStretch(1)
-    return tile, boxes
+class AccountPick(QFrame):
+    """Một tài khoản đăng được: logo nền tảng · tên · nền tảng · ô tích. Bấm vào cả dòng để tích/bỏ tích. Dùng ở tab Đăng video và Cài đặt dự án."""
+
+    def __init__(self, acc: dict, checked: bool):
+        super().__init__()
+        self.setProperty("provrow", True)
+        self.setFixedHeight(54)
+        self.setCursor(Qt.PointingHandCursor)
+        name = QLabel(acc.get("label", acc["id"]) + (f"  ·  {acc['page_name']}" if acc.get("page_name") else ""))
+        name.setStyleSheet("font-weight: 600; background: transparent;")
+        name.setAttribute(Qt.WA_TransparentForMouseEvents)
+        plat = QLabel(publish.PLATFORMS[acc["platform"]].label)
+        plat.setProperty("caption", True)
+        plat.setAttribute(Qt.WA_TransparentForMouseEvents)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addStretch(1)
+        col.addWidget(name)
+        col.addWidget(plat)
+        col.addStretch(1)
+        self.check = QCheckBox()
+        self.check.setChecked(checked)
+        self.check.toggled.connect(self._mark)
+        logo = platform_tile(acc["platform"], 30)
+        logo.setAttribute(Qt.WA_TransparentForMouseEvents)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, 0, SP.m, 0)
+        row.setSpacing(SP.m)
+        row.addWidget(logo)
+        row.addLayout(col, 1)
+        row.addWidget(self.check)
+        self._mark(checked)
+
+    def _mark(self, on: bool) -> None:
+        self.setProperty("selected", bool(on))
+        repolish(self)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.check.toggle()
+        super().mousePressEvent(e)
 
 
 # ================================================================ tab chính
@@ -473,9 +477,21 @@ class PublishTab(QWidget):
         self.b_refresh.clicked.connect(self.refresh_accounts)
         plats, pb = section("users", "Đăng lên", "Chọn nền tảng và tài khoản. Mỗi dự án nhớ lựa chọn riêng.", self.b_refresh)
         self.tiles_row = QGridLayout()
-        self.tiles_row.setSpacing(SP.m)
+        self.tiles_row.setSpacing(SP.s)
         self._tiles: list[QFrame] = []
         pb.addLayout(self.tiles_row)
+        self.not_connected = QLabel("")
+        self.not_connected.setProperty("caption", True)
+        self.not_connected.setWordWrap(True)
+        self.b_connect = QPushButton("Thêm tài khoản…")
+        icons.attach(self.b_connect, "plus", 16)
+        self.b_connect.setToolTip("Mở Cài đặt → Đăng video")
+        self.b_connect.clicked.connect(self.open_settings_requested.emit)
+        crow = QHBoxLayout()
+        crow.setSpacing(SP.m)
+        crow.addWidget(self.not_connected, 1)
+        crow.addWidget(self.b_connect)
+        pb.addLayout(crow)
 
         # 3. Cài đặt đăng
         self.privacy = Combo()
@@ -870,11 +886,19 @@ class PublishTab(QWidget):
                     w.deleteLater()
             self._tiles = []
             self.acc_checks = {}
-            by_plat: dict[str, list[dict]] = {}
-            for a in publish.accounts():
-                by_plat.setdefault(a["platform"], []).append(a)
-            for key, cls in publish.PLATFORMS.items():
-                self._tiles.append(self._tile(key, cls.label, by_plat.get(key, []), chosen))
+            accs = publish.accounts()
+            for a in accs:
+                row = AccountPick(a, a["id"] in chosen)
+                row.check.toggled.connect(self.save_options)
+                self.acc_checks[a["id"]] = row.check
+                self._tiles.append(row)
+            if not accs:
+                empty = QLabel("Chưa kết nối tài khoản nào.")
+                empty.setProperty("caption", True)
+                self._tiles.append(empty)
+            missing = [cls.label for key, cls in publish.PLATFORMS.items() if not any(a["platform"] == key for a in accs)]
+            self.not_connected.setText(("Chưa kết nối: " + ", ".join(missing) + ".") if missing and accs else "")
+            self.not_connected.setVisible(bool(self.not_connected.text()))
             self.reflow_tiles()
         finally:
             self._loading = was
@@ -883,26 +907,19 @@ class PublishTab(QWidget):
         self.update_counters()
 
     def reflow_tiles(self) -> None:
-        """4 thẻ nền tảng trên một hàng khi đủ rộng, hẹp thì xếp lưới 2×2 để không tràn ngang."""
-        cols = 4 if self.right_scroll.viewport().width() >= 900 else 2
+        """Danh sách tài khoản: 2 cột khi đủ rộng, hẹp thì 1 cột."""
+        cols = 2 if self.right_scroll.viewport().width() >= 760 else 1
         while self.tiles_row.count():
             self.tiles_row.takeAt(0)
         for i, t in enumerate(self._tiles):
             self.tiles_row.addWidget(t, i // cols, i % cols)
-        for c in range(4):
+        for c in range(2):
             self.tiles_row.setColumnStretch(c, 1 if c < cols else 0)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         if self._tiles:
             self.reflow_tiles()
-
-    def _tile(self, key: str, label: str, accs: list[dict], chosen: set) -> QFrame:
-        tile, boxes = account_tile(key, label, accs, chosen, self.open_settings_requested.emit)
-        for aid, cb in boxes.items():
-            cb.toggled.connect(self.save_options)
-            self.acc_checks[aid] = cb
-        return tile
 
     def chosen_accounts(self) -> list[str]:
         return [k for k, cb in self.acc_checks.items() if cb.isChecked()]

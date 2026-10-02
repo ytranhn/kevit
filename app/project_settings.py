@@ -9,10 +9,10 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, 
                                QWidget)
 
 from . import accounts, credits, flow_auto, icons, publish, theme
-from .publish_tab import PRIVACY
-from .shell import AdaptiveRow, NavItem, platform_tile, section
+from .publish_tab import PRIVACY, AccountPick
+from .shell import AdaptiveRow, NavItem, section
 from .theme import SP
-from .widgets import Combo, repolish
+from .widgets import Combo
 from .workers import Worker
 
 DEFAULT_STYLE = "cinematic, soft lighting, 35mm film look"
@@ -113,49 +113,6 @@ class AspectCard(QPushButton):
             icons.attach(self.icon_lab, "sparkle", 22, role="accent")
         else:
             self.icon_lab.setPixmap(_aspect_icon(self.ratio, theme.T["text"]))
-
-
-class AccountPick(QFrame):
-    """Một tài khoản đăng được: logo nền tảng · tên · nền tảng · ô tích. Bấm vào cả dòng để tích/bỏ tích."""
-
-    def __init__(self, acc: dict, checked: bool):
-        super().__init__()
-        self.setProperty("provrow", True)
-        self.setFixedHeight(54)
-        self.setCursor(Qt.PointingHandCursor)
-        name = QLabel(acc.get("label", acc["id"]) + (f"  ·  {acc['page_name']}" if acc.get("page_name") else ""))
-        name.setStyleSheet("font-weight: 600; background: transparent;")
-        name.setAttribute(Qt.WA_TransparentForMouseEvents)
-        plat = QLabel(publish.PLATFORMS[acc["platform"]].label)
-        plat.setProperty("caption", True)
-        plat.setAttribute(Qt.WA_TransparentForMouseEvents)
-        col = QVBoxLayout()
-        col.setSpacing(0)
-        col.addStretch(1)
-        col.addWidget(name)
-        col.addWidget(plat)
-        col.addStretch(1)
-        self.check = QCheckBox()
-        self.check.setChecked(checked)
-        self.check.toggled.connect(self._mark)
-        logo = platform_tile(acc["platform"], 30)
-        logo.setAttribute(Qt.WA_TransparentForMouseEvents)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(SP.m, 0, SP.m, 0)
-        row.setSpacing(SP.m)
-        row.addWidget(logo)
-        row.addLayout(col, 1)
-        row.addWidget(self.check)
-        self._mark(checked)
-
-    def _mark(self, on: bool) -> None:
-        self.setProperty("selected", bool(on))
-        repolish(self)
-
-    def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self.check.toggle()
-        super().mousePressEvent(e)
 
 
 class ProjectSettingsDialog(QDialog):
