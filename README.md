@@ -84,10 +84,16 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 
 ## Giao diện
 
+Thanh trên cùng gồm ba mục **Dự án · Nhân vật · Cài đặt** và chip tài khoản Flow đang dùng; thanh dưới cùng là các chip trạng thái nhanh (mô hình AI, tài khoản Flow kèm credit, giọng đọc) bấm vào để đổi ngay.
+
 <table>
   <tr>
+    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Trang Nhân vật"><br><sub><b>Nhân vật:</b> danh sách thẻ có tìm kiếm và lọc, ảnh lớn, mô tả prompt kèm đếm từ. (Dự án mẫu tự viết, ảnh là hình minh hoạ vẽ bằng mã.)</sub></td>
+    <td width="50%"><img src="docs/images/google-flow.png" alt="Cài đặt Google Flow"><br><sub><b>Google Flow:</b> thẻ từng tài khoản kèm credit, thống kê chi tiết, gia hạn và công tắc tự chuyển tài khoản.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/mo-hinh-ai.png" alt="Cài đặt mô hình AI"><br><sub><b>Mô hình AI:</b> thêm nhiều mô hình, chọn mô hình đang dùng.</sub></td>
     <td width="50%"><img src="docs/images/chao-mung.png" alt="Màn hình chào mừng lần đầu mở"><br><sub><b>Lần đầu mở:</b> các bước thiết lập có trạng thái thật.</sub></td>
-    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Quản lý nhân vật"><br><sub><b>Nhân vật:</b> ảnh, tên Hán, vai trò, mô tả prompt. (Dự án mẫu tự viết, ảnh là hình minh hoạ vẽ bằng mã.)</sub></td>
   </tr>
   <tr>
     <td colspan="2"><img src="docs/images/tong-quan-toi.png" alt="Chế độ tối"><br><sub><b>Chế độ tối.</b></sub></td>
@@ -145,7 +151,7 @@ flowchart LR
 ```
 
 1. **Cài đặt:** vào *Cài đặt → Mô hình AI*, thêm mô hình (chọn mẫu Claude, Gemini, OpenAI, OpenRouter, DeepSeek, Ollama…), nhập key (hoặc đặt biến môi trường `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`), bấm *Lưu và thử kết nối* rồi *Dùng mô hình này*. Tab Cài đặt chia mục: Mô hình AI · Gemini · Google Flow · Dữ liệu.
-2. **Google Flow:** bấm *Mở Chrome Flow*, đăng nhập Google **một lần** trong cửa sổ Chrome riêng đó. Tool chỉ thao tác trên tab Flow.
+2. **Google Flow:** vào *Cài đặt → Google Flow* bấm *Mở Chrome để đăng nhập* (hoặc *Mở Chrome Flow* ở menu *Khác* trong trang Dự án), đăng nhập Google **một lần** trong cửa sổ Chrome riêng đó. Tool chỉ thao tác trên tab Flow.
 3. **Nhân vật:** thêm từng nhân vật (ảnh, mô tả tiếng Anh dùng làm prompt, tên gọi khác), nhập theo lô, hoặc để AI đề xuất từ truyện.
 4. **Dự án:** tạo dự án, dán truyện từng chương vào tab *Truyện*, rồi đi lần lượt ba bước **① Tạo scene → ② Gen video → ③ Ghép video**.
 
