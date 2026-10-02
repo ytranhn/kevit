@@ -115,6 +115,11 @@ class FacebookReels(Meta):
     key = "facebook"
     label = "Facebook"
 
+    def check(self) -> str:
+        acc = self.require_connected()
+        j = graph(self.client, "GET", acc["page_id"], params={"fields": "name", "access_token": acc["access_token"]})
+        return f"Trang “{j.get('name', acc['label'])}” dùng được"
+
     def compose(self, post: Post) -> dict:
         tags = " ".join("#" + t for t in clean_tags(post.hashtags, 15))
         body = "\n\n".join(p for p in (post.title.strip(), post.description.strip(), tags) if p)
@@ -154,6 +159,11 @@ class FacebookReels(Meta):
 class InstagramReels(Meta):
     key = "instagram"
     label = "Instagram"
+
+    def check(self) -> str:
+        acc = self.require_connected()
+        j = graph(self.client, "GET", acc["ig_id"], params={"fields": "username", "access_token": acc["access_token"]})
+        return f"Instagram @{j.get('username', '')} dùng được"
 
     def compose(self, post: Post) -> dict:
         tags = " ".join("#" + t for t in clean_tags(post.hashtags, IG_MAX_TAGS))

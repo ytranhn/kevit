@@ -159,3 +159,69 @@ class TestProjectSettingsAccounts(Tmp):
         self.assertEqual(sorted(k for k, cb in w.publish_tab.acc_checks.items() if cb.isChecked()), ["tiktok:1", "youtube:A"])
         other = models.Project.load("P2" if proj.project.name == "P1" else "P1")
         self.assertNotEqual(sorted(other.publish_accounts), ["tiktok:1", "youtube:A"])    # dự án kia không bị ảnh hưởng
+
+
+class TestSettingsPanel(Tmp):
+    def test_platform_selection_and_shared_meta_credentials(self):
+        from app import theme
+        from app.publish import store
+        from app.publish_panel import PublishSettingsPanel
+        theme.install(app)
+        store.set_account("facebook:P", {"platform": "facebook", "label": "Trang Một", "access_token": "x", "page_id": "P"})
+        panel = PublishSettingsPanel()
+        panel.show()
+        self.assertTrue(panel.cards["youtube"].isVisible() and not panel.rows["youtube"].isVisible())
+        panel.select("instagram")
+        self.assertTrue(panel.cards["instagram"].isVisible() and panel.rows["youtube"].isVisible())
+        self.assertFalse(panel.cards["youtube"].isVisible())
+        self.assertTrue(panel.tab_btns["instagram"].isChecked() and not panel.tab_btns["youtube"].isChecked())
+        # Facebook và Instagram dùng chung một bộ khoá: lưu ở thẻ này thì thẻ kia thấy ngay
+        fb, ig = panel.cards["facebook"], panel.cards["instagram"]
+        fb.id_edit.setText("APP123")
+        fb.secret_edit.setText("SECRET")
+        fb.save()
+        self.assertEqual(ig.id_edit.text(), "APP123")
+        self.assertEqual(store.get_creds("meta")["client_id"], "APP123")
+        # trạng thái các hàng thu gọn
+        self.assertIn("1 tài khoản", panel.rows["facebook"].status.text())
+        self.assertEqual(panel.rows["facebook"].btn.text(), "Quản lý")
+        self.assertEqual(panel.rows["tiktok"].status.text(), "Chưa kết nối")
+        self.assertEqual(panel.rows["tiktok"].btn.text(), "Kết nối")
+
+    def test_check_without_accounts_validates_keys(self):
+        from app import theme
+        from app.publish_panel import PublishSettingsPanel
+        theme.install(app)
+        panel = PublishSettingsPanel()
+        card = panel.cards["youtube"]
+        card.check()
+        self.assertIn("Chưa nhập đủ", card.msg.text())
+        card.id_edit.setText("id")
+        card.secret_edit.setText("secret")
+        card.check()
+        self.assertIn("Khoá đã đủ", card.msg.text())
+
+    def test_check_runs_for_each_account_in_background(self):
+        from unittest import mock
+        from app import theme
+        from app.publish import store
+        from app.publish_panel import PublishSettingsPanel
+        theme.install(app)
+        for a in ("youtube:A", "youtube:B"):
+            store.set_account(a, {"platform": "youtube", "label": a, "access_token": "x"})
+        panel = PublishSettingsPanel()
+        card = panel.cards["youtube"]
+
+        class P:
+            def __init__(self, aid): self.aid = aid
+            def check(self):
+                if self.aid == "youtube:B":
+                    raise RuntimeError("hết hạn")
+                return "kênh dùng được"
+        with mock.patch("app.publish_panel.publish.get", side_effect=lambda aid: P(aid)):
+            card.check()
+            self.assertTrue(wait(lambda: card.worker is None or not card.worker.isRunning()))
+            wait(lambda: "Đã kiểm tra" in card.msg.text())
+        self.assertIn("1 lỗi", card.msg.text())
+        self.assertIn("✓", card.rows["youtube:A"].result.text())
+        self.assertIn("✗", card.rows["youtube:B"].result.text())

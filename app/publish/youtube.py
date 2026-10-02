@@ -81,6 +81,13 @@ class YouTube(Platform):
         self.save_account(t)
         return t["access_token"]
 
+    def check(self) -> str:
+        """Kiểm tra tài khoản còn dùng được (làm mới token nếu cần rồi hỏi tên kênh)."""
+        chan_id, title = self._channel(self.access_token())
+        if not chan_id:
+            raise PublishError("đăng nhập được nhưng tài khoản Google này chưa có kênh YouTube")
+        return f"kênh “{title}” dùng được"
+
     # ---- nội dung ----
     def compose(self, post: Post) -> dict:
         title = truncate(post.title.replace("<", "").replace(">", ""), self.max_title) or "Video"

@@ -19,7 +19,7 @@ from .widgets import repolish
 SECTIONS = (("llm", "Mô hình AI", "Quản lý các mô hình AI", "layers"),
             ("gemini", "Gemini", "Cấu hình Gemini API", "sparkle"),
             ("flow", "Google Flow", "Quản lý tài khoản và credit", "ring"),
-            ("publish", "Đăng video", "Kết nối YouTube, TikTok, Facebook, Instagram", "open"),
+            ("publish", "Đăng video", "Kết nối YouTube, TikTok, Facebook…", "open"),
             ("data", "Dữ liệu", "Thư mục lưu dự án, nhân vật…", "folder"))
 LOCAL_NOTE = ("Lưu trữ cục bộ", "API key và cấu hình được lưu trên máy của bạn, không đồng bộ lên server. Hãy bảo mật thiết bị của bạn.")
 
@@ -119,9 +119,9 @@ class SettingsTab(QWidget):
         self.stack.addWidget(_page(PageHeader("Google Flow", "Quản lý tài khoản Google Flow, theo dõi credit và tự động chuyển tài khoản khi hết credit.",
                                               self.accounts_panel.b_add, self.accounts_panel.b_open),
                                    self.accounts_panel, wide=True))
-        self.stack.addWidget(_page(PageHeader("Đăng video", "Kết nối tài khoản để Kevit tự đăng video lên YouTube, TikTok, Facebook và Instagram bằng API chính thức. "
-                                              "Mỗi nền tảng cần một ứng dụng bạn tự đăng ký (miễn phí) để lấy khoá."),
-                                   self.publish_panel, info_banner("lock", *LOCAL_NOTE)))
+        self.stack.addWidget(_page(PageHeader("Đăng video", "Kết nối tài khoản để đăng video lên YouTube, TikTok, Facebook và Instagram qua API chính thức. "
+                                              "Thêm bao nhiêu tài khoản tuỳ ý cho mỗi nền tảng."),
+                                   self.publish_panel, wide=True))
         self.stack.addWidget(_page(PageHeader("Dữ liệu", "Nơi lưu dự án, nhân vật, clip và đăng nhập Chrome Flow."), data_card))
         self.seg.currentIndexChanged.connect(self.stack.setCurrentIndex)
         outer = QHBoxLayout(self)

@@ -1,7 +1,7 @@
 """Khối giao diện dùng chung cho khung ứng dụng mới: thanh điều hướng bên, tiêu đề trang, ô logo, banner thông tin, hàng nhà cung cấp."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import icons
@@ -18,6 +18,40 @@ def logo_tile(letter: str, kind: str = "default", size: int = 40) -> QLabel:
     t.setAlignment(Qt.AlignCenter)
     t.setFixedSize(size, size)
     t.setStyleSheet(f"background: {LOGO_COLORS.get(kind, LOGO_COLORS['default'])};")
+    return t
+
+
+# logo nền tảng đăng video: ô bo góc màu thương hiệu + ký hiệu (không dùng logo thật)
+PLATFORM_BRAND = {"youtube": ("▶", "#E62117"), "tiktok": ("♪", "#111111"), "facebook": ("f", "#1877F2"), "instagram": ("◎", "#C13584")}
+
+
+def platform_pixmap(key: str, size: int = 32):
+    from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+    glyph, color = PLATFORM_BRAND.get(key, ("?", "#6B6FF2"))
+    dpr = 2.0
+    pm = QPixmap(int(size * dpr), int(size * dpr))
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    p.drawRoundedRect(0, 0, size, size, size * 0.28, size * 0.28)
+    f = QFont(p.font())
+    f.setBold(True)
+    f.setPixelSize(int(size * 0.52))
+    p.setFont(f)
+    p.setPen(QColor("#FFFFFF"))
+    p.drawText(QRect(0, 0, size, size), Qt.AlignCenter, glyph)
+    p.end()
+    return pm
+
+
+def platform_tile(key: str, size: int = 32) -> QLabel:
+    t = QLabel()
+    t.setFixedSize(size, size)
+    t.setPixmap(platform_pixmap(key, size))
+    t.setStyleSheet("background: transparent;")
     return t
 
 

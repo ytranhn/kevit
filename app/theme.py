@@ -122,6 +122,11 @@ QPushButton[sidenav="true"][active="true"] { background: $accent_tint; border: 1
 QLabel[navtile="true"] { background: $surface2; border-radius: 10px; }
 QPushButton[sidenav="true"][active="true"] QLabel[navtile="true"] { background: transparent; }
 QLabel[pagetitle="true"] { font-family: $serif; font-size: 26px; font-weight: 700; color: $text; }
+QPushButton[platab="true"] { border: 1px solid transparent; border-radius: 10px; background: transparent; color: $muted; padding: 8px 14px; font-weight: 600; min-height: 22px; }
+QPushButton[platab="true"]:hover { background: $surface2; color: $text; }
+QPushButton[platab="true"]:checked { background: $accent_tint; border: 1px solid $accent; color: $text; }
+QFrame[guide="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[secure="true"] { background: $accent_tint; border: 1px solid $border; border-radius: 12px; }
 QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }

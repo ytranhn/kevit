@@ -168,6 +168,11 @@ class Platform:
     def disconnect(self) -> None:
         store.remove_account(self.account_id)
 
+    def check(self) -> str:
+        """Kiểm tra tài khoản còn dùng được; trả về mô tả ngắn, lỗi thì ném PublishError."""
+        self.require_connected()
+        return "đã kết nối"
+
     # ---- đăng ----
     def compose(self, post: Post) -> dict:
         """Ghép tiêu đề/mô tả/hashtag của bài thành nội dung đúng giới hạn của nền tảng."""

@@ -529,3 +529,35 @@ class TestThumbnail(Tmp):
         self.assertGreater(service.created_at(p, t), 0)
         ch.scenes[1].status = "error"
         self.assertTrue(service.thumbnail(p, t))                             # chỉ cần clip đầu
+
+
+class TestCheck(Tmp):
+    def test_youtube_check_ok_and_no_channel(self):
+        store.set_account(YT, {"platform": "youtube", "label": "K", "access_token": "AT", "expires_at": time.time() + 3600})
+        ok = lambda req: httpx.Response(200, json={"items": [{"id": "UC", "snippet": {"title": "Kênh Thử"}}]})  # noqa: E731
+        self.assertIn("Kênh Thử", youtube.YouTube(YT, client(ok)).check())
+        empty = lambda req: httpx.Response(200, json={"items": []})  # noqa: E731
+        with self.assertRaisesRegex(PublishError, "chưa có kênh"):
+            youtube.YouTube(YT, client(empty)).check()
+
+    def test_tiktok_check(self):
+        store.set_account(TT, {"platform": "tiktok", "label": "T", "access_token": "AT", "expires_at": time.time() + 9999})
+        h = lambda req: httpx.Response(200, json={"data": {"user": {"display_name": "Bé Na"}}, "error": {"code": "ok"}})  # noqa: E731
+        self.assertIn("Bé Na", tiktok.TikTok(TT, client(h)).check())
+        bad = lambda req: httpx.Response(200, json={"data": {}, "error": {"code": "access_token_invalid", "message": "x"}})  # noqa: E731
+        with self.assertRaisesRegex(PublishError, "kết nối lại"):
+            tiktok.TikTok(TT, client(bad)).check()
+
+    def test_meta_check(self):
+        store.set_account(FB, {"platform": "facebook", "label": "Trang", "access_token": "PT", "page_id": "PG"})
+        store.set_account(IG, {"platform": "instagram", "label": "@u", "access_token": "PT", "page_id": "PG", "ig_id": "IG"})
+        h = lambda req: httpx.Response(200, json={"name": "Trang Một", "username": "mot"})  # noqa: E731
+        self.assertIn("Trang Một", meta.FacebookReels(FB, client(h)).check())
+        self.assertIn("@mot", meta.InstagramReels(IG, client(h)).check())
+        bad = lambda req: httpx.Response(400, json={"error": {"message": "Invalid", "code": 190}})  # noqa: E731
+        with self.assertRaisesRegex(PublishError, "kết nối lại"):
+            meta.FacebookReels(FB, client(bad)).check()
+
+    def test_disconnected_account_check_fails(self):
+        with self.assertRaisesRegex(PublishError, "chưa kết nối"):
+            youtube.YouTube("youtube:gone").check()

@@ -89,6 +89,11 @@ class TikTok(Platform):
         self.save_account(t)
         return t["access_token"]
 
+    def check(self) -> str:
+        access = self.access_token()
+        r = request(self.client, "GET", f"{API}/v2/user/info/", params={"fields": "display_name"}, headers={"Authorization": f"Bearer {access}"}, retries=1)
+        return f"tài khoản “{(_check(r).get('user') or {}).get('display_name', '')}” dùng được"
+
     def compose(self, post: Post) -> dict:
         tags = clean_tags(post.hashtags, 8)
         head = post.title.strip()
