@@ -476,7 +476,10 @@ class Popover(QFrame):
         while self.body.count():
             it = self.body.takeAt(0)
             if it.widget():
-                it.widget().deleteLater()
+                w = it.widget()
+                w.hide()                      # gỡ khỏi popover ngay (deleteLater chỉ chạy sau): nếu không, sizeHint còn tính cả nội dung lần mở trước
+                w.setParent(None)
+                w.deleteLater()
 
     def section(self, text: str) -> None:
         lab = QLabel(text.upper())
@@ -611,7 +614,13 @@ class Popover(QFrame):
         self.clear()
         self._focus_widget = None
         self._builder(self)
-        self.adjustSize()
+        self.setMinimumSize(0, 0)                 # layout đã đặt minimumSize theo lần mở trước (cao hơn) nên phải gỡ trước khi co lại
+        self.body.invalidate()
+        self.body.activate()
+        self.card.updateGeometry()
+        self.layout().invalidate()
+        self.layout().activate()
+        self.resize(self.sizeHint())
 
     def _clamp(self, x: int, y: int, anchor_pt: QPoint) -> QPoint:
         scr = (QGuiApplication.screenAt(anchor_pt) or QGuiApplication.primaryScreen()).availableGeometry()
