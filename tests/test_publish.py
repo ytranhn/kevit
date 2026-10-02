@@ -646,3 +646,43 @@ class TestMetaConnect(Tmp):
         with self.assertRaisesRegex(RuntimeError, "huỷ chờ"):
             oauth.wait_for_code("http://127.0.0.1:53698/callback", "S", "x", opener=opener, timeout=30)
         self.assertLess(time.time() - t0, 5)
+
+
+class TestMetaTokenConnect(Tmp):
+    def _plat(self, handler):
+        store.set_creds("meta", {"client_id": "a", "client_secret": "s"})
+        return meta.FacebookReels("", client(handler))
+
+    def test_connect_with_pasted_token_creates_page_accounts(self):
+        calls = []
+
+        def h(req: httpx.Request):
+            if req.url.path.endswith("/me/accounts"):
+                calls.append(req.url.params["access_token"])
+                return httpx.Response(200, json={"data": [
+                    {"id": "P1", "name": "Trang Một", "access_token": "PT1", "instagram_business_account": {"id": "I1", "username": "mot"}},
+                    {"id": "P2", "name": "Trang Hai", "access_token": "PT2"}]})
+            assert req.url.params["fb_exchange_token"] == "EAAtoken" + "x" * 30
+            return httpx.Response(200, json={"access_token": "LONG", "expires_in": 5000000})
+        out = self._plat(h).connect_with_token("  EAAtoken" + "x" * 30 + " ")
+        self.assertEqual(calls, ["LONG"])                                          # liệt kê Trang bằng token dài hạn
+        self.assertEqual(sorted(a["id"] for a in out), ["facebook:P1", "facebook:P2", "instagram:I1"])
+        self.assertEqual(store.get_account("facebook:P2")["access_token"], "PT2")
+
+    def test_token_rejected_when_obviously_invalid(self):
+        for bad in ("", "abc", "has space " + "x" * 30):
+            with self.assertRaisesRegex(PublishError, "Token không hợp lệ"):
+                self._plat(lambda r: httpx.Response(200, json={})).connect_with_token(bad)
+
+    def test_token_without_pages_gives_actionable_message(self):
+        def h(req):
+            if req.url.path.endswith("/me/accounts"):
+                return httpx.Response(200, json={"data": []})
+            return httpx.Response(200, json={"access_token": "LONG"})
+        with self.assertRaisesRegex(PublishError, "không thấy Trang"):
+            self._plat(h).connect_with_token("EAA" + "x" * 40)
+
+    def test_expired_or_wrong_token_reports_meta_error(self):
+        h = lambda req: httpx.Response(400, json={"error": {"message": "Error validating access token", "code": 190}})  # noqa: E731
+        with self.assertRaisesRegex(PublishError, "kết nối lại|hết hạn"):
+            self._plat(h).connect_with_token("EAA" + "x" * 40)

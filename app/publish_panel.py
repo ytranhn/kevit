@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QInputDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 from . import icons, publish, theme
 from .publish import FacebookReels, InstagramReels, TikTok, YouTube, store
@@ -29,15 +29,13 @@ STEPS = {
                "Đăng ký ĐÚNG địa chỉ chuyển hướng ở trên vào phần Redirect URI của app.",
                "Dán Client key và Client secret vào bên trên, bấm “Thêm tài khoản” và đăng nhập TikTok.",
                "Lưu ý: app chưa được TikTok duyệt chỉ đăng được ở chế độ riêng tư (SELF_ONLY) và tài khoản phải được thêm làm Target User."),
-    "meta": ("Vào developers.facebook.com, tạo app (loại Business, hoặc “Other” → Business).",
-             "Settings → Basic: điền “App Domains” là localhost (chỉ chữ localhost, không kèm http hay cổng). Thiếu bước này Facebook báo "
-             "“The domain of this URL isn't included in the app's domains”.",
-             "Thêm sản phẩm “Facebook Login” và thêm địa chỉ chuyển hướng ở trên vào “Valid OAuth Redirect URIs” (bật Client OAuth Login và Web OAuth Login).",
-             "Dán App ID và App secret vào bên trên, bấm “Thêm tài khoản”, đăng nhập Facebook và tích chọn các Trang muốn dùng.",
-             "Kevit mặc định chỉ xin quyền tối thiểu (pages_show_list, pages_manage_posts). App đã được thêm các quyền khác (pages_read_engagement, publish_video, instagram_*) "
-             "thì liệt kê ở ô “Quyền yêu cầu (nâng cao)”; xin quyền app chưa có sẽ bị báo “Invalid Scopes”. "
-             "Nếu app dùng “Facebook Login for Business” thì tạo Configuration và dán Configuration ID. "
-             "Ở chế độ Development chỉ tài khoản Admin/Tester của app đăng được. Instagram không có chế độ riêng tư."),
+    "meta": ("Cách đơn giản nhất (khuyên dùng): vào developers.facebook.com/tools/explorer, chọn app của bạn ở ô “Meta App”.",
+             "Ở mục Permissions thêm pages_show_list và pages_manage_posts, bấm “Generate Access Token”, đăng nhập và tích chọn các Trang.",
+             "Sao chép token (chuỗi bắt đầu bằng EAA…), quay lại đây: nhập App ID + App secret (Settings → Basic của app), bấm “Lưu khoá”, rồi “Kết nối bằng token” và dán token vào.",
+             "Kevit tự đổi sang token dài hạn và lấy token của từng Trang (không hết hạn), nên chỉ phải làm một lần cho mỗi lần thêm Trang mới.",
+             "Cách đăng nhập chuyển hướng (nút “Thêm tài khoản”) chỉ chạy được nếu app có Facebook Login thường; app dùng Facebook Login for Business sẽ báo "
+             "“Sorry, something went wrong” vì Meta từ chối địa chỉ trên máy bạn. Ở chế độ Development chỉ tài khoản Admin/Tester của app dùng được. "
+             "Instagram không có chế độ riêng tư."),
 }
 SECURITY = ("Khoá và token chỉ lưu trên máy bạn (trong cấu hình của Kevit) và chỉ được gửi tới chính nền tảng tương ứng khi kết nối hoặc đăng bài. "
             "Kevit không gửi chúng đi đâu khác. Hãy bảo mật thiết bị của bạn.")
@@ -264,12 +262,17 @@ class PlatformCard(QFrame):
         self.b_add.setProperty("primary", True)
         icons.attach(self.b_add, "plus", 18)
         self.b_add.clicked.connect(self.add_account)
-        for b in (self.b_check, self.b_save, self.b_add):
+        self.b_token = QPushButton("Kết nối bằng token")
+        icons.attach(self.b_token, "link", 18)
+        self.b_token.setToolTip("Cách đơn giản: dán token lấy từ Graph API Explorer, không cần đăng nhập chuyển hướng về máy")
+        self.b_token.clicked.connect(self.add_by_token)
+        self.b_token.setVisible(group == "meta")
+        for b in (self.b_check, self.b_save, self.b_token, self.b_add):
             b.setFixedHeight(40)
         btns = QHBoxLayout()
         btns.setSpacing(SP.m)
         btns.addStretch(1)
-        for b in (self.b_check, self.b_save, self.b_add):
+        for b in (self.b_check, self.b_save, self.b_token, self.b_add):
             btns.addWidget(b)
 
         v = QVBoxLayout(self)
@@ -358,6 +361,21 @@ class PlatformCard(QFrame):
         self.login_worker.done.connect(self.on_connected)
         self.login_worker.failed.connect(lambda e: self.set_msg(e[:400], "err"))
         self.login_worker.finished.connect(lambda: (self.b_add.setText(f"Thêm tài khoản {self.label}"), self.refresh_keep_msg()))
+        self.login_worker.start()
+
+    def add_by_token(self) -> None:
+        """Dán token người dùng (từ Graph API Explorer) để kết nối mà không cần đăng nhập chuyển hướng."""
+        store.set_creds(self.group, self.values())
+        token, ok = QInputDialog.getText(self, "Kết nối bằng token", "Dán token người dùng (bắt đầu bằng EAA…) lấy từ Graph API Explorer:",
+                                         QLineEdit.Password)
+        if not ok or not token.strip():
+            return
+        self.b_token.setEnabled(False)
+        self.set_msg("Đang kiểm tra token và lấy danh sách Trang…", "info")
+        self.login_worker = Worker(lambda log: self.cls().connect_with_token(token, log))
+        self.login_worker.done.connect(self.on_connected)
+        self.login_worker.failed.connect(lambda e: self.set_msg(e[:400], "err"))
+        self.login_worker.finished.connect(lambda: (self.b_token.setEnabled(True), self.refresh_keep_msg()))
         self.login_worker.start()
 
     def refresh_keep_msg(self) -> None:

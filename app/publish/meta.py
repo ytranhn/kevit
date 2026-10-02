@@ -85,16 +85,27 @@ class Meta(Platform):
             "tài khoản bạn phải là Admin/Tester của app; app dùng Facebook Login for Business thì nhập Configuration ID."))
         short = graph(self.client, "GET", "oauth/access_token", params=dict(
             client_id=c["client_id"], client_secret=c["client_secret"], redirect_uri=c["redirect_uri"], code=code))
+        return self.accounts_from_token(short["access_token"], c, log)
+
+    def connect_with_token(self, user_token: str, log=print) -> list[dict]:
+        """Kết nối bằng token người dùng lấy sẵn (vd. từ Graph API Explorer): không cần đăng nhập chuyển hướng về máy.
+        Token được đổi sang loại dài hạn rồi lấy token của từng Trang (token Trang từ token dài hạn không hết hạn)."""
+        user_token = user_token.strip()
+        if len(user_token) < 20 or " " in user_token:
+            raise PublishError("Token không hợp lệ: hãy dán nguyên chuỗi token (bắt đầu bằng “EAA…”).")
+        return self.accounts_from_token(user_token, self.require_creds(), log)
+
+    def accounts_from_token(self, user_token: str, c: dict, log=print) -> list[dict]:
         try:
             long = graph(self.client, "GET", "oauth/access_token", params=dict(
-                grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=short["access_token"]))
+                grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=user_token))
         except PublishError as e:      # token của Facebook Login for Business có thể đã là loại dài hạn và không đổi được nữa
             log(f"Meta: không đổi được sang token dài hạn ({str(e)[:120]}), dùng token vừa nhận.")
-            long = short
+            long = {"access_token": user_token}
         pages = self._pages(long["access_token"])
         if not pages:
-            raise PublishError("Kết nối được nhưng không thấy Trang Facebook nào. Ở bước cấp quyền hãy chọn ít nhất một Trang "
-                               "(và nhớ tài khoản phải là quản trị viên của Trang). Nếu Trang thuộc Business Portfolio, hãy thêm Trang đó vào app hoặc dùng Configuration ID.")
+            raise PublishError("Token hợp lệ nhưng không thấy Trang Facebook nào. Khi tạo token hãy chọn ít nhất một Trang "
+                               "(và tài khoản phải là quản trị viên của Trang), và token cần có quyền pages_show_list.")
         out = []
         for pg in pages:
             fb = dict(platform="facebook", label=pg["name"], access_token=pg["access_token"], page_id=pg["id"])
