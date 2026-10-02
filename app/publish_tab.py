@@ -109,8 +109,8 @@ class Thumb(QWidget):
 
     def add_overlay(self, btn: QPushButton) -> None:
         btn.setParent(self)
-        btn.setFixedSize(30, 30)
-        btn.move(self.width() - 38, 8)
+        btn.setFixedSize(36, 36)                       # khớp kích thước của kiểu iconbtn trong theme
+        btn.move(self.width() - 36 - 10, 10)           # cách mép phải và mép trên 10px
 
     def paintEvent(self, _e):
         p = QPainter(self)
