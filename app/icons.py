@@ -366,6 +366,12 @@ def _apply(w: QWidget, name: str, size: int, role: str | None) -> None:
         w.setPixmap(pixmap(name, size, normal))
         return
     ic = QIcon()
+    if not w.text():                        # nút chỉ có icon: không đệm, để icon nằm chính giữa nút
+        ic.addPixmap(pixmap(name, size, normal), QIcon.Normal)
+        ic.addPixmap(pixmap(name, size, dis), QIcon.Disabled)
+        w.setIcon(ic)
+        w.setIconSize(QSize(size, size))
+        return
     ic.addPixmap(_padded(pixmap(name, size, normal), name), QIcon.Normal)
     ic.addPixmap(_padded(pixmap(name, size, dis), name), QIcon.Disabled)
     w.setIcon(ic)

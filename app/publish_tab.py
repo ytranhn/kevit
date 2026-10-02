@@ -62,11 +62,13 @@ class FlowLayout(QLayout):
         return True
 
     def heightForWidth(self, w):
-        return self._layout(QRect(0, 0, w, 0), True)
+        m = self.contentsMargins()
+        return self._layout(QRect(0, 0, w - m.left() - m.right(), 0), True) + m.top() + m.bottom()
 
     def setGeometry(self, r):
         super().setGeometry(r)
-        self._layout(r, False)
+        self._layout(r.adjusted(self.contentsMargins().left(), self.contentsMargins().top(),
+                                -self.contentsMargins().right(), -self.contentsMargins().bottom()), False)
 
     def sizeHint(self):
         return self.minimumSize()
@@ -75,7 +77,8 @@ class FlowLayout(QLayout):
         s = QSize(0, 0)
         for it in self._items:
             s = s.expandedTo(it.minimumSize())
-        return s
+        m = self.contentsMargins()
+        return s + QSize(m.left() + m.right(), m.top() + m.bottom())
 
     def _layout(self, rect, test):
         x, y, line_h = rect.x(), rect.y(), 0
@@ -445,28 +448,17 @@ class PublishTab(QWidget):
         trow.addWidget(self.big_thumb, 0, Qt.AlignTop)
         trow.addLayout(form, 1)
         cb.addLayout(trow)
-        self.tag_area = QWidget()
+        self.tag_area = QFrame()
+        self.tag_area.setProperty("tagbox", True)
         self.tag_flow = FlowLayout(self.tag_area)
-        self.tag_flow.setContentsMargins(0, 0, 0, 0)
+        self.tag_flow.setContentsMargins(SP.s, SP.s, SP.s, SP.s)
         self.tag_input = QLineEdit()
-        self.tag_input.setPlaceholderText("Gõ hashtag rồi Enter")
-        self.tag_input.setFixedWidth(170)
+        self.tag_input.setProperty("taginput", True)
+        self.tag_input.setPlaceholderText("+ Thêm hashtag, Enter để lưu")
+        self.tag_input.setFixedWidth(190)
         self.tag_input.returnPressed.connect(self.add_tag_from_input)
-        self.b_add_tag = QPushButton("Thêm")
-        icons.attach(self.b_add_tag, "plus", 16)
-        self.b_add_tag.clicked.connect(self.add_tag_from_input)
-        tag_frame = QFrame()
-        tag_frame.setProperty("card", True)
-        tfl = QHBoxLayout(tag_frame)
-        tfl.setContentsMargins(SP.m, SP.s, SP.m, SP.s)
-        tfl.setSpacing(SP.s)
-        tfl.addWidget(self.tag_area, 1)
-        tcol2 = QVBoxLayout()
-        tcol2.addWidget(self.b_add_tag)
-        tcol2.addStretch(1)
-        tfl.addLayout(tcol2)
         cb.addLayout(self._label_row("Hashtag", self.cnt_tags))
-        cb.addWidget(tag_frame)
+        cb.addWidget(self.tag_area)
 
         # 2. Nền tảng / tài khoản
         self.b_refresh = QPushButton("Làm mới")
@@ -944,7 +936,7 @@ class PublishTab(QWidget):
         self.render_tags()
         pm, secs = self._thumbs.get(t.key, (None, 0.0)) if t else (None, 0.0)
         self.big_thumb.set(pm, secs)
-        for w in (self.edit_title, self.edit_desc, self.tag_input, self.b_add_tag, self.b_ai, self.b_save_meta, self.b_more, self.b_open_video):
+        for w in (self.edit_title, self.edit_desc, self.tag_input, self.b_ai, self.b_save_meta, self.b_more, self.b_open_video):
             w.setEnabled(t is not None and self._worker is None)
         self.update_counters()
         self.update_steps()
@@ -1069,7 +1061,7 @@ class PublishTab(QWidget):
 
     def _lockables(self) -> list[QWidget]:
         return [self.scope, self.sort, self.search, self.privacy, self.auto, self.force, self.edit_title, self.edit_desc, self.tag_input,
-                self.b_add_tag, self.b_ai, self.b_save_meta, self.b_more, self.b_refresh, self.all_check,
+                self.b_ai, self.b_save_meta, self.b_more, self.b_refresh, self.all_check,
                 *self.acc_checks.values(), *(r.check for r in self._rows.values())]
 
     def start(self, fn, on_done, message: str) -> None:

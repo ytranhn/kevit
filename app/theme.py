@@ -117,6 +117,9 @@ QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-
 QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[platile="true"][on="true"] { border: 1px solid $accent; background: $accent_tint; }
+QFrame[tagbox="true"] { background: $surface; border: 1px solid $border; border-radius: 10px; }
+QLineEdit[taginput="true"] { border: none; background: transparent; padding: 4px 2px; min-height: 22px; }
+QLineEdit[taginput="true"]:focus { border: none; }
 QFrame[hashtag="true"] { background: $surface2; border: 1px solid $border; border-radius: 8px; }
 QFrame[hashtag="true"] QLabel { background: transparent; }
 QPushButton[tagx="true"] { border: none; background: transparent; color: $muted; padding: 0; min-height: 18px; min-width: 18px; max-width: 18px; border-radius: 9px; }
