@@ -230,6 +230,11 @@ QSlider::groove:horizontal { height: 4px; background: $border_strong; border-rad
 QSlider::sub-page:horizontal { background: $accent; border-radius: 2px; }
 QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; border-radius: 6px; background: $accent; }
 QCheckBox { spacing: 8px; }
+QCheckBox::indicator, QTableView::indicator, QListView::indicator { width: 16px; height: 16px; border: 1.5px solid $border_strong; border-radius: 5px; background: $surface; }
+QCheckBox::indicator:hover, QTableView::indicator:hover, QListView::indicator:hover { border-color: $accent; }
+QCheckBox::indicator:checked, QTableView::indicator:checked, QListView::indicator:checked { background: $accent; border-color: $accent; image: url($check_png); }
+QCheckBox::indicator:disabled, QTableView::indicator:disabled, QListView::indicator:disabled { background: $surface2; border-color: $border; }
+QCheckBox::indicator:checked:disabled, QTableView::indicator:checked:disabled, QListView::indicator:checked:disabled { background: $accent_dis; border-color: transparent; image: url($check_png); }
 QMessageBox, QDialog { background: $bg; }
 QPlainTextEdit#logOverlay { background: $surface; border: 1px solid $border_strong; border-radius: 14px; padding: 10px; }
 """)
@@ -244,8 +249,19 @@ def is_dark(app: QGuiApplication | None = None) -> bool:
     return app.styleHints().colorScheme() == Qt.ColorScheme.Dark
 
 
+def _check_png() -> str:
+    """Dấu ✓ trắng cho ô tích (QSS chỉ nhận ảnh từ file): vẽ một lần vào thư mục tạm của người dùng, trả về đường dẫn dùng trong url()."""
+    import tempfile
+    from pathlib import Path
+    from . import icons
+    f = Path(tempfile.gettempdir()) / "kevit-check.png"
+    if not f.exists() or f.stat().st_size == 0:
+        icons.pixmap("check", 32, "#FFFFFF", dpr=1.0).save(str(f), "PNG")
+    return f.as_posix()
+
+
 def stylesheet(tok: dict[str, str]) -> str:
-    return QSS.substitute(**tok, serif=SERIF)
+    return QSS.substitute(**tok, serif=SERIF, check_png=_check_png())
 
 
 def palette(tok: dict[str, str]) -> QPalette:
