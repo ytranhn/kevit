@@ -143,6 +143,141 @@ def _link_out(p: QPainter, fill: QColor):
     p.drawPath(path)
 
 
+def _users(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(9, 8.2), 3.4, 3.4)
+    p.drawArc(QRectF(2.8, 13.6, 12.4, 12), 0, 180 * 16)
+    p.drawEllipse(QPointF(17.2, 9.2), 2.6, 2.6)
+    p.drawArc(QRectF(13.6, 14.4, 8.6, 9.4), 20 * 16, 140 * 16)
+
+
+def _layers(p: QPainter, fill: QColor):
+    _poly(p, [(12, 3.8), (20.8, 8.6), (12, 13.4), (3.2, 8.6), (12, 3.8)])
+    _poly(p, [(3.2, 12.6), (12, 17.4), (20.8, 12.6)])
+    _poly(p, [(3.2, 16.4), (12, 21.2), (20.8, 16.4)])
+
+
+def _lock(p: QPainter, fill: QColor):
+    p.drawRoundedRect(QRectF(5.5, 10.5, 13, 9.5), 2.4, 2.4)
+    path = QPainterPath(QPointF(8.5, 10.5))
+    path.lineTo(8.5, 8)
+    path.arcTo(QRectF(8.5, 4, 7, 7), 180, -180)
+    path.lineTo(15.5, 10.5)
+    p.drawPath(path)
+
+
+def _more(p: QPainter, fill: QColor):
+    p.setBrush(fill)
+    for x in (5.5, 12, 18.5):
+        p.drawEllipse(QPointF(x, 12), 1.7, 1.7)
+
+
+def _eye(p: QPainter, fill: QColor):
+    path = QPainterPath(QPointF(2.8, 12))
+    path.quadTo(12, 3.2, 21.2, 12)
+    path.quadTo(12, 20.8, 2.8, 12)
+    p.drawPath(path)
+    p.drawEllipse(QPointF(12, 12), 3.1, 3.1)
+
+
+def _ring(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 8.6, 8.6)
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 12), 3.2, 3.2)
+
+
+def _search(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(10.5, 10.5), 6, 6)
+    p.drawLine(QPointF(15, 15), QPointF(20, 20))
+
+
+def _filter(p: QPainter, fill: QColor):
+    _poly(p, [(4, 5.5), (20, 5.5), (14, 13), (14, 19), (10, 17), (10, 13), (4, 5.5)])
+
+
+def _volume(p: QPainter, fill: QColor):
+    p.setBrush(fill)
+    p.drawPolygon(QPolygonF([QPointF(4, 9.5), QPointF(8, 9.5), QPointF(13, 5), QPointF(13, 19), QPointF(8, 14.5), QPointF(4, 14.5)]))
+    p.setBrush(Qt.NoBrush)
+    pen = QPen(fill, 2.2)
+    pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen)
+    p.drawArc(QRectF(10, 7.5, 7, 9), -60 * 16, 120 * 16)
+    p.drawArc(QRectF(8, 4.5, 12, 15), -60 * 16, 120 * 16)
+
+
+def _volume_off(p: QPainter, fill: QColor):
+    p.setBrush(fill)
+    p.drawPolygon(QPolygonF([QPointF(4, 9.5), QPointF(8, 9.5), QPointF(13, 5), QPointF(13, 19), QPointF(8, 14.5), QPointF(4, 14.5)]))
+    p.setBrush(Qt.NoBrush)
+    pen = QPen(fill, 2.2)
+    pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen)
+    p.drawLine(QPointF(16.5, 9), QPointF(21, 15))
+    p.drawLine(QPointF(21, 9), QPointF(16.5, 15))
+
+
+def _expand(p: QPainter, fill: QColor):
+    for (x, y, dx, dy) in ((4, 4, 1, 1), (20, 4, -1, 1), (4, 20, 1, -1), (20, 20, -1, -1)):
+        _poly(p, [(x + dx * 6, y), (x, y), (x, y + dy * 6)])
+
+
+def _doc(p: QPainter, fill: QColor):
+    path = QPainterPath(QPointF(6.5, 3.5))
+    path.lineTo(14, 3.5)
+    path.lineTo(18.5, 8)
+    path.lineTo(18.5, 19)
+    path.quadTo(18.5, 20.5, 17, 20.5)
+    path.lineTo(6.5, 20.5)
+    path.quadTo(5, 20.5, 5, 19)
+    path.lineTo(5, 5)
+    path.quadTo(5, 3.5, 6.5, 3.5)
+    p.drawPath(path)
+    _poly(p, [(14, 3.5), (14, 8), (18.5, 8)])
+    p.drawLine(QPointF(8.5, 12.5), QPointF(15, 12.5))
+    p.drawLine(QPointF(8.5, 16), QPointF(13, 16))
+
+
+def _edit(p: QPainter, fill: QColor):
+    _poly(p, [(4.5, 19.5), (5.2, 15.4), (15.8, 4.8), (19.2, 8.2), (8.6, 18.8), (4.5, 19.5)])
+    p.drawLine(QPointF(13.6, 7), QPointF(17, 10.4))
+
+
+def _image(p: QPainter, fill: QColor):
+    p.drawRoundedRect(QRectF(3.5, 4.5, 17, 15), 2.4, 2.4)
+    p.drawEllipse(QPointF(9, 10), 1.8, 1.8)
+    _poly(p, [(4.5, 18), (10, 12.8), (14, 16.2), (16.5, 14), (19.5, 17.5)])
+
+
+def _save(p: QPainter, fill: QColor):
+    path = QPainterPath(QPointF(5.5, 3.5))
+    path.lineTo(16.5, 3.5)
+    path.lineTo(20.5, 7.5)
+    path.lineTo(20.5, 19)
+    path.quadTo(20.5, 20.5, 19, 20.5)
+    path.lineTo(5.5, 20.5)
+    path.quadTo(3.5, 20.5, 3.5, 18.5)
+    path.lineTo(3.5, 5.5)
+    path.quadTo(3.5, 3.5, 5.5, 3.5)
+    p.drawPath(path)
+    p.drawRect(QRectF(7.5, 3.5, 7, 5))
+    p.drawRoundedRect(QRectF(7, 13, 10, 7.5), 1, 1)
+
+
+def _info(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 8.6, 8.6)
+    p.drawLine(QPointF(12, 11), QPointF(12, 16.5))
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 7.8), 1.1, 1.1)
+
+
+def _sort(p: QPainter, fill: QColor):
+    p.drawLine(QPointF(6, 5), QPointF(6, 19))
+    _poly(p, [(3.2, 8), (6, 5), (8.8, 8)])
+    p.drawLine(QPointF(14, 8), QPointF(21, 8))
+    p.drawLine(QPointF(14, 12.5), QPointF(19, 12.5))
+    p.drawLine(QPointF(14, 17), QPointF(17, 17))
+
+
 def _step(n: int):
     def draw(p: QPainter, fill: QColor):
         p.drawEllipse(QPointF(12, 12), 8.6, 8.6)
@@ -160,8 +295,11 @@ _DRAW = {
     "trash": _trash, "copy": _copy, "sparkle": _sparkle, "open": _link_out,
     "left": _chev(-1, 0), "right": _chev(1, 0), "down": _chev(0, 1), "up": _chev(0, -1),
     "step1": _step(1), "step2": _step(2), "step3": _step(3),
+    "users": _users, "layers": _layers, "lock": _lock, "more": _more, "eye": _eye, "ring": _ring,
+    "search": _search, "filter": _filter, "volume": _volume, "volume_off": _volume_off, "expand": _expand, "doc": _doc, "edit": _edit,
+    "image": _image, "save": _save, "info": _info, "sort": _sort,
 }
-_FILLED = {"play", "pause"}
+_FILLED = {"play", "pause", "more", "volume", "volume_off"}
 _DOWN_CARET_NAMES = ("down", "up")
 
 

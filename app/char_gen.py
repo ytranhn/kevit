@@ -38,13 +38,18 @@ def _fold(x: str) -> str:
     return f(x)
 
 
-def full_text(p: Project) -> str:
-    return "\n\n".join(c.story.strip() for c in p.chapters if c.story.strip())
+def pick_chapters(p: Project, ids: list[str] | None = None) -> list:
+    """Các chương có truyện, theo thứ tự trong dự án. ids=None: tất cả; ngược lại chỉ các chương có id nằm trong `ids`."""
+    return [c for c in p.chapters if c.story.strip() and (ids is None or c.id in ids)]
 
 
-def story_digest(p: Project, budget: int = SINGLE_MAX) -> str:
+def full_text(p: Project, ids: list[str] | None = None) -> str:
+    return "\n\n".join(c.story.strip() for c in pick_chapters(p, ids))
+
+
+def story_digest(p: Project, budget: int = SINGLE_MAX, ids: list[str] | None = None) -> str:
     """Gom bối cảnh + truyện các chương (cắt đều theo ngân sách ký tự nếu quá dài). Dùng cho đường một lượt."""
-    chs = [c for c in p.chapters if c.story.strip()]
+    chs = pick_chapters(p, ids)
     per = max(1500, budget // max(len(chs), 1))
     parts = [f"BỐI CẢNH CHUNG: {p.synopsis.strip()}"] if p.synopsis.strip() else []
     for c in chs:
@@ -240,13 +245,14 @@ def _chunks(text: str) -> list[str]:
     return out
 
 
-def suggest_characters(p: Project, existing: list[Character], max_n: int = 10, log=print) -> list[dict]:
+def suggest_characters(p: Project, existing: list[Character], max_n: int = 10, log=print, chapters: list[str] | None = None) -> list[dict]:
     """Đề xuất nhân vật chưa có trong dự án: [{name, aliases, role, appearance_en, description_vi, mentions}], xếp theo số lần nhắc.
     Ổn định hơn một lượt gọi AI đơn lẻ: (1) truyện dài được đọc TỪNG ĐOẠN rồi gộp; (2) có danh sách tên viết hoa lặp lại làm mỏ neo;
-    (3) mọi nhân vật được đối chiếu số lần nhắc trong truyện thật, tên bịa/ít xuất hiện bị loại; (4) thứ tự cuối cùng theo số lần nhắc."""
-    text = full_text(p)
+    (3) mọi nhân vật được đối chiếu số lần nhắc trong truyện thật, tên bịa/ít xuất hiện bị loại; (4) thứ tự cuối cùng theo số lần nhắc.
+    chapters: chỉ đọc các chương có id này (None = mọi chương); chọn đúng chương cần phân tích giúp AI tập trung và nhận diện chính xác hơn."""
+    text = full_text(p, chapters)
     if not text.strip() and not p.synopsis.strip():
-        raise ValueError("Dự án chưa có nội dung truyện hay bối cảnh. Dán truyện vào tab Truyện (hoặc điền Bối cảnh) trước.")
+        raise ValueError("Các chương được chọn chưa có nội dung truyện (và dự án chưa có bối cảnh). Dán truyện vào tab Truyện, hoặc chọn chương khác.")
     have = ", ".join(c.name for c in existing) or "(chưa có)"
     taken = {_fold(nfc(c.name)) for c in existing} | {_fold(nfc(a)) for c in existing for a in c.aliases}
     hints = name_hints(text)
@@ -256,7 +262,7 @@ def suggest_characters(p: Project, existing: list[Character], max_n: int = 10, l
     raw: list[dict] = []
     if len(text) <= SINGLE_MAX:
         log(f"Đọc truyện ({len(text)} ký tự) trong một lượt...")
-        prompt = f"{_instructions(p, have, max_n + 4)}{hint_txt}\n\n{story_digest(p)}"
+        prompt = f"{_instructions(p, have, max_n + 4)}{hint_txt}\n\n{story_digest(p, ids=chapters)}"
         raw = json.loads(llm.generate_json(prompt, SCHEMA, log)).get("characters", [])
     else:
         parts = _chunks(text)
@@ -405,18 +411,20 @@ def add_characters(project: str, cands: list[dict]) -> list[str]:
     return added
 
 
-def generate_images(project_name: str, prompts: dict, backend: str, log=print) -> tuple[dict, list[str]]:
+def generate_images(project_name: str, prompts: dict, backend: str, log=print, chapter_id: str | None = None) -> tuple[dict, list[str]]:
     """Tạo ảnh cho nhiều nhân vật: prompts = {khoá: prompt}. Trả về ({khoá: bytes}, [lỗi từng ảnh]).
     backend 'flow': một phiên Chrome Flow cho cả lô (ảnh Nano Banana, thường 0 tín dụng); 'gemini': Gemini API (cần billing).
-    Một ảnh lỗi không làm hỏng cả lô."""
+    chapter_id: tạo ảnh trong project Flow RIÊNG của chương đó («Dự án · Chương», cùng project với clip video của chương; tự tạo nếu chưa có);
+    None = project chung của dự án. Một ảnh lỗi không làm hỏng cả lô."""
     out, errs = {}, []
     if backend == "flow":
         from . import flow_auto
         p = Project.load(project_name)
+        ch = next((c for c in p.chapters if c.id == chapter_id), None) if chapter_id else None
         with flow_auto.FlowAuto(log) as f:
             for k, prompt in prompts.items():
                 try:
-                    out[k] = f.generate_image(p, prompt, "3:4")
+                    out[k] = f.generate_image(p, prompt, "3:4", ch=ch)
                 except Exception as e:  # noqa: BLE001
                     errs.append(f"{k}: {e}")
                     log(f"Ảnh '{k}' lỗi: {e}")

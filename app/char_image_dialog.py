@@ -23,9 +23,10 @@ def guess_gender(c: models.Character, story: str = "") -> str:
 class CharImageDialog(QDialog):
     """self.saved = True nếu người dùng đã bấm 'Dùng ảnh này' (ảnh + mô tả mới đã được lưu vào nhân vật)."""
 
-    def __init__(self, project_name: str, char: models.Character, parent=None):
+    def __init__(self, project_name: str, char: models.Character, parent=None, chapter_id: str = ""):
         super().__init__(parent)
         self.project_name, self.char = project_name, char
+        self.chapter_id = chapter_id          # chương đang mở: ảnh Flow tạo trong project Flow của chương này (rỗng = project chung)
         self.saved, self.data = False, None
         self.worker: Worker | None = None
         self.setWindowTitle(f"Tạo ảnh cho {char.name}")
@@ -149,8 +150,12 @@ class CharImageDialog(QDialog):
         prompt, backend, name = self.full_prompt(), self.backend.currentData(), self.char.name
         self.btn_gen.setEnabled(False)
         self.btn_use.setEnabled(False)
-        self.status.set_full("Đang tạo ảnh…" + (" (cần Chrome Flow đã đăng nhập, khoảng 30-60 giây)" if backend == "flow" else ""))
-        self.worker = Worker(lambda log: char_gen.generate_images(self.project_name, {name: prompt}, backend, log))
+        where = ""
+        if backend == "flow":
+            ch = next((c for c in models.Project.load(self.project_name).chapters if c.id == self.chapter_id), None)
+            where = f" trong project Flow của {ch.name}" if ch else " trong project chung của dự án"
+        self.status.set_full("Đang tạo ảnh" + where + "…" + (" (cần Chrome Flow đã đăng nhập, khoảng 30-60 giây)" if backend == "flow" else ""))
+        self.worker = Worker(lambda log: char_gen.generate_images(self.project_name, {name: prompt}, backend, log, chapter_id=self.chapter_id or None))
         self.worker.log.connect(lambda m: self.status.set_full(m[:120]))
         self.worker.done.connect(self.on_done)
         self.worker.failed.connect(lambda e: (self.btn_gen.setEnabled(True), self.status.set_full(""), QMessageBox.warning(self, "Không tạo được ảnh", e)))

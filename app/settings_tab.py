@@ -11,25 +11,31 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEd
 from . import flow, models, settings
 from .accounts_ui import AccountsPanel
 from .llm_panel import LLMPanel, card, field, secret
+from .shell import PageHeader, SideNav, info_banner
 from .theme import SP
-from .widgets import Segmented, repolish
+from .widgets import repolish
 
-SECTIONS = (("llm", "Mô hình AI"), ("gemini", "Gemini"), ("flow", "Google Flow"), ("data", "Dữ liệu"))
+SECTIONS = (("llm", "Mô hình AI", "Quản lý các mô hình AI", "layers"),
+            ("gemini", "Gemini", "Cấu hình Gemini API", "sparkle"),
+            ("flow", "Google Flow", "Quản lý tài khoản và credit", "ring"),
+            ("data", "Dữ liệu", "Thư mục lưu dự án, nhân vật…", "folder"))
+LOCAL_NOTE = ("Lưu trữ cục bộ", "API key và cấu hình được lưu trên máy của bạn, không đồng bộ lên server. Hãy bảo mật thiết bị của bạn.")
 
 
-def _page(*cards: QWidget) -> QScrollArea:
-    """Một trang: các thẻ xếp một cột, canh giữa, rộng tối đa 680px; dài hơn cửa sổ thì cuộn."""
+def _page(header: QWidget, *blocks: QWidget, wide: bool = False) -> QScrollArea:
+    """Một trang cài đặt: tiêu đề lớn + các thẻ xếp một cột (rộng tối đa 1000px); dài hơn cửa sổ thì cuộn."""
     col = QVBoxLayout()
     col.setSpacing(SP.l)
-    for c in cards:
-        col.addWidget(c)
+    col.addWidget(header)
+    col.addSpacing(SP.xs)
+    for b in blocks:
+        col.addWidget(b)
     col.addStretch()
     holder = QWidget()
-    holder.setMaximumWidth(680)
+    holder.setMaximumWidth(1400 if wide else 1000)
     holder.setLayout(col)
     row = QHBoxLayout()
-    row.setContentsMargins(0, SP.s, SP.m, SP.l)
-    row.addStretch(1)
+    row.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.xl)
     row.addWidget(holder, 100)
     row.addStretch(1)
     page = QWidget()
@@ -57,6 +63,7 @@ class SettingsTab(QWidget):
         self.status.setWordWrap(True)
         btn_save = QPushButton("Lưu")
         btn_save.setProperty("primary", True)
+        btn_save.setFixedHeight(40)
         btn_save.clicked.connect(self.save)
         gem_card = card("Gemini API", "Khoá dùng chung cho các việc chạy trực tiếp qua Gemini: gen video (Veo), giọng đọc Gemini TTS, tạo ảnh "
                         "nhân vật. Mô hình Gemini làm “mô hình AI” có thể dùng khoá riêng ở mục Mô hình AI (để trống thì dùng khoá này).")
@@ -70,19 +77,19 @@ class SettingsTab(QWidget):
         gem_card.layout().addLayout(foot)
 
         # ---- mục 3: Google Flow (nhiều tài khoản) ----
-        acc_card = card("Tài khoản Google Flow")
         self.accounts_panel = AccountsPanel()
-        acc_card.layout().addWidget(self.accounts_panel)
         self.accounts_changed = self.accounts_panel.changed
 
         # ---- mục 4: dữ liệu ----
-        data_card = card("Dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
-                                    "cập nhật hay build lại app không làm mất.")
+        data_card = card("Thư mục dữ liệu", "Dự án, nhân vật, clip và đăng nhập Chrome Flow. Dữ liệu nằm ngoài ứng dụng nên "
+                                            "cập nhật hay build lại app không làm mất.")
         self.data_path = QLabel(str(models.DATA_DIR))
         self.data_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.data_path.setWordWrap(True)
         self.data_path.setProperty("mono", True)
         b_change, b_open = QPushButton("Đổi thư mục…"), QPushButton("Mở thư mục")
+        for b in (b_change, b_open):
+            b.setFixedHeight(40)
         b_change.clicked.connect(self.change_data_dir)
         b_open.clicked.connect(lambda: (models.DATA_DIR.mkdir(parents=True, exist_ok=True), flow.reveal(models.DATA_DIR)))
         data_card.layout().addWidget(self.data_path)
@@ -92,32 +99,26 @@ class SettingsTab(QWidget):
         drow.addWidget(b_change)
         data_card.layout().addLayout(drow)
 
-        # ---- khung: tiêu đề + bộ chọn mục + trang ----
-        head = QLabel("Cài đặt")
-        head.setProperty("heading", True)
-        sub = QLabel("Cấu hình dùng chung cho mọi dự án.")
-        sub.setProperty("caption", True)
-        self.seg = Segmented()
-        for key, label in SECTIONS:
-            self.seg.addItem(label, key)
+        # ---- khung: thanh điều hướng bên + các trang ----
+        self.seg = SideNav("Cài đặt", "Cấu hình dùng chung cho mọi dự án.")
+        for key, label, sub, icon in SECTIONS:
+            self.seg.addItem(label, key, sub, icon)
         self.stack = QStackedWidget()
-        self.stack.addWidget(_page(self.llm_panel))
-        self.stack.addWidget(_page(gem_card))
-        self.stack.addWidget(_page(acc_card))
-        self.stack.addWidget(_page(data_card))
+        self.stack.addWidget(_page(PageHeader("Mô hình AI", "Các mô hình dùng để tách scene, viết lại thuyết minh, dịch và tạo nhân vật. "
+                                              "Thêm bao nhiêu tuỳ ý (Claude, Gemini, OpenAI và các dịch vụ tương thích), chọn một cái đang dùng; "
+                                              "đổi nhanh ở chip LLM dưới cùng.", self.llm_panel.b_add),
+                                   self.llm_panel, info_banner("lock", *LOCAL_NOTE)))
+        self.stack.addWidget(_page(PageHeader("Gemini", "Khoá Gemini API cho gen video (Veo), giọng đọc Gemini TTS và tạo ảnh nhân vật."),
+                                   gem_card, info_banner("lock", *LOCAL_NOTE)))
+        self.stack.addWidget(_page(PageHeader("Google Flow", "Quản lý tài khoản Google Flow, theo dõi credit và tự động chuyển tài khoản khi hết credit.",
+                                              self.accounts_panel.b_add, self.accounts_panel.b_open),
+                                   self.accounts_panel, wide=True))
+        self.stack.addWidget(_page(PageHeader("Dữ liệu", "Nơi lưu dự án, nhân vật, clip và đăng nhập Chrome Flow."), data_card))
         self.seg.currentIndexChanged.connect(self.stack.setCurrentIndex)
-        top = QVBoxLayout()
-        top.setSpacing(SP.xs)
-        top.addWidget(head)
-        top.addWidget(sub)
-        bar = QHBoxLayout()
-        bar.addWidget(self.seg)
-        bar.addStretch(1)
-        outer = QVBoxLayout(self)
+        outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(SP.m)
-        outer.addLayout(top)
-        outer.addLayout(bar)
+        outer.setSpacing(0)
+        outer.addWidget(self.seg)
         outer.addWidget(self.stack, 1)
         self.seg.setCurrentIndex(0)
 

@@ -30,3 +30,23 @@ def estimate(model: str, resolution: str, scenes: list, auto_duration: bool, lan
         d = pick_duration(s.narration, lang) if (auto_duration and model == OMNI) else 8
         total += scene_cost(model, resolution, d)
     return total
+
+
+def scene_costs(model: str, resolution: str, scenes: list, auto_duration: bool, lang: str = "vi") -> list[int]:
+    """Chi phí ước tính từng scene (giữ thứ tự), dùng để chia scene theo credit từng tài khoản."""
+    out = []
+    for s in scenes:
+        d = pick_duration(s.narration, lang) if (auto_duration and model == OMNI) else 8
+        out.append(scene_cost(model, resolution, d))
+    return out
+
+
+def parse_amount(text: str) -> int | None:
+    """Số credit trong một đoạn chữ của Flow ('Generating will use 20 credits', '1,002 Google Flow credits', '1.002 ...'): gộp mọi chữ số
+    (dấu phẩy/chấm/khoảng trắng là ngăn cách hàng nghìn). Không có số thì None."""
+    import re
+    m = re.search(r"\d[\d.,\u202f\u00a0 ]*", text or "")
+    if not m:
+        return None
+    digits = re.sub(r"\D", "", m.group(0))
+    return int(digits) if digits else None
