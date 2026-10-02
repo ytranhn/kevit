@@ -262,6 +262,11 @@ QCheckBox::indicator:checked, QTableView::indicator:checked, QListView::indicato
 QCheckBox::indicator:disabled, QTableView::indicator:disabled, QListView::indicator:disabled { background: $surface2; border-color: $border; }
 QCheckBox::indicator:checked:disabled, QTableView::indicator:checked:disabled, QListView::indicator:checked:disabled { background: $accent_dis; border-color: transparent; image: url($check_png); }
 QMessageBox, QDialog { background: $bg; }
+QMessageBox { background: $surface; }
+QMessageBox QLabel { color: $text; background: transparent; font-weight: 400; font-size: 13px; }
+QMessageBox QLabel#qt_msgbox_label, QMessageBox QLabel#qt_msgbox_informativelabel { min-width: 340px; }
+QMessageBox QLabel#qt_msgbox_label { font-size: 14px; }
+QMessageBox QPushButton { min-width: 96px; min-height: 34px; }
 QPlainTextEdit#logOverlay { background: $surface; border: 1px solid $border_strong; border-radius: 14px; padding: 10px; }
 """)
 
@@ -361,3 +366,5 @@ def on_change(cb) -> None:
 def install(app) -> None:
     apply(app)
     app.styleHints().colorSchemeChanged.connect(lambda *_: apply(app))
+    from . import dialogs                 # nhập muộn: dialogs cần icons/theme đã sẵn sàng
+    dialogs.install(app)

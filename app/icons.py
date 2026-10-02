@@ -185,6 +185,23 @@ def _link(p: QPainter, fill: QColor):
     p.restore()
 
 
+def _question(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 9, 9)
+    path = QPainterPath(QPointF(9.4, 9.7))
+    path.cubicTo(9.4, 6.6, 14.6, 6.6, 14.6, 9.7)
+    path.cubicTo(14.6, 11.8, 12, 11.9, 12, 14)
+    p.drawPath(path)
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 16.9), 0.9, 0.9)
+
+
+def _warn(p: QPainter, fill: QColor):
+    _poly(p, [(12, 4), (21, 19.5), (3, 19.5), (12, 4)])
+    p.drawLine(QPointF(12, 9.5), QPointF(12, 13.2))
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 16.6), 0.8, 0.8)
+
+
 def _eye(p: QPainter, fill: QColor):
     path = QPainterPath(QPointF(2.8, 12))
     path.quadTo(12, 3.2, 21.2, 12)
@@ -311,7 +328,7 @@ _DRAW = {
     "step1": _step(1), "step2": _step(2), "step3": _step(3),
     "users": _users, "layers": _layers, "lock": _lock, "more": _more, "eye": _eye, "ring": _ring,
     "search": _search, "filter": _filter, "volume": _volume, "volume_off": _volume_off, "expand": _expand, "doc": _doc, "edit": _edit,
-    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link,
+    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link, "question": _question, "warn": _warn,
 }
 _FILLED = {"play", "pause", "more", "volume", "volume_off"}
 _DOWN_CARET_NAMES = ("down", "up")

@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from app import models
 from app.publish import PLATFORMS, service
@@ -338,3 +339,47 @@ class TestNoHorizontalOverflow(Tmp):
         check("Cài đặt dự án", d.scroll)
         d.close()
         self.assertEqual(problems, [])
+
+
+class TestMessageBoxStyle(Tmp):
+    def _show(self, icon, text, buttons, default=QMessageBox.NoButton):
+        from app import theme
+        theme.install(app)
+        box = QMessageBox(icon, "Tiêu đề", text, buttons)
+        if default != QMessageBox.NoButton:
+            box.setDefaultButton(default)
+        box.show()
+        QCoreApplication.processEvents()
+        self.addCleanup(box.close)
+        return box
+
+    def test_buttons_are_vietnamese_and_default_is_primary(self):
+        box = self._show(QMessageBox.Question, "Xoá chương?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        self.assertEqual(box.button(QMessageBox.Yes).text(), "Đồng ý")
+        self.assertEqual(box.button(QMessageBox.No).text(), "Không")
+        self.assertTrue(box.button(QMessageBox.No).property("primary"))          # nút mặc định nổi bật
+        self.assertFalse(box.button(QMessageBox.Yes).property("primary"))
+        self.assertFalse(box.iconPixmap().isNull())
+
+    def test_information_and_ok_only(self):
+        box = self._show(QMessageBox.Information, "Xong.", QMessageBox.Ok)
+        self.assertEqual(box.button(QMessageBox.Ok).text(), "Đóng")
+        self.assertTrue(box.button(QMessageBox.Ok).property("primary"))
+
+    def test_custom_buttons_keep_their_text(self):
+        from app import theme
+        theme.install(app)
+        box = QMessageBox(QMessageBox.Warning, "T", "Nội dung")
+        mine = box.addButton("Gen lại scene", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.show()
+        QCoreApplication.processEvents()
+        self.addCleanup(box.close)
+        self.assertEqual(mine.text(), "Gen lại scene")
+        self.assertEqual(box.button(QMessageBox.Cancel).text(), "Huỷ")
+
+    def test_text_is_not_bold(self):
+        box = self._show(QMessageBox.Question, "Nội dung dài", QMessageBox.Yes | QMessageBox.No)
+        lab = box.findChild(QLabel, "qt_msgbox_label")
+        self.assertIsNotNone(lab)
+        self.assertLessEqual(lab.font().weight(), QFont.Weight.Normal)
