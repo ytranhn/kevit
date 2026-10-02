@@ -686,3 +686,106 @@ class TestMetaTokenConnect(Tmp):
         h = lambda req: httpx.Response(400, json={"error": {"message": "Error validating access token", "code": 190}})  # noqa: E731
         with self.assertRaisesRegex(PublishError, "kết nối lại|hết hạn"):
             self._plat(h).connect_with_token("EAA" + "x" * 40)
+
+
+class TestSchedule(Tmp):
+    def setUp(self):
+        super().setUp()
+        from app.publish import schedule
+        self.sc = schedule
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        PLATFORMS["fake"] = FakePlatform
+        self.addCleanup(PLATFORMS.pop, "fake", None)
+        FakePlatform.sent, FakePlatform.fail, FakePlatform.fail_accounts = [], False, set()
+        store.set_account("fake:1", {"platform": "fake", "label": "G1", "access_token": "x"})
+        p = models.Project("Lịch")
+        for i in range(3):
+            ch = p.new_chapter()
+            ch.post_meta = {"title": f"Tập {i + 1}", "description": "d", "hashtags": ["x"]}
+            clip = p.chapter_dir(ch) / "clips" / "s1.mp4"
+            make_clip(clip)
+            ch.scenes.append(models.Scene(1, clip=str(clip), status="done"))
+        p.save()
+        self.p = p
+
+    def test_occurrences_daily_every_n_days_and_weekdays(self):
+        from datetime import datetime
+        start = datetime(2026, 10, 5, 20, 30)            # thứ Hai
+        daily = self.sc.occurrences(start, 3)
+        self.assertEqual([d.strftime("%d %H:%M") for d in daily], ["05 20:30", "06 20:30", "07 20:30"])
+        every2 = self.sc.occurrences(start, 3, every_days=2)
+        self.assertEqual([d.day for d in every2], [5, 7, 9])
+        weekdays_only = self.sc.occurrences(datetime(2026, 10, 9, 8, 0), 3, weekdays={0, 1, 2, 3, 4})     # thứ Sáu → bỏ cuối tuần
+        self.assertEqual([d.strftime("%a %d") for d in weekdays_only], ["Fri 09", "Mon 12", "Tue 13"])
+        self.assertEqual(self.sc.occurrences(start, 5, every_days=7, weekdays={5}), [])                    # thứ Hai cách 7 ngày không bao giờ rơi vào thứ Bảy: không treo
+
+    def test_due_missed_and_future(self):
+        from datetime import datetime, timedelta
+        now = datetime(2026, 10, 5, 12, 0)
+        jobs = [self.sc.new_job("01", now - timedelta(minutes=5), ["fake:1"], "private"),         # vừa đến hạn
+                self.sc.new_job("02", now - timedelta(hours=3), ["fake:1"], "private"),           # lỡ giờ
+                self.sc.new_job("03", now + timedelta(hours=1), ["fake:1"], "private")]           # chưa tới
+        self.sc.add_jobs(self.p, jobs)
+        due, changed = self.sc.take_due(self.p, now)
+        self.assertEqual([j["key"] for j in due], ["01"])
+        self.assertTrue(changed)
+        status = {j["key"]: j["status"] for j in self.p.publish_queue}
+        self.assertEqual(status, {"01": "pending", "02": "missed", "03": "pending"})
+        self.assertIn("Lỡ giờ", next(j for j in self.p.publish_queue if j["key"] == "02")["message"])
+        self.assertEqual(self.sc.next_pending(self.p)["key"], "01")
+
+    def test_run_job_posts_and_records(self):
+        from datetime import datetime
+        job = self.sc.new_job("02", datetime.now(), ["fake:1"], "unlisted")
+        self.sc.add_jobs(self.p, [job])
+        self.assertTrue(self.sc.run_job(self.p, job, lambda m: None))
+        self.assertEqual(job["status"], "done")
+        self.assertEqual(len(FakePlatform.sent), 1)
+        self.assertEqual(FakePlatform.sent[0][1].title, "Tập 2")
+        self.assertEqual(FakePlatform.sent[0][1].privacy, "unlisted")
+        again = models.Project.load("Lịch")                                         # đã lưu xuống đĩa
+        self.assertEqual(again.publish_queue[0]["status"], "done")
+        # chạy lại lượt đã đăng: không đăng trùng
+        job["status"] = "pending"
+        self.assertTrue(self.sc.run_job(self.p, job, lambda m: None))
+        self.assertEqual(len(FakePlatform.sent), 1)
+
+    def test_run_job_failure_is_recorded_not_raised(self):
+        from datetime import datetime
+        FakePlatform.fail = True
+        job = self.sc.new_job("01", datetime.now(), ["fake:1"], "private")
+        self.sc.add_jobs(self.p, [job])
+        self.assertFalse(self.sc.run_job(self.p, job, lambda m: None))
+        self.assertEqual(job["status"], "error")
+        self.assertIn("hỏng", job["message"])
+
+    def test_run_job_for_deleted_chapter(self):
+        from datetime import datetime
+        job = self.sc.new_job("99", datetime.now(), ["fake:1"], "private")
+        self.sc.add_jobs(self.p, [job])
+        self.assertFalse(self.sc.run_job(self.p, job, lambda m: None))
+        self.assertIn("không còn", job["message"].lower())
+
+    def test_reschedule_remove_clear_and_index(self):
+        from datetime import datetime, timedelta
+        a, b = (self.sc.new_job(k, datetime.now() + timedelta(days=1), ["fake:1"], "private") for k in ("01", "02"))
+        self.sc.add_jobs(self.p, [a, b])
+        self.assertEqual(self.sc.projects_with_pending(), ["Lịch"])
+        later = datetime.now() + timedelta(days=3)
+        self.assertTrue(self.sc.reschedule(self.p, a["id"], later))
+        self.assertEqual([j["key"] for j in self.p.publish_queue], ["02", "01"])    # giữ thứ tự theo giờ
+        a["status"] = "running"
+        self.assertFalse(self.sc.remove_job(self.p, a["id"]))                        # đang chạy: không xoá/đổi
+        a["status"] = "pending"
+        self.assertTrue(self.sc.remove_job(self.p, b["id"]))
+        self.assertTrue(self.sc.remove_job(self.p, a["id"]))
+        self.assertEqual(self.sc.projects_with_pending(), [])                        # hết lượt chờ → rời chỉ mục
+
+    def test_recover_interrupted(self):
+        from datetime import datetime
+        j = self.sc.new_job("01", datetime.now(), ["fake:1"], "private")
+        j["status"] = "running"
+        self.sc.add_jobs(self.p, [j])
+        self.assertEqual(self.sc.recover_interrupted(self.p), 1)
+        self.assertEqual(j["status"], "error")
+        self.assertIn("gián đoạn", j["message"])

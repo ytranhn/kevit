@@ -51,11 +51,11 @@ QSS = Template("""
 QToolTip { background: $surface; color: $text; border: 1px solid $border; border-radius: 8px; padding: 5px 8px; }
 
 /* ---- ô nhập ---- */
-QLineEdit, QPlainTextEdit, QSpinBox, QComboBox {
+QLineEdit, QPlainTextEdit, QSpinBox, QComboBox, QDateTimeEdit {
     background: $surface; color: $text; border: 1px solid $border; border-radius: 10px; padding: 7px 10px;
     selection-background-color: $accent; selection-color: $on_accent; }
-QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid $accent; }
-QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QComboBox:disabled { color: $faint; background: $surface2; }
+QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus, QDateTimeEdit:focus { border: 1px solid $accent; }
+QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QDateTimeEdit:disabled { color: $faint; background: $surface2; }
 QLineEdit { min-height: 20px; }
 QComboBox { min-height: 20px; padding-right: 26px; }
 QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
@@ -67,6 +67,10 @@ QComboBox QAbstractItemView { background: $surface; color: $text; border: 1px so
 QComboBox QAbstractItemView::item { min-height: 32px; padding: 0 12px; border-radius: 8px; }
 QComboBox QAbstractItemView::item:hover { background: $surface2; }
 QComboBox QAbstractItemView::item:selected { background: $sel; color: $text; }
+QDateTimeEdit { min-height: 20px; padding-right: 30px; }
+QDateTimeEdit::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
+QDateTimeEdit::down-arrow { image: url($chev_down_png); width: 14px; height: 14px; }
+QDateTimeEdit::up-button, QDateTimeEdit::down-button { width: 0; border: none; }
 QSpinBox { min-height: 20px; padding-right: 26px; }
 QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
 QSpinBox::up-button { subcontrol-position: top right; }
@@ -136,6 +140,12 @@ QLabel[statusline="true"] { background: $surface2; color: $muted; border-radius:
 QLabel[statusline="true"][kind="ok"] { background: $ok_tint; color: $ok; }
 QLabel[statusline="true"][kind="warn"] { background: $warn_tint; color: $warn; }
 QLabel[statusline="true"][kind="err"] { background: $err_tint; color: $err; }
+QTimeEdit { padding-right: 26px; }
+QTimeEdit::up-button, QTimeEdit::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
+QTimeEdit::up-button { subcontrol-position: top right; }
+QTimeEdit::down-button { subcontrol-position: bottom right; }
+QTimeEdit::up-arrow { image: url($chev_up_png); width: 10px; height: 10px; }
+QTimeEdit::down-arrow { image: url($chev_down_png); width: 10px; height: 10px; }
 QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }

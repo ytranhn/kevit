@@ -202,6 +202,12 @@ def _warn(p: QPainter, fill: QColor):
     p.drawEllipse(QPointF(12, 16.6), 0.8, 0.8)
 
 
+def _clock(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 9, 9)
+    p.drawLine(QPointF(12, 7), QPointF(12, 12))
+    p.drawLine(QPointF(12, 12), QPointF(15.5, 14))
+
+
 def _eye(p: QPainter, fill: QColor):
     path = QPainterPath(QPointF(2.8, 12))
     path.quadTo(12, 3.2, 21.2, 12)
@@ -328,7 +334,7 @@ _DRAW = {
     "step1": _step(1), "step2": _step(2), "step3": _step(3),
     "users": _users, "layers": _layers, "lock": _lock, "more": _more, "eye": _eye, "ring": _ring,
     "search": _search, "filter": _filter, "volume": _volume, "volume_off": _volume_off, "expand": _expand, "doc": _doc, "edit": _edit,
-    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link, "question": _question, "warn": _warn,
+    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link, "question": _question, "warn": _warn, "clock": _clock,
 }
 _FILLED = {"play", "pause", "more", "volume", "volume_off"}
 _DOWN_CARET_NAMES = ("down", "up")

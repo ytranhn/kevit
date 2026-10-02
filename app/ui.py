@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
 from . import accounts, theme, characters_pack, flow_auto, icons, llm, models, settings, trash
+from .publish_scheduler import Scheduler
 from .publish_tab import PublishTab
 from .settings_tab import SettingsTab
 from .models import Character
@@ -579,6 +580,9 @@ class MainWindow(QMainWindow):
         proj.open_settings_section.connect(lambda key: (tabs.setCurrentWidget(self.settings_tab), self.settings_tab.select_section(key)))
         self.publish_tab.open_settings_requested.connect(lambda: (tabs.setCurrentWidget(self.settings_tab), self.settings_tab.select_section("publish")))
         self.settings_tab.publish_changed.connect(self.publish_tab.refresh_accounts)
+        self.scheduler = Scheduler(lambda: proj.project)
+        self.publish_tab.set_scheduler(self.scheduler)
+        self.scheduler.log.connect(self.logbox.appendPlainText)
         tabs.addTab(self.publish_tab, "Đăng video")
         tabs.addTab(self.settings_tab, "Cài đặt")
 
@@ -591,6 +595,8 @@ class MainWindow(QMainWindow):
         proj.busy_changed.connect(lambda busy, cancel: self.strip.set_busy(busy, cancel))
         proj.progress_changed.connect(self.strip.set_progress)
         self.publish_tab.activity.connect(self.strip.set_activity)
+        self.scheduler.activity.connect(self.strip.set_activity)
+        self.scheduler.start()
         self.strip.set_activity("Sẵn sàng.", "info")
 
         central = QWidget()
@@ -667,6 +673,10 @@ class MainWindow(QMainWindow):
         self._follow()
 
     def closeEvent(self, e):
+        if self.scheduler.busy and QMessageBox.question(
+                self, "Đang đăng theo lịch", "Kevit đang đăng một video theo lịch. Thoát bây giờ sẽ làm gián đoạn lượt đăng này.\n\nVẫn thoát?") != QMessageBox.Yes:
+            e.ignore()
+            return
         self.log_win.hide()
         super().closeEvent(e)
 

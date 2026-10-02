@@ -383,3 +383,187 @@ class TestMessageBoxStyle(Tmp):
         lab = box.findChild(QLabel, "qt_msgbox_label")
         self.assertIsNotNone(lab)
         self.assertLessEqual(lab.font().weight(), QFont.Weight.Normal)
+
+
+class TestScheduler(Tmp):
+    def setUp(self):
+        super().setUp()
+        from datetime import datetime
+        from app.publish import schedule, store
+        from app.publish_scheduler import Scheduler
+        self.sc, self.Scheduler = schedule, Scheduler
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        PLATFORMS["fake"] = FakePlatform
+        self.addCleanup(PLATFORMS.pop, "fake", None)
+        FakePlatform.sent, FakePlatform.fail, FakePlatform.fail_accounts = [], False, set()
+        store.set_account("fake:1", {"platform": "fake", "label": "G1", "access_token": "x"})
+        p = models.Project("Lịch UI")
+        for i in range(2):
+            ch = p.new_chapter()
+            ch.post_meta = {"title": f"Tập {i + 1}", "description": "d", "hashtags": []}
+            clip = p.chapter_dir(ch) / "clips" / "s1.mp4"
+            make_clip(clip)
+            ch.scenes.append(models.Scene(1, clip=str(clip), status="done"))
+        p.save()
+        self.p = p
+        self.now = datetime(2026, 10, 5, 12, 0)
+
+    def _sched(self, open_project=None):
+        s = self.Scheduler(lambda: open_project, now=lambda: self.now)
+        events = []
+        s.changed.connect(events.append)
+        return s, events
+
+    def test_tick_runs_due_job_once_and_in_order(self):
+        from datetime import timedelta
+        self.sc.add_jobs(self.p, [self.sc.new_job("01", self.now - timedelta(minutes=1), ["fake:1"], "private"),
+                                  self.sc.new_job("02", self.now - timedelta(minutes=2), ["fake:1"], "private")])
+        s, events = self._sched(self.p)
+        s.tick()
+        self.assertTrue(s.busy)
+        s.tick()                                                    # đang bận: không chạy chồng
+        self.assertTrue(wait(lambda: not s.busy))
+        self.assertEqual([x[1].title for x in FakePlatform.sent], ["Tập 2"])         # lượt cũ hơn (02) chạy trước
+        self.assertTrue(wait(lambda: True))
+        s.tick()
+        self.assertTrue(wait(lambda: not s.busy and len(FakePlatform.sent) == 2))
+        self.assertEqual([j["status"] for j in self.p.publish_queue], ["done", "done"])
+        self.assertIn(self.p.name, events)
+
+    def test_future_job_waits_and_far_overdue_is_missed_not_posted(self):
+        from datetime import timedelta
+        self.sc.add_jobs(self.p, [self.sc.new_job("01", self.now + timedelta(hours=2), ["fake:1"], "private"),
+                                  self.sc.new_job("02", self.now - timedelta(days=1), ["fake:1"], "private")])
+        s, _ = self._sched(self.p)
+        s.tick()
+        self.assertFalse(s.busy)
+        self.assertEqual(FakePlatform.sent, [])
+        self.assertEqual({j["key"]: j["status"] for j in self.p.publish_queue}, {"01": "pending", "02": "missed"})
+
+    def test_other_project_on_disk_is_run_without_being_open(self):
+        from datetime import timedelta
+        self.sc.add_jobs(self.p, [self.sc.new_job("01", self.now - timedelta(minutes=1), ["fake:1"], "private")])
+        s, _ = self._sched(None)                                    # không dự án nào đang mở
+        s.tick()
+        self.assertTrue(wait(lambda: not s.busy))
+        self.assertEqual(len(FakePlatform.sent), 1)
+        self.assertEqual(models.Project.load("Lịch UI").publish_queue[0]["status"], "done")
+
+    def test_run_now_and_busy(self):
+        from datetime import timedelta
+        self.sc.add_jobs(self.p, [self.sc.new_job("01", self.now + timedelta(days=5), ["fake:1"], "private")])
+        s, _ = self._sched(self.p)
+        jid = self.p.publish_queue[0]["id"]
+        self.assertTrue(s.run_now(self.p, jid))
+        self.assertFalse(s.run_now(self.p, jid))                    # đang chạy
+        self.assertTrue(wait(lambda: not s.busy))
+        self.assertEqual(self.p.publish_queue[0]["status"], "done")
+
+    def test_deleted_project_is_dropped_from_index(self):
+        from datetime import timedelta
+        import shutil
+        self.sc.add_jobs(self.p, [self.sc.new_job("01", self.now - timedelta(minutes=1), ["fake:1"], "private")])
+        shutil.rmtree(self.p.dir)
+        s, _ = self._sched(None)
+        s.tick()
+        self.assertFalse(s.busy)
+        self.assertEqual(self.sc.projects_with_pending(), [])
+
+
+class TestScheduleUI(Tmp):
+    def setUp(self):
+        super().setUp()
+        from app.publish import store
+        from app.publish_scheduler import Scheduler
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        PLATFORMS["fake"] = FakePlatform
+        self.addCleanup(PLATFORMS.pop, "fake", None)
+        FakePlatform.sent, FakePlatform.fail, FakePlatform.fail_accounts = [], False, set()
+        store.set_account("fake:1", {"platform": "fake", "label": "G1", "access_token": "x"})
+        p = models.Project("Hẹn UI", publish_accounts=["fake:1"], publish_privacy="unlisted")
+        for i in range(3):
+            ch = p.new_chapter()
+            ch.post_meta = {"title": f"Tập {i + 1}", "description": "d", "hashtags": []}
+            clip = p.chapter_dir(ch) / "clips" / "s1.mp4"
+            make_clip(clip)
+            ch.scenes.append(models.Scene(1, clip=str(clip), status="done"))
+        p.save()
+        self.p = p
+        self.tab = PublishTab(lambda: self.p)
+        self.sch = Scheduler(lambda: self.p)
+        self.tab.set_scheduler(self.sch)
+        self.addCleanup(lambda: wait(lambda: self.tab._thumb_worker is None and not self.sch.busy))
+        self.tab.reload()
+
+    def test_dialog_rule_generates_one_video_per_slot_and_validates(self):
+        from datetime import datetime, timedelta
+        from app.schedule_dialog import ScheduleDialog
+        now = datetime(2026, 10, 5, 10, 0)
+        d = ScheduleDialog(None, [("01", "Tập 1"), ("02", "Tập 2"), ("03", "Tập 3")], "tóm tắt", now=lambda: now)
+        got = d.result()
+        self.assertEqual([k for k, _ in got], ["01", "02", "03"])
+        self.assertEqual([a.strftime("%d %H:%M") for _, a in got], ["05 20:00", "06 20:00", "07 20:00"])      # 10h sáng: bắt đầu tối nay 20:00
+        self.assertTrue(d.ok.isEnabled())
+        d.every.setValue(2)
+        d.apply_rule()
+        self.assertEqual([a.day for _, a in d.result()], [5, 7, 9])
+        d.days[0].setChecked(False)                                                   # bỏ thứ Hai: 05/10 là thứ Hai
+        d.every.setValue(1)
+        d.apply_rule()
+        self.assertEqual([a.day for _, a in d.result()], [6, 7, 8])
+        # đổi thứ tự: video đổi chỗ, giờ giữ nguyên
+        d.table.selectRow(0)
+        d.move(1)
+        self.assertEqual([k for k, _ in d.result()], ["02", "01", "03"])
+        self.assertEqual([a.day for _, a in d.result()], [6, 7, 8])
+        # giờ đã qua → chặn
+        d.editors[1].setDateTime(d.editors[1].dateTime().addDays(-30))
+        self.assertFalse(d.ok.isEnabled())
+        self.assertTrue(d.warn.isVisible() or d.warn.text() != "")
+
+    def test_schedule_selected_creates_jobs_and_table(self):
+        from datetime import datetime, timedelta
+        from unittest import mock
+        from app.schedule_dialog import ScheduleDialog
+        t0 = datetime.now() + timedelta(days=1)
+        slots = [("01", t0), ("02", t0 + timedelta(days=1))]
+        self.tab.check_all(False)
+        for k in ("01", "02"):
+            self.tab._rows[k].check.setChecked(True)
+        with mock.patch.object(ScheduleDialog, "exec", return_value=ScheduleDialog.Accepted), \
+                mock.patch.object(ScheduleDialog, "result", return_value=slots):
+            self.tab.schedule_selected()
+        q = models.Project.load("Hẹn UI").publish_queue
+        self.assertEqual([(j["key"], j["status"], j["accounts"], j["privacy"]) for j in q],
+                         [("01", "pending", ["fake:1"], "unlisted"), ("02", "pending", ["fake:1"], "unlisted")])
+        self.assertEqual(self.tab.sched_table.rowCount(), 2)
+        self.assertTrue(self.tab.sched_next.isVisible() or self.tab.sched_next.text() != "")
+        self.assertFalse(self.tab.sched_empty.isVisible())
+
+    def test_job_buttons_and_actions(self):
+        from datetime import datetime, timedelta
+        from app.publish import schedule
+        schedule.add_jobs(self.p, [schedule.new_job("01", datetime.now() + timedelta(days=2), ["fake:1"], "private")])
+        self.tab.refresh_schedule()
+        self.assertFalse(self.tab.b_job_del.isEnabled())                      # chưa chọn dòng nào
+        self.tab.sched_table.selectRow(0)
+        self.assertTrue(self.tab.b_job_del.isEnabled() and self.tab.b_job_now.isEnabled() and self.tab.b_job_time.isEnabled())
+        self.tab.job_now()                                                    # đăng ngay qua bộ chạy lịch
+        self.assertTrue(wait(lambda: not self.sch.busy))
+        self.assertEqual(len(FakePlatform.sent), 1)
+        self.assertEqual(self.p.publish_queue[0]["status"], "done")
+        self.tab.refresh_schedule()
+        self.assertTrue(self.tab.b_job_clear.isEnabled())
+        self.tab.job_clear()
+        self.assertEqual(self.p.publish_queue, [])
+        self.assertTrue(self.tab.sched_empty.isVisible() or not self.tab.sched_table.isVisible())
+
+    def test_cancel_job(self):
+        from datetime import datetime, timedelta
+        from app.publish import schedule
+        schedule.add_jobs(self.p, [schedule.new_job("02", datetime.now() + timedelta(days=2), ["fake:1"], "private")])
+        self.tab.refresh_schedule()
+        self.tab.sched_table.selectRow(0)
+        self.tab.job_remove()
+        self.assertEqual(self.p.publish_queue, [])
+        self.assertEqual(schedule.projects_with_pending(), [])

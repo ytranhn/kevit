@@ -82,6 +82,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 - **AI viết tiêu đề, mô tả và hashtag** theo nội dung chương, cùng ngôn ngữ với thuyết minh; sửa tay được trước khi đăng.
 - **Đăng lên YouTube (Shorts), TikTok, Facebook Reels, Instagram Reels** bằng API chính thức (OAuth 2.0 trên máy bạn, không điều khiển trình duyệt, không gửi khoá đi đâu). **Nhiều tài khoản cho mỗi nền tảng** (nhiều kênh YouTube, nhiều tài khoản TikTok, nhiều Trang Facebook/Instagram), và **mỗi dự án chọn riêng** đăng lên tài khoản nào. Mỗi nền tảng tự cắt tiêu đề/hashtag theo giới hạn của nó.
 - **Không đăng trùng:** mục đã đăng được ghi lại, lần sau tự bỏ qua trừ khi chọn «Đăng lại». Một nền tảng lỗi không làm hỏng các nền tảng khác.
+- **Hẹn giờ đăng:** bấm **Hẹn giờ…** để đặt giờ riêng cho từng video, hoặc dùng quy tắc giờ cố định (vd. 20:00 mỗi ngày, mỗi lần đăng 1 video theo thứ tự bạn xếp, có thể bỏ chọn thứ trong tuần) rồi chỉnh từng dòng. Các lượt nằm ở thẻ **Lịch đăng** (đăng ngay, đổi giờ, huỷ). Kevit phải đang mở và máy không ngủ đúng giờ hẹn; quá 30 phút mà Kevit chưa chạy thì lượt đó chuyển sang “Lỡ giờ” để bạn chọn đăng ngay, dời giờ hay huỷ (không tự đăng bù).
 - **Tự động hoàn toàn (tuỳ chọn):** bật «Tự động đăng khi một chương gen xong» để gen xong là ghép, viết mô tả và đăng luôn.
 
 **Trải nghiệm**

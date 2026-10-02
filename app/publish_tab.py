@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGridLayout
                                QPlainTextEdit, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import flow, icons, publish, theme
-from .publish import base, describe, service
+from .publish import base, describe, schedule, service
+from .schedule_dialog import ScheduleDialog, ask_datetime
 from .shell import platform_tile, section
 from .theme import SP
 from .widgets import Combo, ElidedLabel, repolish
@@ -524,6 +525,49 @@ class PublishTab(QWidget):
         srow2.addLayout(rcol, 1)
         sb.addLayout(srow2)
 
+        # 3b. Lịch đăng (hẹn giờ)
+        self.b_job_now = QPushButton("Đăng ngay")
+        self.b_job_time = QPushButton("Đổi giờ…")
+        self.b_job_del = QPushButton("Huỷ lịch")
+        self.b_job_clear = QPushButton("Dọn mục đã xong")
+        for b in (self.b_job_now, self.b_job_time, self.b_job_del, self.b_job_clear):
+            b.setEnabled(False)
+        self.b_job_now.clicked.connect(self.job_now)
+        self.b_job_time.clicked.connect(self.job_retime)
+        self.b_job_del.clicked.connect(self.job_remove)
+        self.b_job_clear.clicked.connect(self.job_clear)
+        self.sched_table = QTableWidget(0, 4)
+        self.sched_table.setHorizontalHeaderLabels(["Giờ đăng", "Video", "Tài khoản", "Trạng thái"])
+        self.sched_table.verticalHeader().hide()
+        self.sched_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.sched_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.sched_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.sched_table.setShowGrid(False)
+        self.sched_table.setMinimumHeight(150)
+        sh = self.sched_table.horizontalHeader()
+        sh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        sh.setSectionResizeMode(1, QHeaderView.Stretch)
+        sh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        sh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.sched_table.itemSelectionChanged.connect(self.update_job_buttons)
+        self.sched_empty = QLabel("Chưa có lượt hẹn giờ nào. Chọn video và tài khoản rồi bấm “Hẹn giờ…” ở thanh dưới.")
+        self.sched_empty.setProperty("caption", True)
+        self.sched_empty.setWordWrap(True)
+        self.sched_next = QLabel("")
+        self.sched_next.setProperty("caption", True)
+        self.sched_next.setWordWrap(True)
+        sched, sb2 = section("clock", "Lịch đăng", "Các lượt đăng đã hẹn giờ của dự án này. Kevit phải đang mở và máy không ngủ đúng giờ hẹn.")
+        sb2.addWidget(self.sched_next)
+        sb2.addWidget(self.sched_empty)
+        sb2.addWidget(self.sched_table)
+        jr = QHBoxLayout()
+        jr.setSpacing(SP.s)
+        jr.addWidget(self.b_job_clear)
+        jr.addStretch(1)
+        for b in (self.b_job_now, self.b_job_time, self.b_job_del):
+            jr.addWidget(b)
+        sb2.addLayout(jr)
+
         # 4. Lịch sử (thu gọn được)
         self.hist_toggle = QPushButton()
         self.hist_toggle.setProperty("ghost", True)
@@ -569,7 +613,7 @@ class PublishTab(QWidget):
         col = QVBoxLayout()
         col.setSpacing(SP.l)
         col.setContentsMargins(0, 0, SP.s, 0)
-        for w in (content, plats, sets, hist):
+        for w in (content, plats, sets, sched, hist):
             col.addWidget(w)
         col.addStretch(1)
         rholder = QWidget()
@@ -596,6 +640,10 @@ class PublishTab(QWidget):
         self.b_prepare = QPushButton("Ghép + viết mô tả")
         icons.attach(self.b_prepare, "link", 18)
         self.b_prepare.clicked.connect(self.prepare)
+        self.b_schedule = QPushButton("Hẹn giờ…")
+        icons.attach(self.b_schedule, "clock", 18)
+        self.b_schedule.setToolTip("Hẹn giờ đăng các video đã chọn: mỗi video một giờ riêng, hoặc giờ cố định mỗi lần đăng 1 video")
+        self.b_schedule.clicked.connect(self.schedule_selected)
         self.b_publish = QPushButton("Đăng ngay")
         self.b_publish.setProperty("primary", True)
         icons.attach(self.b_publish, "send", 18)
@@ -603,13 +651,18 @@ class PublishTab(QWidget):
         self.b_stop = QPushButton("Dừng")
         self.b_stop.clicked.connect(self._cancel.set)
         self.b_stop.hide()
-        for b in (self.b_prepare, self.b_publish, self.b_stop):
+        for b in (self.b_prepare, self.b_schedule, self.b_publish, self.b_stop):
             b.setFixedHeight(40)
+        status_box = QWidget()                      # luôn giữ chỗ co giãn, kể cả khi thanh trạng thái đang ẩn (nút không bị giãn ra)
+        sbl = QHBoxLayout(status_box)
+        sbl.setContentsMargins(0, 0, 0, 0)
+        sbl.addWidget(self.status)
         bar = QHBoxLayout()
         bar.setSpacing(SP.m)
-        bar.addWidget(self.status, 1)
+        bar.addWidget(status_box, 1)
         bar.addWidget(self.b_stop)
         bar.addWidget(self.b_prepare)
+        bar.addWidget(self.b_schedule)
         bar.addWidget(self.b_publish)
 
         root = QVBoxLayout(self)
@@ -667,6 +720,7 @@ class PublishTab(QWidget):
             self.refresh_accounts()
             self.rebuild_list()
             self.fill_history()
+            self.refresh_schedule()
         finally:
             self._loading = False
         self.update_buttons()
@@ -1066,6 +1120,7 @@ class PublishTab(QWidget):
         any_t = bool(self.checked_targets())
         self.b_prepare.setEnabled(idle and any_t)
         self.b_publish.setEnabled(idle and any_t and bool(self.chosen_accounts()))
+        self.b_schedule.setEnabled(idle and any_t and bool(self.chosen_accounts()))
         self.b_stop.setVisible(not idle)
 
     # ================= chạy nền =================
@@ -1160,6 +1215,132 @@ class PublishTab(QWidget):
             text = f"Đã đăng {ok}/{len(results)} bài." + (f" Lỗi {publish.account_name(bad[0].account)}: {bad[0].message[:200]}" if bad else "")
             self.set_status(text, "warn" if bad else "ok")
         self.start(job, done, "Đang đăng…")
+
+
+    # ================= hẹn giờ =================
+    scheduler = None
+
+    def set_scheduler(self, scheduler) -> None:
+        self.scheduler = scheduler
+        scheduler.changed.connect(self.on_schedule_changed)
+
+    def on_schedule_changed(self, name: str) -> None:
+        p = self.get_project()
+        if p and p.name == name:
+            self.refresh_schedule()
+            self.fill_history()
+            self.rebuild_list_statuses()
+
+    def rebuild_list_statuses(self) -> None:
+        p = self.get_project()
+        if p:
+            for t in self._targets:
+                if t.key in self._rows:
+                    self._rows[t.key].update_info(self.row_info(p, t))
+
+    def schedule_selected(self) -> None:
+        p, tgts, accs = self.get_project(), self.checked_targets(), self.chosen_accounts()
+        if not (p and tgts and accs):
+            return
+        self.commit_editor(quiet=True)
+        priv = self.privacy.currentData()
+        summary = (f"{len(tgts)} video → " + ", ".join(publish.account_name(a) for a in accs)
+                   + f"  ·  Chế độ: {service.PRIVACY_LABELS[priv]}")
+        dlg = ScheduleDialog(self, [(t.key, t.label) for t in tgts], summary)
+        if dlg.exec() != ScheduleDialog.Accepted:
+            return
+        jobs = [schedule.new_job(key, at, accs, priv) for key, at in dlg.result()]
+        schedule.add_jobs(p, jobs)
+        self.refresh_schedule()
+        first = min(j["at"] for j in jobs)
+        self.set_status(f"Đã hẹn giờ {len(jobs)} video, lượt đầu lúc {schedule.pretty(first)}. Hãy để Kevit mở đúng giờ.", "ok")
+
+    def refresh_schedule(self) -> None:
+        p = self.get_project()
+        jobs = list(p.publish_queue) if p else []
+        names = {t.key: t.label for t in service.targets(p)} if p else {}
+        if p:
+            names.setdefault("project", f"{p.name} (cả dự án)")
+            for c in p.chapters:
+                names.setdefault(c.id, c.name)
+        keep = self.selected_job_id()
+        self.sched_table.setRowCount(len(jobs))
+        colors = {"done": theme.T["ok"], "error": theme.T["err"], "missed": theme.T["warn"], "running": theme.T["info"], "pending": theme.T["text"]}
+        for r, j in enumerate(jobs):
+            accs = ", ".join(publish.account_name(a) for a in j["accounts"])
+            status = schedule.STATUS_LABELS.get(j["status"], j["status"])
+            cells = [schedule.pretty(j["at"]), names.get(j["key"], j["key"]), f"{len(j['accounts'])} tài khoản", status]
+            tips = [schedule.pretty(j["at"]), names.get(j["key"], j["key"]), accs, j.get("message") or status]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                it.setToolTip(tips[c])
+                if c == 0:
+                    it.setData(Qt.UserRole, j["id"])
+                if c == 3:
+                    it.setForeground(QColor(colors.get(j["status"], theme.T["text"])))
+                    if j.get("message"):
+                        it.setText(f"{status}: {j['message'][:60]}")
+                self.sched_table.setItem(r, c, it)
+        if keep:
+            for r in range(self.sched_table.rowCount()):
+                if self.sched_table.item(r, 0).data(Qt.UserRole) == keep:
+                    self.sched_table.selectRow(r)
+        self.sched_empty.setVisible(not jobs)
+        self.sched_table.setVisible(bool(jobs))
+        nxt = schedule.next_pending(p) if p else None
+        self.sched_next.setText(f"Lượt kế tiếp: {schedule.pretty(nxt['at'])} · {names.get(nxt['key'], nxt['key'])}" if nxt else "")
+        self.sched_next.setVisible(bool(nxt))
+        self.update_job_buttons()
+
+    def selected_job_id(self) -> str | None:
+        r = self.sched_table.currentRow()
+        it = self.sched_table.item(r, 0) if r >= 0 else None
+        return it.data(Qt.UserRole) if it else None
+
+    def selected_job(self) -> dict | None:
+        p, jid = self.get_project(), self.selected_job_id()
+        return schedule.get_job(p, jid) if (p and jid) else None
+
+    def update_job_buttons(self) -> None:
+        j = self.selected_job()
+        idle = j is not None and j["status"] != "running"
+        busy = bool(self.scheduler and self.scheduler.busy) or self._worker is not None
+        self.b_job_now.setEnabled(idle and j["status"] != "done" and not busy)
+        self.b_job_time.setEnabled(idle and j["status"] != "done")
+        self.b_job_del.setEnabled(idle)
+        p = self.get_project()
+        self.b_job_clear.setEnabled(bool(p and any(x["status"] == "done" for x in p.publish_queue)))
+
+    def job_now(self) -> None:
+        p, j = self.get_project(), self.selected_job()
+        if not (p and j and self.scheduler):
+            return
+        if not self.scheduler.run_now(p, j["id"]):
+            self.set_status("Đang đăng một lượt khác, hãy thử lại sau ít phút.", "warn")
+        self.refresh_schedule()
+
+    def job_retime(self) -> None:
+        p, j = self.get_project(), self.selected_job()
+        if not (p and j):
+            return
+        at = ask_datetime(self, "Đổi giờ đăng", schedule.parse(j["at"]))
+        if at:
+            schedule.reschedule(p, j["id"], at)
+            self.refresh_schedule()
+            self.set_status(f"Đã đổi giờ đăng sang {schedule.pretty(schedule.fmt(at))}.", "ok")
+
+    def job_remove(self) -> None:
+        p, j = self.get_project(), self.selected_job()
+        if p and j and schedule.remove_job(p, j["id"]):
+            self.refresh_schedule()
+            self.set_status("Đã huỷ lượt hẹn giờ.", "info")
+
+    def job_clear(self) -> None:
+        p = self.get_project()
+        if p:
+            n = schedule.clear_finished(p)
+            self.refresh_schedule()
+            self.set_status(f"Đã dọn {n} mục đã xong.", "info")
 
     # ================= tự động =================
     def on_generation_done(self) -> None:
