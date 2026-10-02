@@ -110,6 +110,7 @@ class Platform:
     creds_key = ""                      # nhóm khoá ứng dụng dùng chung (mặc định = key)
     # (khoá, nhãn, gợi ý, là bí mật)
     fields: tuple[tuple[str, str, str, bool], ...] = (("client_id", "Client ID", "", False), ("client_secret", "Client secret", "", True))
+    optional_fields: tuple[tuple[str, str, str], ...] = ()      # (khoá, nhãn, gợi ý): ô nhập tuỳ chọn, không bắt buộc
     default_redirect = "http://127.0.0.1:53682/callback"
     setup_url = ""
     setup_note = ""

@@ -10,6 +10,14 @@ import time
 import urllib.parse
 import webbrowser
 
+_CANCEL = threading.Event()
+
+
+def cancel_login() -> None:
+    """Dừng việc chờ đăng nhập đang chạy (khi trình duyệt báo lỗi và người dùng không muốn đợi hết giờ)."""
+    _CANCEL.set()
+
+
 LOGIN_TIMEOUT = 240      # giây chờ người dùng đăng nhập xong trên trình duyệt
 
 _PAGE = ("<!doctype html><meta charset='utf-8'><title>Kevit</title><body style='font-family:system-ui;text-align:center;margin-top:18vh'>"
@@ -30,13 +38,14 @@ def redirect_port(redirect_uri: str) -> int:
 
 
 def wait_for_code(redirect_uri: str, state: str, open_url: str, log=print, timeout: int = LOGIN_TIMEOUT,
-                  opener=webbrowser.open) -> str:
+                  opener=webbrowser.open, hint: str = "") -> str:
     """Mở `open_url` rồi chờ nền tảng chuyển hướng về `redirect_uri`; trả về `code`. Báo lỗi nếu người dùng từ chối, sai state hoặc quá hạn."""
     u = urllib.parse.urlparse(redirect_uri)
     if u.hostname not in ("127.0.0.1", "localhost", "::1"):
         raise RuntimeError(f"Địa chỉ chuyển hướng phải là loopback (127.0.0.1 hoặc localhost), hiện là {redirect_uri}")
     result: dict = {}
     done = threading.Event()
+    _CANCEL.clear()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
@@ -76,14 +85,17 @@ def wait_for_code(redirect_uri: str, state: str, open_url: str, log=print, timeo
     opener(open_url)
     end = time.time() + timeout
     try:
-        while not done.is_set() and time.time() < end:
+        while not done.is_set() and time.time() < end and not _CANCEL.is_set():
             server.handle_request()
     finally:
         server.server_close()
+    if _CANCEL.is_set() and "code" not in result:
+        _CANCEL.clear()
+        raise RuntimeError("Đã huỷ chờ đăng nhập.")
     if "error" in result:
         raise RuntimeError(f"Đăng nhập thất bại: {result['error']}")
     if "code" not in result:
-        raise RuntimeError(f"Hết {timeout}s mà chưa đăng nhập xong.")
+        raise RuntimeError(f"Hết {timeout}s mà chưa đăng nhập xong." + (f" {hint}" if hint else ""))
     return result["code"]
 
 

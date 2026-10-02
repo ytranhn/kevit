@@ -29,11 +29,15 @@ STEPS = {
                "Đăng ký ĐÚNG địa chỉ chuyển hướng ở trên vào phần Redirect URI của app.",
                "Dán Client key và Client secret vào bên trên, bấm “Thêm tài khoản” và đăng nhập TikTok.",
                "Lưu ý: app chưa được TikTok duyệt chỉ đăng được ở chế độ riêng tư (SELF_ONLY) và tài khoản phải được thêm làm Target User."),
-    "meta": ("Vào developers.facebook.com, tạo app loại “Business”.",
-             "Thêm “Facebook Login for Business” và thêm địa chỉ chuyển hướng ở trên vào “Valid OAuth Redirect URIs”.",
-             "Dán App ID và App secret vào bên trên, bấm “Thêm tài khoản” và đăng nhập Facebook; tích chọn các Trang muốn dùng.",
-             "Mỗi Trang là một tài khoản Facebook; Trang có Instagram Professional liên kết sẽ có thêm một tài khoản Instagram.",
-             "Lưu ý: ở chế độ Development chỉ tài khoản Admin/Tester của app đăng được. Instagram không có chế độ riêng tư."),
+    "meta": ("Vào developers.facebook.com, tạo app (loại Business, hoặc “Other” → Business).",
+             "Settings → Basic: điền “App Domains” là localhost (chỉ chữ localhost, không kèm http hay cổng). Thiếu bước này Facebook báo "
+             "“The domain of this URL isn't included in the app's domains”.",
+             "Thêm sản phẩm “Facebook Login” và thêm địa chỉ chuyển hướng ở trên vào “Valid OAuth Redirect URIs” (bật Client OAuth Login và Web OAuth Login).",
+             "Dán App ID và App secret vào bên trên, bấm “Thêm tài khoản”, đăng nhập Facebook và tích chọn các Trang muốn dùng.",
+             "Kevit mặc định chỉ xin quyền tối thiểu (pages_show_list, pages_manage_posts). App đã được thêm các quyền khác (pages_read_engagement, publish_video, instagram_*) "
+             "thì liệt kê ở ô “Quyền yêu cầu (nâng cao)”; xin quyền app chưa có sẽ bị báo “Invalid Scopes”. "
+             "Nếu app dùng “Facebook Login for Business” thì tạo Configuration và dán Configuration ID. "
+             "Ở chế độ Development chỉ tài khoản Admin/Tester của app đăng được. Instagram không có chế độ riêng tư."),
 }
 SECURITY = ("Khoá và token chỉ lưu trên máy bạn (trong cấu hình của Kevit) và chỉ được gửi tới chính nền tảng tương ứng khi kết nối hoặc đăng bài. "
             "Kevit không gửi chúng đi đâu khác. Hãy bảo mật thiết bị của bạn.")
@@ -198,6 +202,7 @@ class PlatformCard(QFrame):
         self.key, self.label, self.cls, self.group = key, label, cls, group
         self.plat = cls()
         self.worker: Worker | None = None
+        self.login_worker: Worker | None = None
         self.rows: dict[str, AccountRow] = {}
 
         self.status = QLabel("")
@@ -232,6 +237,7 @@ class PlatformCard(QFrame):
         self.id_edit = _input(c.get(k1, ""), f"Nhập {l1}", copy=True)
         self.secret_edit = _input(c.get(k2, ""), f"Nhập {l2}", secret=True)
         self.redirect = _input(c.get("redirect_uri") or self.plat.default_redirect, "", copy=True)
+        self.opt_edits: dict[str, QLineEdit] = {}
         two = AdaptiveRow(640)
         two.addLayout(_field(_label(l1, True), self.id_edit), 1)
         two.addLayout(_field(_label(l2, True), self.secret_edit), 1)
@@ -272,6 +278,10 @@ class PlatformCard(QFrame):
         v.addLayout(head)
         v.addWidget(two)
         v.addLayout(_field(_label("Địa chỉ chuyển hướng (Redirect URI)", True), self.redirect, redirect_hint))
+        for k, lbl, hint in self.plat.optional_fields:                        # ô tuỳ chọn (vd. Configuration ID của Meta)
+            e = _input(c.get(k, ""), "Tuỳ chọn")
+            self.opt_edits[k] = e
+            v.addLayout(_field(QLabel(lbl), e, hint))
         v.addWidget(self.guide)
         v.addWidget(secure_banner())
         v.addWidget(acc_head)
@@ -285,7 +295,9 @@ class PlatformCard(QFrame):
         return store.list_accounts(self.key)
 
     def values(self) -> dict:
-        return {self.id_key: self.id_edit.text(), self.secret_key: self.secret_edit.text(), "redirect_uri": self.redirect.text()}
+        out = {self.id_key: self.id_edit.text(), self.secret_key: self.secret_edit.text(), "redirect_uri": self.redirect.text()}
+        out.update({k: e.text() for k, e in self.opt_edits.items()})
+        return out
 
     def reload_creds(self) -> None:
         """Nạp lại khoá từ kho (Facebook và Instagram dùng chung một bộ khoá nên thẻ này có thể vừa được thẻ kia sửa)."""
@@ -293,6 +305,8 @@ class PlatformCard(QFrame):
         self.id_edit.setText(c.get(self.id_key, ""))
         self.secret_edit.setText(c.get(self.secret_key, ""))
         self.redirect.setText(c.get("redirect_uri") or self.plat.default_redirect)
+        for k, e in self.opt_edits.items():
+            e.setText(c.get(k, ""))
 
     def set_msg(self, text: str, kind: str = "info") -> None:
         self.msg.setText(text)
@@ -334,15 +348,17 @@ class PlatformCard(QFrame):
         self.changed.emit()
 
     def add_account(self) -> None:
+        if self.login_worker is not None and self.login_worker.isRunning():          # đang chờ đăng nhập: bấm lần nữa để huỷ chờ
+            publish.oauth.cancel_login()
+            return
         store.set_creds(self.group, self.values())
-        self.b_add.setEnabled(False)
-        self.b_add.setText("Đang chờ đăng nhập trên trình duyệt…")
+        self.b_add.setText("Huỷ chờ đăng nhập")
         self.set_msg("", "info")
-        self.worker = Worker(lambda log: self.cls().connect(log))
-        self.worker.done.connect(self.on_connected)
-        self.worker.failed.connect(lambda e: self.set_msg(e[:400], "err"))
-        self.worker.finished.connect(lambda: (self.b_add.setEnabled(True), self.b_add.setText(f"Thêm tài khoản {self.label}"), self.refresh_keep_msg()))
-        self.worker.start()
+        self.login_worker = Worker(lambda log: self.cls().connect(log))
+        self.login_worker.done.connect(self.on_connected)
+        self.login_worker.failed.connect(lambda e: self.set_msg(e[:400], "err"))
+        self.login_worker.finished.connect(lambda: (self.b_add.setText(f"Thêm tài khoản {self.label}"), self.refresh_keep_msg()))
+        self.login_worker.start()
 
     def refresh_keep_msg(self) -> None:
         text, kind = self.msg.text(), self.msg.property("pill")

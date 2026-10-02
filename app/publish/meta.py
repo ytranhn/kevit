@@ -12,8 +12,11 @@ GRAPH_VERSION = "v21.0"
 GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
 RUPLOAD = "https://rupload.facebook.com"
 DIALOG = f"https://www.facebook.com/{GRAPH_VERSION}/dialog/oauth"
-SCOPES = ("pages_show_list,pages_read_engagement,pages_manage_posts,publish_video,"
-          "instagram_basic,instagram_content_publish,business_management")
+# Quyền xin theo nhu cầu. Mặc định chỉ xin quyền TỐI THIỂU để kết nối được: app Meta chưa thêm quyền nào mà vẫn xin thì Facebook từ chối cả hộp thoại
+# ("Invalid Scopes"). Quyền đầy đủ cho Reels có thể điền ở ô “Quyền yêu cầu (nâng cao)” sau khi thêm vào app (use case Pages / Instagram).
+FB_SCOPES = "pages_show_list,pages_manage_posts"
+IG_SCOPES = FB_SCOPES + ",instagram_basic,instagram_content_publish"
+FULL_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts,publish_video,instagram_basic,instagram_content_publish"
 CAPTION_MAX = 2200
 IG_MAX_TAGS = 30
 POLL_EVERY, POLL_MAX = 5, 120
@@ -56,25 +59,38 @@ class Meta(Platform):
     Instagram Professional liên kết. Mỗi tài khoản giữ token riêng của Trang."""
     creds_key = "meta"
     fields = (("client_id", "App ID", "", False), ("client_secret", "App secret", "", True))
+    optional_fields = (("config_id", "Configuration ID", "Chỉ cần nếu app dùng “Facebook Login for Business” (loại này không nhận danh sách quyền)."),
+                       ("scopes", "Quyền yêu cầu (nâng cao)", "Để trống = quyền tối thiểu (pages_show_list, pages_manage_posts; thêm quyền Instagram nếu kết nối từ thẻ Instagram). "
+                                                  "Đã thêm quyền khác vào app thì liệt kê ở đây, cách nhau bằng dấu phẩy, vd. pages_show_list,pages_read_engagement,pages_manage_posts,publish_video."))
     default_redirect = "http://localhost:53684/callback"
     setup_url = "https://developers.facebook.com/apps/"
-    setup_note = ("developers.facebook.com → tạo app loại Business, thêm Facebook Login for Business, thêm địa chỉ chuyển hướng bên dưới "
+    setup_note = ("developers.facebook.com → tạo app, thêm sản phẩm “Facebook Login” (đăng nhập thường) và thêm địa chỉ chuyển hướng bên dưới "
                   "vào Valid OAuth Redirect URIs. Ở chế độ Development chỉ tài khoản Admin/Tester của app đăng được. "
                   "Instagram phải là tài khoản Professional (Business/Creator) và liên kết với Trang Facebook.")
+    default_scopes = FB_SCOPES
+
+    def auth_params(self, c: dict) -> dict:
+        """Tham số hộp thoại đăng nhập: có Configuration ID (Facebook Login for Business) thì dùng config_id, nếu không thì dùng danh sách quyền."""
+        if c.get("config_id", "").strip():
+            return dict(config_id=c["config_id"].strip(), response_type="code", override_default_response_type="true")
+        return dict(scope=(c.get("scopes") or "").strip() or self.default_scopes, response_type="code", auth_type="reauthenticate")
 
     def connect(self, log=print) -> list[dict]:
         c = self.require_creds()
         state = oauth.secrets.token_urlsafe(16)
-        url = oauth.auth_url(DIALOG, client_id=c["client_id"], redirect_uri=c["redirect_uri"], state=state, scope=SCOPES,
-                             response_type="code", auth_type="reauthenticate")
-        code = oauth.wait_for_code(c["redirect_uri"], state, url, log)
+        url = oauth.auth_url(DIALOG, client_id=c["client_id"], redirect_uri=c["redirect_uri"], state=state, **self.auth_params(c))
+        code = oauth.wait_for_code(c["redirect_uri"], state, url, log, hint=(
+            "Nếu trình duyệt báo lỗi trên trang Facebook: “Invalid Scopes” → app chưa có quyền đó, bỏ bớt quyền ở ô “Quyền yêu cầu (nâng cao)” hoặc thêm quyền vào app; "
+            "“The domain of this URL isn't included in the app's domains” → thêm localhost vào App Domains (Settings → Basic) và địa chỉ chuyển hướng vào Valid OAuth Redirect URIs; "
+            "tài khoản bạn phải là Admin/Tester của app; app dùng Facebook Login for Business thì nhập Configuration ID."))
         short = graph(self.client, "GET", "oauth/access_token", params=dict(
             client_id=c["client_id"], client_secret=c["client_secret"], redirect_uri=c["redirect_uri"], code=code))
         long = graph(self.client, "GET", "oauth/access_token", params=dict(
             grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=short["access_token"]))
         pages = self._pages(long["access_token"])
         if not pages:
-            raise PublishError("Tài khoản này không quản lý Trang Facebook nào (hoặc chưa cấp quyền cho Trang). Hãy chọn Trang ở bước cấp quyền.")
+            raise PublishError("Kết nối được nhưng không thấy Trang Facebook nào. Ở bước cấp quyền hãy chọn ít nhất một Trang "
+                               "(và nhớ tài khoản phải là quản trị viên của Trang). Nếu Trang thuộc Business Portfolio, hãy thêm Trang đó vào app hoặc dùng Configuration ID.")
         out = []
         for pg in pages:
             fb = dict(platform="facebook", label=pg["name"], access_token=pg["access_token"], page_id=pg["id"])
@@ -88,16 +104,24 @@ class Meta(Platform):
         return out
 
     def _pages(self, user_token: str) -> list[dict]:
-        out, url, params = [], "me/accounts", dict(
-            fields="id,name,access_token,instagram_business_account{id,username}", limit=100, access_token=user_token)
-        while url and len(out) < 500:
-            j = graph(self.client, "GET", url, params=params)
-            for p in j.get("data", []):
-                ig = p.get("instagram_business_account") or {}
-                out.append(dict(id=p["id"], name=p.get("name", p["id"]), access_token=p["access_token"],
-                                ig_id=ig.get("id", ""), ig_username=ig.get("username", "")))
-            url, params = (j.get("paging") or {}).get("next"), None
-        return out
+        """Danh sách Trang (kèm token Trang). Hỏi kèm tài khoản Instagram liên kết; nếu quyền Instagram chưa được cấp thì hỏi lại không kèm."""
+        for with_ig in (True, False):
+            fields = "id,name,access_token" + (",instagram_business_account{id,username}" if with_ig else "")
+            out, url, params = [], "me/accounts", dict(fields=fields, limit=100, access_token=user_token)
+            try:
+                while url and len(out) < 500:
+                    j = graph(self.client, "GET", url, params=params)
+                    for p in j.get("data", []):
+                        ig = p.get("instagram_business_account") or {}
+                        if p.get("access_token"):
+                            out.append(dict(id=p["id"], name=p.get("name", p["id"]), access_token=p["access_token"],
+                                            ig_id=ig.get("id", ""), ig_username=ig.get("username", "")))
+                    url, params = (j.get("paging") or {}).get("next"), None
+                return out
+            except PublishError:
+                if not with_ig:
+                    raise
+        return []
 
     # ---- tải lên dùng chung (rupload) ----
     def _rupload(self, url: str, token: str, video: Path, log, name: str) -> None:
@@ -159,6 +183,7 @@ class FacebookReels(Meta):
 class InstagramReels(Meta):
     key = "instagram"
     label = "Instagram"
+    default_scopes = IG_SCOPES
 
     def check(self) -> str:
         acc = self.require_connected()

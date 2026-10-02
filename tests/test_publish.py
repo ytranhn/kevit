@@ -561,3 +561,70 @@ class TestCheck(Tmp):
     def test_disconnected_account_check_fails(self):
         with self.assertRaisesRegex(PublishError, "chưa kết nối"):
             youtube.YouTube("youtube:gone").check()
+
+
+class TestMetaConnect(Tmp):
+    def _run(self, plat, creds, pages_handler=None):
+        """Chạy connect() với đăng nhập giả; trả (URL hộp thoại đăng nhập, danh sách tài khoản, các lần gọi me/accounts)."""
+        store.set_creds("meta", creds)
+        seen = {}
+        calls = []
+        old = meta.oauth.wait_for_code
+        meta.oauth.wait_for_code = lambda redirect, state, url, *a, **k: (seen.setdefault("url", url), "CODE")[1]
+        self.addCleanup(setattr, meta.oauth, "wait_for_code", old)
+
+        def h(req: httpx.Request):
+            if req.url.path.endswith("/me/accounts"):
+                calls.append(req.url.params.get("fields"))
+                return (pages_handler or (lambda r: httpx.Response(200, json={"data": [{"id": "P1", "name": "Trang Một", "access_token": "T1"}]})))(req)
+            return httpx.Response(200, json={"access_token": "USER", "expires_in": 5000000})
+        out = plat("", client(h)).connect()
+        return urllib.parse.parse_qs(urllib.parse.urlparse(seen["url"]).query), out, calls
+
+    def test_facebook_tab_asks_only_page_permissions(self):
+        q, out, _ = self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s"})
+        scopes = q["scope"][0].split(",")
+        self.assertEqual(scopes, ["pages_show_list", "pages_manage_posts"])      # chỉ quyền tối thiểu: quyền app chưa có sẽ làm Facebook báo Invalid Scopes
+        self.assertNotIn("instagram_content_publish", scopes)        # không đòi quyền Instagram khi chỉ muốn Facebook
+        self.assertNotIn("business_management", scopes)
+        self.assertNotIn("config_id", q)
+        self.assertEqual([a["id"] for a in out], ["facebook:P1"])
+
+    def test_instagram_tab_asks_instagram_permissions_too(self):
+        q, _, _ = self._run(meta.InstagramReels, {"client_id": "a", "client_secret": "s"})
+        self.assertIn("instagram_content_publish", q["scope"][0].split(","))
+
+    def test_custom_scopes_override(self):
+        q, _, _ = self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s", "scopes": "pages_show_list,pages_manage_posts"})
+        self.assertEqual(q["scope"][0], "pages_show_list,pages_manage_posts")
+
+    def test_config_id_used_instead_of_scope_for_login_for_business(self):
+        q, _, _ = self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s", "config_id": " 999 "})
+        self.assertEqual(q["config_id"], ["999"])
+        self.assertNotIn("scope", q)
+        self.assertEqual(q["override_default_response_type"], ["true"])
+
+    def test_pages_retried_without_instagram_field_when_permission_missing(self):
+        def handler(req):
+            if "instagram_business_account" in req.url.params.get("fields", ""):
+                return httpx.Response(400, json={"error": {"message": "(#10) Requires instagram_basic", "code": 10}})
+            return httpx.Response(200, json={"data": [{"id": "P1", "name": "Trang Một", "access_token": "T1"}]})
+        _, out, calls = self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s"}, handler)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([a["id"] for a in out], ["facebook:P1"])
+
+    def test_no_pages_gives_actionable_message(self):
+        with self.assertRaisesRegex(PublishError, "không thấy Trang"):
+            self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s"}, lambda r: httpx.Response(200, json={"data": []}))
+
+    def test_login_timeout_message_carries_troubleshooting_hint(self):
+        with self.assertRaisesRegex(RuntimeError, "Valid OAuth Redirect URIs"):
+            oauth.wait_for_code("http://127.0.0.1:53697/callback", "S", "x", opener=lambda u: None, timeout=1, hint="… Valid OAuth Redirect URIs …")
+
+    def test_cancel_login_stops_waiting_immediately(self):
+        def opener(url):
+            threading.Thread(target=lambda: (time.sleep(0.4), oauth.cancel_login())).start()
+        t0 = time.time()
+        with self.assertRaisesRegex(RuntimeError, "huỷ chờ"):
+            oauth.wait_for_code("http://127.0.0.1:53698/callback", "S", "x", opener=opener, timeout=30)
+        self.assertLess(time.time() - t0, 5)

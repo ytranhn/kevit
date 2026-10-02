@@ -1,5 +1,5 @@
 """Đăng video lên các nền tảng, hoàn toàn qua API chính thức (không điều khiển trình duyệt)."""
-from . import store
+from . import oauth, store
 from .base import Platform, Post, PublishError, Result
 from .meta import FacebookReels, InstagramReels
 from .tiktok import TikTok
@@ -24,4 +24,4 @@ def account_name(account_id: str) -> str:
     return f"{cls.label if cls else account_id} · {a['label']}" if a else f"{cls.label if cls else '?'} · (đã xoá {account_id.split(':', 1)[-1][:8]})"
 
 
-__all__ = ["PLATFORMS", "Platform", "Post", "PublishError", "Result", "accounts", "account_name", "get", "store"]
+__all__ = ["PLATFORMS", "Platform", "Post", "PublishError", "Result", "accounts", "account_name", "get", "oauth", "store"]
