@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import flow, icons, publish, theme
@@ -386,11 +386,12 @@ class PublishTab(QWidget):
         self.list_scroll = QScrollArea()
         self.list_scroll.setWidgetResizable(True)
         self.list_scroll.setFrameShape(QFrame.NoFrame)
+        self.list_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_scroll.setWidget(holder)
         self.list_scroll.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
         left = QFrame()
         left.setProperty("card", True)
-        left.setMinimumWidth(400)
+        left.setMinimumWidth(420)
         left.setMaximumWidth(520)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
@@ -471,8 +472,9 @@ class PublishTab(QWidget):
         icons.attach(self.b_refresh, "refresh", 16)
         self.b_refresh.clicked.connect(self.refresh_accounts)
         plats, pb = section("users", "Đăng lên", "Chọn nền tảng và tài khoản. Mỗi dự án nhớ lựa chọn riêng.", self.b_refresh)
-        self.tiles_row = QHBoxLayout()
+        self.tiles_row = QGridLayout()
         self.tiles_row.setSpacing(SP.m)
+        self._tiles: list[QFrame] = []
         pb.addLayout(self.tiles_row)
 
         # 3. Cài đặt đăng
@@ -559,7 +561,9 @@ class PublishTab(QWidget):
         rscroll = QScrollArea()
         rscroll.setWidgetResizable(True)
         rscroll.setFrameShape(QFrame.NoFrame)
+        rscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         rscroll.setWidget(rholder)
+        self.right_scroll = rscroll
         rscroll.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
 
         body = QHBoxLayout()
@@ -864,17 +868,34 @@ class PublishTab(QWidget):
                 w = self.tiles_row.takeAt(0).widget()
                 if w:
                     w.deleteLater()
+            self._tiles = []
             self.acc_checks = {}
             by_plat: dict[str, list[dict]] = {}
             for a in publish.accounts():
                 by_plat.setdefault(a["platform"], []).append(a)
             for key, cls in publish.PLATFORMS.items():
-                self.tiles_row.addWidget(self._tile(key, cls.label, by_plat.get(key, []), chosen), 1)
+                self._tiles.append(self._tile(key, cls.label, by_plat.get(key, []), chosen))
+            self.reflow_tiles()
         finally:
             self._loading = was
         self.update_buttons()
         self.update_steps()
         self.update_counters()
+
+    def reflow_tiles(self) -> None:
+        """4 thẻ nền tảng trên một hàng khi đủ rộng, hẹp thì xếp lưới 2×2 để không tràn ngang."""
+        cols = 4 if self.right_scroll.viewport().width() >= 900 else 2
+        while self.tiles_row.count():
+            self.tiles_row.takeAt(0)
+        for i, t in enumerate(self._tiles):
+            self.tiles_row.addWidget(t, i // cols, i % cols)
+        for c in range(4):
+            self.tiles_row.setColumnStretch(c, 1 if c < cols else 0)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._tiles:
+            self.reflow_tiles()
 
     def _tile(self, key: str, label: str, accs: list[dict], chosen: set) -> QFrame:
         tile, boxes = account_tile(key, label, accs, chosen, self.open_settings_requested.emit)

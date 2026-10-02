@@ -288,3 +288,53 @@ class TestProjectSettingsDialogUI(Tmp):
         self.assertIn("1.234", d.credit_big.text())
         self.assertIn("Còn 2 credit ngày", d.credit_detail.text())
         self.assertIn("30 Oct 2026", d.credit_detail.text())
+
+
+class TestNoHorizontalOverflow(Tmp):
+    """Ở cỡ nhỏ, không trang/hộp thoại nào được đòi bề rộng lớn hơn vùng hiển thị (tránh nội dung tràn mép và chồng lấn)."""
+
+    def test_pages_fit_at_small_sizes(self):
+        from PySide6.QtWidgets import QScrollArea, QWidget
+        from app import theme, ui
+        from app.publish import store
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        p = models.Project("Nhỏ", publish_accounts=["youtube:A"])
+        for i in range(2):
+            ch = p.new_chapter(f"Chương {i + 1} có tên khá dài để thử")
+            ch.scenes.append(models.Scene(1, narration="x", status="pending"))
+        p.chapters[0].post_meta = {"title": "T" * 90, "description": "m " * 300, "hashtags": [f"tag{i}" for i in range(20)]}
+        p.save()
+        store.set_account("youtube:A", {"platform": "youtube", "label": "Kênh có tên rất rất dài để thử cắt chữ", "access_token": "x"})
+        w = ui.MainWindow()
+        self.addCleanup(w.close)
+        w.resize(1216, 700)
+        w.show()
+        QCoreApplication.processEvents()
+        problems = []
+
+        def check(where, scroll):
+            QCoreApplication.processEvents()
+            need, have = scroll.widget().minimumSizeHint().width(), scroll.viewport().width()
+            if need > have:
+                problems.append(f"{where}: cần {need}px, chỉ có {have}px")
+
+        w.tabs.setCurrentWidget(w.publish_tab)
+        QCoreApplication.processEvents()
+        for sc in w.publish_tab.findChildren(QScrollArea):
+            check("Đăng video", sc)
+        w.tabs.setCurrentWidget(w.settings_tab)
+        for key in ("llm", "gemini", "flow", "publish", "data"):
+            w.settings_tab.select_section(key)
+            check(f"Cài đặt/{key}", w.settings_tab.stack.currentWidget())
+        for card in w.settings_tab.publish_panel.cards.values():
+            w.settings_tab.publish_panel.select(card.key)
+            check(f"Cài đặt/đăng video/{card.key}", w.settings_tab.stack.currentWidget())
+        d = w.proj.settings_dialog
+        d.fill_accounts()
+        d.resize(1000, 640)
+        d.show()
+        QCoreApplication.processEvents()
+        check("Cài đặt dự án", d.scroll)
+        d.close()
+        self.assertEqual(problems, [])

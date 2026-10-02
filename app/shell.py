@@ -68,13 +68,14 @@ def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QF
     t.setProperty("subheading", True)
     s = QLabel(subtitle)
     s.setProperty("caption", True)
+    s.setWordWrap(True)                              # mô tả dài tự xuống dòng, không đẩy rộng cả thẻ
     col = QVBoxLayout()
     col.setSpacing(0)
     col.addWidget(t)
     col.addWidget(s)
     head = QHBoxLayout()
     head.setSpacing(SP.m)
-    head.addWidget(tile)
+    head.addWidget(tile, 0, Qt.AlignTop)
     head.addLayout(col, 1)
     for a in actions:
         head.addWidget(a, 0, Qt.AlignVCenter)
@@ -86,6 +87,37 @@ def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QF
     v.addLayout(head)
     v.addLayout(body)
     return box, body
+
+
+class AdaptiveRow(QWidget):
+    """Hàng nhiều cột tự thích ứng: đủ rộng (>= `threshold` px) thì xếp ngang, hẹp hơn thì xếp dọc, để nội dung không bị ép chồng lấn
+    hay tràn mép khi cửa sổ nhỏ."""
+
+    def __init__(self, threshold: int, spacing: int = SP.l):
+        super().__init__()
+        from PySide6.QtWidgets import QBoxLayout
+        self._dir = QBoxLayout
+        self.threshold = threshold
+        self.box = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.box.setContentsMargins(0, 0, 0, 0)
+        self.box.setSpacing(spacing)
+        self._stretch: list[int] = []
+
+    def addLayout(self, layout, stretch: int = 0) -> None:
+        self.box.addLayout(layout, stretch)
+        self._stretch.append(stretch)
+
+    def addWidget(self, w, stretch: int = 0, alignment=Qt.Alignment()) -> None:
+        self.box.addWidget(w, stretch, alignment)
+        self._stretch.append(stretch)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        want = self._dir.LeftToRight if self.width() >= self.threshold else self._dir.TopToBottom
+        if self.box.direction() != want:
+            self.box.setDirection(want)
+            for i, st in enumerate(self._stretch):
+                self.box.setStretch(i, st if want == self._dir.LeftToRight else 0)
 
 
 class NavItem(QPushButton):

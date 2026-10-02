@@ -7,9 +7,9 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineE
 
 from . import icons, publish, theme
 from .publish import FacebookReels, InstagramReels, TikTok, YouTube, store
-from .shell import platform_pixmap, platform_tile
+from .shell import AdaptiveRow, platform_pixmap, platform_tile
 from .theme import SP
-from .widgets import repolish
+from .widgets import ElidedLabel, repolish
 from .workers import Worker
 
 # (khoá nền tảng, nhãn, lớp, nhóm khoá ứng dụng, mô tả ngắn)
@@ -232,8 +232,7 @@ class PlatformCard(QFrame):
         self.id_edit = _input(c.get(k1, ""), f"Nhập {l1}", copy=True)
         self.secret_edit = _input(c.get(k2, ""), f"Nhập {l2}", secret=True)
         self.redirect = _input(c.get("redirect_uri") or self.plat.default_redirect, "", copy=True)
-        two = QHBoxLayout()
-        two.setSpacing(SP.l)
+        two = AdaptiveRow(640)
         two.addLayout(_field(_label(l1, True), self.id_edit), 1)
         two.addLayout(_field(_label(l2, True), self.secret_edit), 1)
         redirect_hint = ("Đăng ký đúng địa chỉ này khi tạo ứng dụng trên trang nhà phát triển. Phải là địa chỉ trên máy bạn (127.0.0.1 hoặc localhost)."
@@ -271,7 +270,7 @@ class PlatformCard(QFrame):
         v.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
         v.setSpacing(SP.l)
         v.addLayout(head)
-        v.addLayout(two)
+        v.addWidget(two)
         v.addLayout(_field(_label("Địa chỉ chuyển hướng (Redirect URI)", True), self.redirect, redirect_hint))
         v.addWidget(self.guide)
         v.addWidget(secure_banner())
@@ -409,8 +408,10 @@ class PlatformRow(QFrame):
         name = QLabel(label)
         name.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
         name.setMinimumWidth(90)
-        d = QLabel(desc)
+        d = ElidedLabel()                                   # mô tả dài tự cắt “…” để hàng không bao giờ rộng hơn trang
         d.setProperty("caption", True)
+        d.set_full(desc)
+        d.setToolTip(desc)
         self.status = QLabel("")
         self.btn = QPushButton("Kết nối")
         icons.attach(self.btn, "link", 16)

@@ -45,6 +45,7 @@ def _page(header: QWidget, *blocks: QWidget, wide: bool = False) -> QScrollArea:
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     scroll.setWidget(page)
     return scroll
 

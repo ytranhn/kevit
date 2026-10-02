@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
                                QWidget)
 
 from . import accounts, credits, flow_auto, icons, models, publish, theme
 from .publish import service
 from .publish_tab import PRIVACY, account_tile
-from .shell import NavItem, section
+from .shell import AdaptiveRow, NavItem, section
 from .theme import SP
 from .widgets import Combo, rounded_pixmap
 from .workers import Worker
@@ -121,8 +121,10 @@ class ProjectSettingsDialog(QDialog):
         super().__init__(tab)
         self.tab = tab
         self.setWindowTitle("Cài đặt dự án")
-        self.resize(1240, 860)
-        self.setMinimumSize(1000, 640)
+        from PySide6.QtGui import QGuiApplication
+        geo = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(min(1240, geo.width() - 80), min(860, geo.height() - 100))
+        self.setMinimumSize(820, 560)
         self._snap: dict = {}
         self._cards: dict[str, QWidget] = {}
         self._navs: dict[str, NavItem] = {}
@@ -169,6 +171,7 @@ class ProjectSettingsDialog(QDialog):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setWidget(body)
         self.scroll.verticalScrollBar().valueChanged.connect(self.sync_nav)
 
@@ -182,7 +185,7 @@ class ProjectSettingsDialog(QDialog):
             self._navs[key] = n
         nav.addStretch(1)
         nav_box = QWidget()
-        nav_box.setFixedWidth(270)
+        nav_box.setFixedWidth(250)
         nav_box.setLayout(nav)
 
         # ---------- chân hộp thoại ----------
@@ -247,22 +250,20 @@ class ProjectSettingsDialog(QDialog):
         right.addWidget(QLabel("Tỉ lệ khung hình"))
         right.addLayout(cards)
         right.addWidget(_note("info", "9:16 cho điện thoại, 16:9 cho màn ngang. “Theo Flow” giữ nguyên tỉ lệ mặc định của tool (không đổi)."))
-        row = QHBoxLayout()
-        row.setSpacing(SP.l)
+        row = AdaptiveRow(900)
         row.addLayout(left, 5)
         row.addWidget(self.preview, 0, Qt.AlignTop)
         row.addLayout(right, 6)
-        body.addLayout(row)
+        body.addWidget(row)
         return box
 
     def _build_scenes(self) -> QFrame:
         box, body = section("layers", "Tách scene", "Cảnh báo khi chương vượt số scene để đảm bảo chất lượng.")
-        row = QHBoxLayout()
-        row.setSpacing(SP.xl)
+        row = AdaptiveRow(640, SP.xl)
         self.tab.max_scenes.setFixedWidth(180)
         row.addLayout(_labeled("Số scene tối đa / chương", self.tab.max_scenes), 0)
         row.addWidget(_note("info", "Chỉ để cảnh báo chi phí. Tool luôn tách đủ scene để thuyết minh giữ ≥70% nội dung truyện."), 1)
-        body.addLayout(row)
+        body.addWidget(row)
         return box
 
     def _build_flow(self) -> QFrame:
@@ -313,26 +314,28 @@ class ProjectSettingsDialog(QDialog):
         crow.addLayout(ccol, 1)
         crow.addWidget(self.b_credit, 0, Qt.AlignTop)
 
-        top = QHBoxLayout()
-        top.setSpacing(SP.l)
+        top = AdaptiveRow(820)
         top.addLayout(acc_col, 5)
         top.addWidget(self.credit_card, 5)
-        body.addLayout(top)
+        body.addWidget(top)
 
-        self.tab.flow_model.setMinimumWidth(180)
-        grid = QHBoxLayout()
-        grid.setSpacing(SP.l)
-        grid.addLayout(_labeled("Model", self.tab.flow_model, "Veo 3.1 Lite rẻ nhất ở 720p; Omni linh hoạt thời lượng."), 4)
-        grid.addLayout(_labeled("Độ phân giải", self.tab.flow_res, "Chỉ Omni có 360p (rẻ, hợp bản nháp)."), 4)
+        self.tab.flow_model.setMinimumWidth(0)
+        self.tab.flow_account.setMinimumWidth(0)
+        # hai cặp, mỗi cặp 2 cột: hàng không quá dày và co giãn theo bề rộng
+        pair1 = AdaptiveRow(560)
+        pair1.addLayout(_labeled("Model", self.tab.flow_model, "Veo 3.1 Lite rẻ nhất ở 720p; Omni linh hoạt thời lượng."), 1)
+        pair1.addLayout(_labeled("Độ phân giải", self.tab.flow_res, "Chỉ Omni có 360p (rẻ, hợp bản nháp)."), 1)
+        pair2 = AdaptiveRow(560)
         auto = QVBoxLayout()
         auto.setSpacing(SP.xs)
-        auto.addWidget(QLabel("Tự chọn thời lượng clip"))
+        auto.addSpacing(SP.l)                               # canh ngang hàng với ô nhập của cột bên cạnh
         auto.addWidget(self.tab.flow_auto_dur)
+        auto.addWidget(_caption("Chỉ áp dụng cho model Omni."))
         auto.addStretch(1)
-        grid.addLayout(auto, 4)
-        grid.addLayout(_labeled("Số scene gửi cùng lúc", self.tab.flow_parallel,
-                                "Credit không đổi. Flow báo lỗi hoặc giới hạn thì giảm xuống."), 4)
-        body.addLayout(grid)
+        pair2.addLayout(auto, 1)
+        pair2.addLayout(_labeled("Số scene gửi cùng lúc", self.tab.flow_parallel, "Credit không đổi. Flow báo lỗi hoặc giới hạn thì giảm xuống."), 1)
+        body.addWidget(pair1)
+        body.addWidget(pair2)
 
         est = QFrame()
         est.setProperty("estimate", True)
@@ -350,34 +353,34 @@ class ProjectSettingsDialog(QDialog):
 
     def _build_voice(self) -> QFrame:
         box, body = section("volume", "Giọng đọc", "Một giọng duy nhất cho cả dự án để người nghe không thấy lệch giữa các scene.")
-        row = QHBoxLayout()
-        row.setSpacing(SP.l)
+        self.tab.narr_lang.setMinimumWidth(0)
+        self.tab.voice.setMinimumWidth(0)
+        row = AdaptiveRow(820)
         row.addLayout(_labeled("Ngôn ngữ thuyết minh", self.tab.narr_lang, "Khác tiếng Việt thì thuyết minh được DỊCH từ truyện gốc."), 4)
         row.addLayout(_labeled("Nguồn giọng", self.tab.provider, "Edge miễn phí (hơn 300 giọng, 75 ngôn ngữ), Gemini cần API key."), 4)
         row.addLayout(_labeled("Giọng", self.tab.voice, "Giọng “Đa ngữ” đọc tốt nhiều ngôn ngữ, hợp khi đổi ngôn ngữ mà vẫn muốn giữ một chất giọng."), 4)
-        body.addLayout(row)
+        body.addWidget(row)
         body.addLayout(_labeled("Phong cách đọc", self.tab.voice_style, "Edge TTS không nhận chỉ dẫn phong cách."))
         return box
 
     def _build_publish(self) -> QFrame:
         box, body = section("open", "Đăng video", "Chọn tài khoản mà dự án này sẽ đăng lên (nhiều tài khoản, nhiều nền tảng). Thêm tài khoản ở Cài đặt → Đăng video.")
         self.acc_checks: dict[str, QCheckBox] = {}
-        self.tiles_row = QHBoxLayout()
+        self.tiles_row = QGridLayout()
         self.tiles_row.setSpacing(SP.m)
         body.addLayout(self.tiles_row)
         self.pub_privacy = Combo()
         for k, label in PRIVACY:
             self.pub_privacy.addItem(label, k)
         self.pub_auto = QCheckBox("Tự động đăng khi một chương gen xong")
-        bottom = QHBoxLayout()
-        bottom.setSpacing(SP.xl)
+        bottom = AdaptiveRow(620, SP.xl)
         bottom.addLayout(_labeled("Chế độ hiển thị", self.pub_privacy, "Nên thử ở “Riêng tư” trước."), 1)
         auto = QVBoxLayout()
         auto.addSpacing(SP.l)
         auto.addWidget(self.pub_auto)
         auto.addStretch(1)
         bottom.addLayout(auto, 1)
-        body.addLayout(bottom)
+        body.addWidget(bottom)
         return box
 
     # ================= điều hướng =================
@@ -482,10 +485,12 @@ class ProjectSettingsDialog(QDialog):
         by_plat: dict[str, list[dict]] = {}
         for a in publish.accounts():
             by_plat.setdefault(a["platform"], []).append(a)
-        for key, cls in publish.PLATFORMS.items():
+        for i, (key, cls) in enumerate(publish.PLATFORMS.items()):       # lưới 2 cột: mỗi thẻ đủ rộng để tên tài khoản không bị cắt
             tile, boxes = account_tile(key, cls.label, by_plat.get(key, []), chosen, lambda: self.go_connect())
-            self.tiles_row.addWidget(tile, 1)
+            self.tiles_row.addWidget(tile, i // 2, i % 2)
             self.acc_checks.update(boxes)
+        self.tiles_row.setColumnStretch(0, 1)
+        self.tiles_row.setColumnStretch(1, 1)
         self.pub_privacy.setCurrentIndex(max(0, self.pub_privacy.findData(p.publish_privacy if p else "private")))
         self.pub_auto.setChecked(bool(p and p.publish_auto))
 
