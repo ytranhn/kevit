@@ -171,6 +171,20 @@ def _more(p: QPainter, fill: QColor):
         p.drawEllipse(QPointF(x, 12), 1.7, 1.7)
 
 
+def _send(p: QPainter, fill: QColor):
+    _poly(p, [(3.5, 11.2), (20.5, 3.8), (14.2, 20.5), (11, 13.2), (3.5, 11.2)])
+    p.drawLine(QPointF(11, 13.2), QPointF(20.5, 3.8))
+
+
+def _link(p: QPainter, fill: QColor):
+    p.save()
+    p.translate(12, 12)
+    p.rotate(-45)
+    p.drawRoundedRect(QRectF(-9, -3.3, 9.5, 6.6), 3.3, 3.3)
+    p.drawRoundedRect(QRectF(-0.5, -3.3, 9.5, 6.6), 3.3, 3.3)
+    p.restore()
+
+
 def _eye(p: QPainter, fill: QColor):
     path = QPainterPath(QPointF(2.8, 12))
     path.quadTo(12, 3.2, 21.2, 12)
@@ -297,7 +311,7 @@ _DRAW = {
     "step1": _step(1), "step2": _step(2), "step3": _step(3),
     "users": _users, "layers": _layers, "lock": _lock, "more": _more, "eye": _eye, "ring": _ring,
     "search": _search, "filter": _filter, "volume": _volume, "volume_off": _volume_off, "expand": _expand, "doc": _doc, "edit": _edit,
-    "image": _image, "save": _save, "info": _info, "sort": _sort,
+    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link,
 }
 _FILLED = {"play", "pause", "more", "volume", "volume_off"}
 _DOWN_CARET_NAMES = ("down", "up")

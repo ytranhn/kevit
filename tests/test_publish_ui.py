@@ -58,17 +58,18 @@ class TestPublishTab(Tmp):
         self.assertEqual(len(FakePlatform.sent), 2)
         self.assertEqual(t.history.rowCount(), 2)
         self.assertIn("Đã đăng 2/2", t.status.text())
-        self.assertIn("Giả", t.table.item(0, 4).text())
+        self.assertEqual(t._rows["01"].pill.text(), "Đã đăng")
 
     def test_edit_metadata_is_saved(self):
         t = self.tab
-        t.table.setCurrentCell(1, 1)
+        t.select_key("02")
         t.edit_title.setText("Tiêu đề mới")
-        t.edit_tags.setText("#a #b, c")
+        t.tag_input.setText("#a #b, c")
+        t.add_tag_from_input()
         t.commit_editor()
         again = models.Project.load("Dự án UI")
         self.assertEqual(again.chapters[1].post_meta["title"], "Tiêu đề mới")
-        self.assertEqual(again.chapters[1].post_meta["hashtags"], ["a", "b", "c"])
+        self.assertEqual(again.chapters[1].post_meta["hashtags"], ["h", "a", "b", "c"])    # thêm vào hashtag đã có
 
     def test_auto_publish_only_when_enabled_and_new(self):
         t = self.tab
@@ -154,6 +155,6 @@ class TestProjectSettingsAccounts(Tmp):
         self.assertEqual(sorted(again.publish_accounts), ["tiktok:1", "youtube:A"])
         self.assertEqual((again.publish_privacy, again.publish_auto), ("unlisted", True))
         w.publish_tab.reload()
-        self.assertEqual([k for k, cb in w.publish_tab.acc_checks.items() if cb.isChecked()], ["tiktok:1", "youtube:A"])
+        self.assertEqual(sorted(k for k, cb in w.publish_tab.acc_checks.items() if cb.isChecked()), ["tiktok:1", "youtube:A"])
         other = models.Project.load("P2" if proj.project.name == "P1" else "P1")
         self.assertNotEqual(sorted(other.publish_accounts), ["tiktok:1", "youtube:A"])    # dự án kia không bị ảnh hưởng

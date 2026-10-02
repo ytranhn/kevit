@@ -154,3 +154,37 @@ def run(p: Project, tgts: list[Target], accounts: list[str], privacy: str | None
             results.append(r)
             _record(p, t, r)
     return results
+
+
+def thumbnail(p: Project, t: Target, size: int = 360) -> Path | None:
+    """Ảnh đại diện của video (khung hình đầu của clip đầu tiên), lưu đệm trong thư mục dự án; tạo lại khi clip mới hơn ảnh."""
+    clips = clips_of(p, t)
+    if not clips:
+        return None
+    out = p.dir / "publish_thumbs" / f"{t.key}.jpg"
+    if out.exists() and out.stat().st_size and out.stat().st_mtime >= clips[0].stat().st_mtime:
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-ss", "0.3", "-i", str(clips[0]), "-frames:v", "1",
+                        "-vf", f"scale={size}:-2", "-q:v", "4", str(out)], **merger.RUN)
+    if r.returncode or not out.exists():          # clip quá ngắn cho -ss 0.3: thử lại từ đầu
+        r = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", str(clips[0]), "-frames:v", "1",
+                            "-vf", f"scale={size}:-2", "-q:v", "4", str(out)], **merger.RUN)
+    return out if r.returncode == 0 and out.exists() else None
+
+
+def video_seconds(p: Project, t: Target) -> float:
+    """Thời lượng video: đo từ file đã ghép nếu có, chưa ghép thì cộng thời lượng các clip."""
+    f = video_path(p, t)
+    if f.exists() and not is_stale(p, t):
+        return probe(f)[1]
+    return sum(probe(c)[1] for c in clips_of(p, t))
+
+
+def created_at(p: Project, t: Target) -> float:
+    """Thời điểm video được tạo: file ghép nếu có, không thì clip mới nhất; 0 nếu chưa có clip."""
+    f = video_path(p, t)
+    if f.exists():
+        return f.stat().st_mtime
+    cl = clips_of(p, t)
+    return max((c.stat().st_mtime for c in cl), default=0.0)

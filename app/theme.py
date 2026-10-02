@@ -113,6 +113,22 @@ QPushButton[sidenav="true"][active="true"] { background: $accent_tint; border: 1
 QLabel[navtile="true"] { background: $surface2; border-radius: 10px; }
 QPushButton[sidenav="true"][active="true"] QLabel[navtile="true"] { background: transparent; }
 QLabel[pagetitle="true"] { font-family: $serif; font-size: 26px; font-weight: 700; color: $text; }
+QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
+QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[platile="true"][on="true"] { border: 1px solid $accent; background: $accent_tint; }
+QFrame[hashtag="true"] { background: $surface2; border: 1px solid $border; border-radius: 8px; }
+QFrame[hashtag="true"] QLabel { background: transparent; }
+QPushButton[tagx="true"] { border: none; background: transparent; color: $muted; padding: 0; min-height: 18px; min-width: 18px; max-width: 18px; border-radius: 9px; }
+QPushButton[tagx="true"]:hover { background: $err_tint; color: $err; }
+QLabel[stepdot="true"] { border: 1px solid $border_strong; border-radius: 17px; color: $muted; background: $surface; font-weight: 600; }
+QLabel[stepdot="true"][state="active"] { background: $accent; border-color: $accent; color: $on_accent; }
+QLabel[stepdot="true"][state="done"] { background: $ok_tint; border-color: $ok; color: $ok; }
+QFrame[stepline="true"] { background: $border; border: none; min-height: 1px; max-height: 1px; }
+QLabel[thumb="true"] { background: $video; border-radius: 10px; color: #FFFFFF; }
+QLabel[badge="true"] { background: rgba(0,0,0,170); color: #FFFFFF; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+QLabel[counter="true"] { color: $faint; font-size: 12px; }
+QLabel[counter="true"][over="true"] { color: $err; }
 QFrame[provrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[provrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QLabel[logotile="true"] { border-radius: 10px; color: #FFFFFF; font-weight: 700; font-size: 16px; }

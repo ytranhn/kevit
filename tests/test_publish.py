@@ -510,3 +510,22 @@ class TestDescribe(Tmp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThumbnail(Tmp):
+    def test_thumbnail_and_duration(self):
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        p = models.Project("Ảnh")
+        ch = p.new_chapter()
+        for k in (1, 2):
+            clip = p.chapter_dir(ch) / "clips" / f"s{k}.mp4"
+            make_clip(clip)
+            ch.scenes.append(models.Scene(k, clip=str(clip), status="done"))
+        t = service.targets(p)[0]
+        img = service.thumbnail(p, t)
+        self.assertTrue(img and img.exists() and img.stat().st_size > 0)
+        self.assertEqual(service.thumbnail(p, t), img)                      # dùng lại ảnh đã tạo
+        self.assertAlmostEqual(service.video_seconds(p, t), 2.0, delta=0.3)  # chưa ghép: cộng thời lượng clip
+        self.assertGreater(service.created_at(p, t), 0)
+        ch.scenes[1].status = "error"
+        self.assertTrue(service.thumbnail(p, t))                             # chỉ cần clip đầu

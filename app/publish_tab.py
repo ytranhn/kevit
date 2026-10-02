@@ -1,183 +1,614 @@
-"""Tab Đăng video: chọn chương, ghép video, viết mô tả/hashtag bằng AI rồi đăng lên các nền tảng qua API."""
+"""Tab Đăng video: chọn video (chương), soạn tiêu đề/mô tả/hashtag (AI hỗ trợ), chọn tài khoản đăng rồi ghép + đăng qua API."""
 from __future__ import annotations
 
 import threading
+import time
 
-from PySide6.QtCore import Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QMenu, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from . import icons
-from .llm_panel import card, field
-from . import publish
+from . import flow, icons, publish, theme
 from .publish import base, describe, service
-from .shell import PageHeader
+from .shell import logo_tile
 from .theme import SP
-from .widgets import repolish
+from .widgets import Combo, ElidedLabel, repolish
 from .workers import Worker
 
 PRIVACY = (("private", "Riêng tư (an toàn để thử)"), ("unlisted", "Không công khai (có link)"), ("public", "Công khai"))
 SCOPES = (("chapters", "Mỗi chương một video"), ("project", "Một video cho cả dự án"))
+SORTS = (("newest", "Mới nhất"), ("oldest", "Cũ nhất"), ("order", "Theo thứ tự chương"))
+FILTERS = (("all", "Tất cả"), ("ready", "Sẵn sàng"), ("posted", "Đã đăng"))
+BRAND = {"youtube": ("▶", "#E62117"), "tiktok": ("♪", "#111111"), "facebook": ("f", "#1877F2"), "instagram": ("◎", "#C13584")}
+MAX_TAGS = 30
 
 
-def _tags_text(tags: list[str]) -> str:
-    return " ".join("#" + t for t in tags)
+def _fmt_dur(sec: float) -> str:
+    sec = int(round(sec))
+    return f"{sec // 60:02d}:{sec % 60:02d}"
 
 
+def _fmt_date(ts: float) -> str:
+    return time.strftime("%d/%m/%Y %H:%M", time.localtime(ts))
+
+
+def _qicon(name: str) -> QIcon:
+    return QIcon(icons.pixmap(name, 18, theme.T["muted"]))
+
+
+# ================================================================ thành phần nhỏ
+class FlowLayout(QLayout):
+    """Xếp các phần tử từ trái sang phải, tự xuống dòng khi hết chỗ (dùng cho chip hashtag)."""
+
+    def __init__(self, parent=None, spacing: int = SP.s):
+        super().__init__(parent)
+        self._items = []
+        self._sp = spacing
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, i):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i):
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, w):
+        return self._layout(QRect(0, 0, w, 0), True)
+
+    def setGeometry(self, r):
+        super().setGeometry(r)
+        self._layout(r, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        s = QSize(0, 0)
+        for it in self._items:
+            s = s.expandedTo(it.minimumSize())
+        return s
+
+    def _layout(self, rect, test):
+        x, y, line_h = rect.x(), rect.y(), 0
+        for it in self._items:
+            w, h = it.sizeHint().width(), it.sizeHint().height()
+            if x + w > rect.right() + 1 and line_h > 0:
+                x, y, line_h = rect.x(), y + line_h + self._sp, 0
+            if not test:
+                it.setGeometry(QRect(QPoint(x, y), it.sizeHint()))
+            x += w + self._sp
+            line_h = max(line_h, h)
+        return y + line_h - rect.y()
+
+
+class Thumb(QWidget):
+    """Ảnh đại diện bo góc (cắt đầy khung) kèm nhãn thời lượng; có thể gắn một nút nổi ở góc trên phải."""
+
+    def __init__(self, w: int, h: int):
+        super().__init__()
+        self.setFixedSize(w, h)
+        self._pm: QPixmap | None = None
+        self._dur = ""
+
+    def set(self, pm: QPixmap | None, seconds: float = 0.0) -> None:
+        self._pm = pm if pm is not None and not pm.isNull() else None
+        self._dur = _fmt_dur(seconds) if seconds else ""
+        self.update()
+
+    def add_overlay(self, btn: QPushButton) -> None:
+        btn.setParent(self)
+        btn.setFixedSize(30, 30)
+        btn.move(self.width() - 38, 8)
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        clip = QPainterPath()
+        clip.addRoundedRect(0, 0, self.width(), self.height(), 10, 10)
+        p.setClipPath(clip)
+        p.fillRect(self.rect(), QColor(theme.T["video"]))
+        if self._pm:
+            sc = self._pm.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            p.drawPixmap(0, 0, sc, (sc.width() - self.width()) // 2, (sc.height() - self.height()) // 2, self.width(), self.height())
+        else:
+            p.setPen(QColor(theme.T["faint"]))
+            p.drawText(self.rect(), Qt.AlignCenter, "Chưa có ảnh")
+        if self._dur:
+            f = QFont(p.font())
+            f.setPointSizeF(max(f.pointSizeF() - 1.5, 8))
+            p.setFont(f)
+            tw = p.fontMetrics().horizontalAdvance(self._dur) + 12
+            r = QRect(self.width() - tw - 6, self.height() - 24, tw, 18)
+            p.setClipping(False)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(0, 0, 0, 170))
+            p.drawRoundedRect(r, 6, 6)
+            p.setPen(QColor("#FFFFFF"))
+            p.drawText(r, Qt.AlignCenter, self._dur)
+
+
+class VideoRow(QFrame):
+    """Một video trong danh sách: ô chọn · ảnh · tiêu đề · trạng thái · ngày tạo · menu '···'."""
+    clicked = Signal()
+    checked = Signal()
+    action = Signal(str)
+
+    def __init__(self, info: dict):
+        super().__init__()
+        self.setProperty("vidrow", True)
+        self.setFixedHeight(96)
+        self.setCursor(Qt.PointingHandCursor)
+        self.check = QCheckBox()
+        self.check.toggled.connect(lambda *_: self.checked.emit())
+        self.thumb = Thumb(124, 72)
+        self.title = ElidedLabel()
+        self.title.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
+        self.pill = QLabel()
+        self.date = ElidedLabel()
+        self.date.setProperty("caption", True)
+        more = QPushButton()
+        more.setProperty("iconbtn", True)
+        icons.attach(more, "more", 20)
+        menu = QMenu(more)
+        menu.addAction("Hiện file video", lambda: self.action.emit("reveal"))
+        menu.addAction("Ghép lại video", lambda: self.action.emit("remerge"))
+        menu.addAction("Xoá nội dung đã soạn", lambda: self.action.emit("clear"))
+        more.setMenu(menu)
+        more.setFixedSize(30, 30)
+        col = QVBoxLayout()
+        col.setSpacing(SP.xs)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.addStretch(1)
+        col.addWidget(self.title)
+        pr = QHBoxLayout()
+        pr.addWidget(self.pill)
+        pr.addStretch(1)
+        col.addLayout(pr)
+        col.addWidget(self.date)
+        col.addStretch(1)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, SP.s, SP.s, SP.s)
+        row.setSpacing(SP.m)
+        row.addWidget(self.check, 0, Qt.AlignVCenter)
+        row.addWidget(self.thumb, 0, Qt.AlignVCenter)
+        row.addLayout(col, 1)
+        row.addWidget(more, 0, Qt.AlignTop)
+        self.update_info(info)
+
+    def update_info(self, info: dict) -> None:
+        self.info = info
+        self.title.set_full(info["title"])
+        self.title.setToolTip(info["title"])
+        self.pill.setText(info["status"])
+        self.pill.setProperty("pill", info["kind"])
+        repolish(self.pill)
+        self.date.set_full(info["date"])
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(e)
+
+    def set_selected(self, on: bool) -> None:
+        self.setProperty("selected", on)
+        repolish(self)
+
+
+class HashChip(QFrame):
+    removed = Signal(str)
+
+    def __init__(self, tag: str):
+        super().__init__()
+        self.setProperty("hashtag", True)
+        x = QPushButton("×")
+        x.setProperty("tagx", True)
+        x.setCursor(Qt.PointingHandCursor)
+        x.setToolTip("Bỏ hashtag này")
+        x.clicked.connect(lambda: self.removed.emit(tag))
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, 3, SP.xs, 3)
+        row.setSpacing(SP.xs)
+        row.addWidget(QLabel("#" + tag))
+        row.addWidget(x)
+
+
+class Stepper(QWidget):
+    """Ba bước ở đầu trang: Nội dung · Nền tảng · Đăng. Bước xong hiện dấu ✓, bước đang làm được tô màu chủ đạo."""
+    STEPS = (("Nội dung", "Tiêu đề, mô tả, hashtag"), ("Nền tảng", "Chọn tài khoản đăng"), ("Đăng", "Cài đặt và xuất bản"))
+
+    def __init__(self):
+        super().__init__()
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SP.m)
+        self.dots: list[QLabel] = []
+        for i, (t, sub) in enumerate(self.STEPS):
+            dot = QLabel(str(i + 1))
+            dot.setProperty("stepdot", True)
+            dot.setAlignment(Qt.AlignCenter)
+            dot.setFixedSize(34, 34)
+            tt = QLabel(t)
+            tt.setStyleSheet("font-weight: 600; background: transparent;")
+            ss = QLabel(sub)
+            ss.setProperty("caption", True)
+            col = QVBoxLayout()
+            col.setSpacing(0)
+            col.addWidget(tt)
+            col.addWidget(ss)
+            row.addWidget(dot)
+            row.addLayout(col)
+            if i < len(self.STEPS) - 1:
+                line = QFrame()
+                line.setProperty("stepline", True)
+                line.setFixedWidth(48)
+                row.addWidget(line)
+            self.dots.append(dot)
+
+    def set_done(self, done: list[bool]) -> None:
+        current = next((i for i, d in enumerate(done) if not d), len(done) - 1)
+        for i, dot in enumerate(self.dots):
+            state = "done" if done[i] else ("active" if i == current else "")
+            dot.setText("✓" if done[i] else str(i + 1))
+            dot.setProperty("state", state)
+            repolish(dot)
+
+
+def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QFrame, QVBoxLayout]:
+    """Thẻ có đầu thẻ (ô icon · tiêu đề · mô tả · nút hành động) và thân thẻ; trả về (thẻ, layout thân)."""
+    box = QFrame()
+    box.setProperty("card", True)
+    tile = QLabel()
+    tile.setProperty("navtile", True)
+    tile.setFixedSize(36, 36)
+    tile.setAlignment(Qt.AlignCenter)
+    icons.attach(tile, icon, 20)
+    t = QLabel(title)
+    t.setProperty("subheading", True)
+    s = QLabel(subtitle)
+    s.setProperty("caption", True)
+    col = QVBoxLayout()
+    col.setSpacing(0)
+    col.addWidget(t)
+    col.addWidget(s)
+    head = QHBoxLayout()
+    head.setSpacing(SP.m)
+    head.addWidget(tile)
+    head.addLayout(col, 1)
+    for a in actions:
+        head.addWidget(a, 0, Qt.AlignVCenter)
+    body = QVBoxLayout()
+    body.setSpacing(SP.m)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
+    v.setSpacing(SP.m)
+    v.addLayout(head)
+    v.addLayout(body)
+    return box, body
+
+
+# ================================================================ tab chính
 class PublishTab(QWidget):
     activity = Signal(str, str)           # (nội dung, mức) -> thanh trạng thái
+    open_settings_requested = Signal()    # bấm “Kết nối” ở thẻ nền tảng chưa có tài khoản
 
     def __init__(self, get_project, log=print):
         super().__init__()
         self.get_project, self.log_sink = get_project, log
         self._worker: Worker | None = None
+        self._thumb_worker: Worker | None = None
         self._cancel = threading.Event()
         self._shown: service.Target | None = None
         self._project_name = ""
         self._targets: list[service.Target] = []
+        self._rows: dict[str, VideoRow] = {}
+        self._thumbs: dict[str, tuple[QPixmap | None, float]] = {}
+        self._tags: list[str] = []
         self._loading = False
+        self._filter = "all"
+        self.acc_checks: dict[str, QCheckBox] = {}
 
-        # ---- cột trái: danh sách video ----
-        self.scope = QComboBox()
+        # ---------- đầu trang ----------
+        self.stepper = Stepper()
+        title = QLabel("Đăng video")
+        title.setProperty("pagetitle", True)
+        desc = QLabel("Tự ghép video, viết mô tả và hashtag rồi đăng lên YouTube, TikTok, Facebook, Instagram qua API chính thức.")
+        desc.setProperty("caption", True)
+        desc.setWordWrap(True)
+        tcol = QVBoxLayout()
+        tcol.setSpacing(SP.xs)
+        tcol.addWidget(title)
+        tcol.addWidget(desc)
+        top = QHBoxLayout()
+        top.setSpacing(SP.xl)
+        top.addLayout(tcol, 1)
+        top.addWidget(self.stepper, 0, Qt.AlignVCenter)
+
+        # ---------- cột trái: danh sách video ----------
+        self.lbl_count = QLabel("Video sẽ đăng (0)")
+        self.lbl_count.setProperty("subheading", True)
+        self.scope = Combo()
         for k, label in SCOPES:
             self.scope.addItem(label, k)
         self.scope.activated.connect(self.on_scope)
-        self._checks: list[QCheckBox] = []
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["", "Mục", "Video", "Mô tả", "Đã đăng"])
-        self.table.verticalHeader().hide()
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setShowGrid(False)
-        hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 40)
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        for c in (2, 3, 4):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        self.table.currentCellChanged.connect(lambda r, *_: self.show_target(r))
-        b_all = QPushButton("Chọn tất cả")
-        b_all.setProperty("ghost", True)
-        b_all.clicked.connect(lambda: self.check_all(True))
-        b_none = QPushButton("Bỏ chọn")
-        b_none.setProperty("ghost", True)
-        b_none.clicked.connect(lambda: self.check_all(False))
-        left = card("Video sẽ đăng", "Tích chọn các mục muốn đăng. Video ghép được tạo/ghép lại tự động khi cần.")
-        top = QHBoxLayout()
-        top.addWidget(self.scope, 1)
-        top.addWidget(b_all)
-        top.addWidget(b_none)
-        left.layout().addLayout(top)
-        left.layout().addWidget(self.table, 1)
+        self.tab_btns: dict[str, QPushButton] = {}
+        seg = QFrame()
+        seg.setProperty("seg", True)
+        sr = QHBoxLayout(seg)
+        sr.setContentsMargins(SP.xs, SP.xs, SP.xs, SP.xs)
+        sr.setSpacing(SP.xs)
+        for k, label in FILTERS:
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setProperty("segbtn", True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, key=k: self.set_filter(key))
+            sr.addWidget(b)
+            self.tab_btns[k] = b
+        self.tab_btns["all"].setChecked(True)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Tìm video…")
+        self.search.setClearButtonEnabled(True)
+        self.search.addAction(_qicon("search"), QLineEdit.LeadingPosition)
+        self.search.textChanged.connect(lambda *_: self.apply_filter())
+        self.sort = Combo()
+        for k, label in SORTS:
+            self.sort.addItem(label, k)
+        self.sort.activated.connect(lambda *_: self.apply_filter())
+        self.all_check = QCheckBox("Chọn tất cả video đang hiện")
+        self.all_check.clicked.connect(lambda on: self.check_all(on))
         self.empty = QLabel("")
         self.empty.setProperty("caption", True)
         self.empty.setWordWrap(True)
-        left.layout().addWidget(self.empty)
+        self.list_box = QVBoxLayout()
+        self.list_box.setSpacing(SP.s)
+        self.list_box.setContentsMargins(0, 0, SP.xs, 0)
+        self.list_box.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(self.list_box)
+        self.list_scroll = QScrollArea()
+        self.list_scroll.setWidgetResizable(True)
+        self.list_scroll.setFrameShape(QFrame.NoFrame)
+        self.list_scroll.setWidget(holder)
+        self.list_scroll.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
+        left = QFrame()
+        left.setProperty("card", True)
+        left.setMinimumWidth(400)
+        left.setMaximumWidth(520)
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
+        lv.setSpacing(SP.m)
+        head = QHBoxLayout()
+        head.addWidget(self.lbl_count, 1)
+        head.addWidget(self.scope)
+        lv.addLayout(head)
+        lv.addWidget(seg, 0, Qt.AlignLeft)
+        srow = QHBoxLayout()
+        srow.setSpacing(SP.s)
+        srow.addWidget(self.search, 1)
+        srow.addWidget(self.sort)
+        lv.addLayout(srow)
+        lv.addWidget(self.all_check)
+        lv.addWidget(self.list_scroll, 1)
+        lv.addWidget(self.empty)
 
-        # ---- cột phải: nội dung, nền tảng, thao tác, lịch sử ----
-        self.edit_title = QLineEdit()
-        self.edit_desc = QPlainTextEdit()
-        self.edit_desc.setMinimumHeight(110)
-        self.edit_tags = QLineEdit()
-        self.edit_tags.setPlaceholderText("#kểchuyện #truyệnma …")
-        self.lbl_target = QLabel("")
-        self.lbl_target.setProperty("caption", True)
+        # ---------- cột phải ----------
+        # 1. Nội dung
         self.b_ai = QPushButton("Viết bằng AI")
+        self.b_ai.setProperty("primary", True)
         icons.attach(self.b_ai, "sparkle", 18)
         self.b_ai.clicked.connect(self.ai_for_current)
-        self.b_save_meta = QPushButton("Lưu nội dung")
-        self.b_save_meta.clicked.connect(self.commit_editor)
-        content = card("Nội dung đăng", "Tiêu đề, mô tả và hashtag của video đang chọn. Tool tự chỉnh theo giới hạn từng nền tảng.")
-        content.layout().addWidget(self.lbl_target)
-        content.layout().addWidget(field("Tiêu đề", "", self.edit_title))
-        content.layout().addWidget(field("Mô tả", "", self.edit_desc))
-        content.layout().addWidget(field("Hashtag", "Cách nhau bằng dấu cách.", self.edit_tags))
-        row = QHBoxLayout()
-        row.addStretch(1)
-        row.addWidget(self.b_ai)
-        row.addWidget(self.b_save_meta)
-        content.layout().addLayout(row)
+        self.b_save_meta = QPushButton("Lưu nháp")
+        icons.attach(self.b_save_meta, "save", 18)
+        self.b_save_meta.setToolTip("Lưu tiêu đề, mô tả, hashtag của video đang chọn (tự lưu khi chuyển video)")
+        self.b_save_meta.clicked.connect(lambda: self.commit_editor())
+        self.b_more = QPushButton()
+        self.b_more.setProperty("iconbtn", True)
+        icons.attach(self.b_more, "more", 20)
+        mm = QMenu(self.b_more)
+        mm.addAction("Hiện file video", lambda: self.row_action(self.shown_key(), "reveal"))
+        mm.addAction("Ghép lại video", lambda: self.row_action(self.shown_key(), "remerge"))
+        mm.addAction("Xoá nội dung đã soạn", lambda: self.row_action(self.shown_key(), "clear"))
+        self.b_more.setMenu(mm)
+        content, cb = section("doc", "Nội dung đăng", "Tiêu đề, mô tả và hashtag của video đang chọn.", self.b_ai, self.b_save_meta, self.b_more)
+        self.big_thumb = Thumb(196, 196)
+        self.b_open_video = QPushButton()
+        self.b_open_video.setProperty("iconbtn", True)
+        icons.attach(self.b_open_video, "open", 16)
+        self.b_open_video.setToolTip("Hiện file video trong thư mục")
+        self.b_open_video.clicked.connect(lambda: self.row_action(self.shown_key(), "reveal"))
+        self.big_thumb.add_overlay(self.b_open_video)
+        self.edit_title = QLineEdit()
+        self.edit_title.textChanged.connect(self.on_text_changed)
+        self.edit_desc = QPlainTextEdit()
+        self.edit_desc.setFixedHeight(112)
+        self.edit_desc.textChanged.connect(self.on_text_changed)
+        self.cnt_title, self.cnt_desc, self.cnt_tags = (self._counter() for _ in range(3))
+        form = QVBoxLayout()
+        form.setSpacing(SP.xs)
+        form.addLayout(self._label_row("Tiêu đề *", self.cnt_title))
+        form.addWidget(self.edit_title)
+        form.addSpacing(SP.xs)
+        form.addLayout(self._label_row("Mô tả", self.cnt_desc))
+        form.addWidget(self.edit_desc)
+        form.addStretch(1)
+        trow = QHBoxLayout()
+        trow.setSpacing(SP.l)
+        trow.addWidget(self.big_thumb, 0, Qt.AlignTop)
+        trow.addLayout(form, 1)
+        cb.addLayout(trow)
+        self.tag_area = QWidget()
+        self.tag_flow = FlowLayout(self.tag_area)
+        self.tag_flow.setContentsMargins(0, 0, 0, 0)
+        self.tag_input = QLineEdit()
+        self.tag_input.setPlaceholderText("Gõ hashtag rồi Enter")
+        self.tag_input.setFixedWidth(170)
+        self.tag_input.returnPressed.connect(self.add_tag_from_input)
+        self.b_add_tag = QPushButton("Thêm")
+        icons.attach(self.b_add_tag, "plus", 16)
+        self.b_add_tag.clicked.connect(self.add_tag_from_input)
+        tag_frame = QFrame()
+        tag_frame.setProperty("card", True)
+        tfl = QHBoxLayout(tag_frame)
+        tfl.setContentsMargins(SP.m, SP.s, SP.m, SP.s)
+        tfl.setSpacing(SP.s)
+        tfl.addWidget(self.tag_area, 1)
+        tcol2 = QVBoxLayout()
+        tcol2.addWidget(self.b_add_tag)
+        tcol2.addStretch(1)
+        tfl.addLayout(tcol2)
+        cb.addLayout(self._label_row("Hashtag", self.cnt_tags))
+        cb.addWidget(tag_frame)
 
-        self.acc_checks: dict[str, QCheckBox] = {}
-        plats = card("Đăng lên tài khoản", "Chọn các tài khoản mà DỰ ÁN NÀY sẽ đăng lên (mỗi dự án nhớ lựa chọn riêng). "
-                     "Thêm tài khoản ở Cài đặt → Đăng video.")
-        self.acc_box = QVBoxLayout()
-        self.acc_box.setSpacing(SP.s)
-        plats.layout().addLayout(self.acc_box)
-        self.privacy = QComboBox()
+        # 2. Nền tảng / tài khoản
+        self.b_refresh = QPushButton("Làm mới")
+        icons.attach(self.b_refresh, "refresh", 16)
+        self.b_refresh.clicked.connect(self.refresh_accounts)
+        plats, pb = section("users", "Đăng lên", "Chọn nền tảng và tài khoản. Mỗi dự án nhớ lựa chọn riêng.", self.b_refresh)
+        self.tiles_row = QHBoxLayout()
+        self.tiles_row.setSpacing(SP.m)
+        pb.addLayout(self.tiles_row)
+
+        # 3. Cài đặt đăng
+        self.privacy = Combo()
         for k, label in PRIVACY:
             self.privacy.addItem(label, k)
         self.privacy.activated.connect(self.save_options)
-        plats.layout().addWidget(field("Chế độ hiển thị", "YouTube/TikTok chưa được duyệt ứng dụng có thể tự ép về riêng tư. "
-                                       "Facebook lưu bản nháp nếu chọn riêng tư; Instagram chỉ đăng công khai.", self.privacy))
         self.auto = QCheckBox("Tự động đăng khi một chương gen xong")
         self.auto.setToolTip("Sau khi gen clip xong cả chương, tự ghép, viết mô tả và đăng không cần xác nhận lại.")
         self.auto.toggled.connect(self.save_options)
         self.force = QCheckBox("Đăng lại cả những mục đã đăng")
-        plats.layout().addWidget(self.auto)
-        plats.layout().addWidget(self.force)
+        sets, sb = section("gear", "Cài đặt đăng", "Chế độ hiển thị và hành vi tự động.")
+        cap = QLabel("Chế độ hiển thị")
+        cap.setProperty("caption", True)
+        hint = QLabel("YouTube/TikTok chưa được duyệt ứng dụng có thể tự ép về riêng tư. Facebook lưu bản nháp nếu chọn riêng tư; Instagram chỉ đăng công khai.")
+        hint.setProperty("caption", True)
+        hint.setWordWrap(True)
+        lcol = QVBoxLayout()
+        lcol.setSpacing(SP.xs)
+        lcol.addWidget(cap)
+        lcol.addWidget(self.privacy)
+        lcol.addWidget(hint)
+        rcol = QVBoxLayout()
+        rcol.setSpacing(SP.m)
+        rcol.addWidget(self.auto)
+        rcol.addWidget(self.force)
+        rcol.addStretch(1)
+        srow2 = QHBoxLayout()
+        srow2.setSpacing(SP.xl)
+        srow2.addLayout(lcol, 1)
+        srow2.addLayout(rcol, 1)
+        sb.addLayout(srow2)
 
+        # 4. Lịch sử (thu gọn được)
+        self.hist_toggle = QPushButton("Lịch sử đăng")
+        self.hist_toggle.setProperty("ghost", True)
+        self.hist_toggle.setCheckable(True)
+        self.hist_toggle.setChecked(True)
+        icons.attach(self.hist_toggle, "up", 16)
+        self.hist_toggle.setStyleSheet("font-weight: 600; font-size: 15px; text-align: left;")
+        self.history = QTableWidget(0, 4)
+        self.history.setHorizontalHeaderLabels(["Lúc", "Mục · tài khoản", "Kết quả", "Liên kết"])
+        self.history.verticalHeader().hide()
+        self.history.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.history.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.history.setShowGrid(False)
+        self.history.setMinimumHeight(150)
+        hh = self.history.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.history.cellClicked.connect(self.open_history_link)
+        self.hist_empty = QLabel("Chưa có lượt đăng nào.")
+        self.hist_empty.setProperty("caption", True)
+        hist = QFrame()
+        hist.setProperty("card", True)
+        hv = QVBoxLayout(hist)
+        hv.setContentsMargins(SP.l, SP.m, SP.l, SP.l)
+        hv.setSpacing(SP.s)
+        hv.addWidget(self.hist_toggle)
+        hv.addWidget(self.hist_empty)
+        hv.addWidget(self.history)
+        self.hist_toggle.toggled.connect(self.toggle_history)
+
+        col = QVBoxLayout()
+        col.setSpacing(SP.l)
+        col.setContentsMargins(0, 0, SP.s, 0)
+        for w in (content, plats, sets, hist):
+            col.addWidget(w)
+        col.addStretch(1)
+        rholder = QWidget()
+        rholder.setLayout(col)
+        rscroll = QScrollArea()
+        rscroll.setWidgetResizable(True)
+        rscroll.setFrameShape(QFrame.NoFrame)
+        rscroll.setWidget(rholder)
+        rscroll.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
+
+        body = QHBoxLayout()
+        body.setSpacing(SP.l)
+        body.addWidget(left, 4)
+        body.addWidget(rscroll, 7)
+
+        # ---------- thanh thao tác dưới cùng ----------
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.b_prepare = QPushButton("Ghép + viết mô tả")
+        icons.attach(self.b_prepare, "link", 18)
         self.b_prepare.clicked.connect(self.prepare)
         self.b_publish = QPushButton("Đăng ngay")
         self.b_publish.setProperty("primary", True)
+        icons.attach(self.b_publish, "send", 18)
         self.b_publish.clicked.connect(self.publish)
         self.b_stop = QPushButton("Dừng")
         self.b_stop.clicked.connect(self._cancel.set)
         self.b_stop.hide()
         for b in (self.b_prepare, self.b_publish, self.b_stop):
             b.setFixedHeight(40)
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        actions = QHBoxLayout()
-        actions.addWidget(self.status, 1)
-        actions.addWidget(self.b_stop)
-        actions.addWidget(self.b_prepare)
-        actions.addWidget(self.b_publish)
+        bar = QHBoxLayout()
+        bar.setSpacing(SP.m)
+        bar.addWidget(self.status, 1)
+        bar.addWidget(self.b_stop)
+        bar.addWidget(self.b_prepare)
+        bar.addWidget(self.b_publish)
 
-        self.history = QTableWidget(0, 4)
-        self.history.setHorizontalHeaderLabels(["Lúc", "Mục · nền tảng", "Kết quả", "Liên kết"])
-        self.history.verticalHeader().hide()
-        self.history.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.history.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.history.setShowGrid(False)
-        self.history.setMinimumHeight(170)
-        hh = self.history.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.history.cellDoubleClicked.connect(self.open_history_link)
-        hist = card("Lịch sử đăng", "Bấm đúp một dòng có liên kết để mở bài đã đăng.")
-        hist.layout().addWidget(self.history)
-
-        col = QVBoxLayout()
-        col.setSpacing(SP.l)
-        col.addWidget(content)
-        col.addWidget(plats)
-        col.addLayout(actions)
-        col.addWidget(hist)
-        col.addStretch(1)
-        holder = QWidget()
-        holder.setLayout(col)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidget(holder)
-
-        body = QHBoxLayout()
-        body.setSpacing(SP.l)
-        body.addWidget(left, 5)
-        body.addWidget(scroll, 6)
         root = QVBoxLayout(self)
-        root.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.l)
+        root.setContentsMargins(SP.xl, SP.l, SP.xl, SP.l)
         root.setSpacing(SP.l)
-        root.addWidget(PageHeader("Đăng video", "Tự ghép video, viết mô tả và hashtag rồi đăng lên YouTube, TikTok, Facebook, Instagram qua API chính thức."))
+        root.addLayout(top)
         root.addLayout(body, 1)
+        root.addLayout(bar)
         self.update_buttons()
+
+    # ---------- dựng nhỏ ----------
+    def _counter(self) -> QLabel:
+        c = QLabel("0/0")
+        c.setProperty("counter", True)
+        return c
+
+    def _label_row(self, text: str, counter: QLabel) -> QHBoxLayout:
+        r = QHBoxLayout()
+        r.addWidget(QLabel(text), 1)
+        r.addWidget(counter)
+        return r
+
+    def _set_counter(self, c: QLabel, n: int, limit: int) -> None:
+        c.setText(f"{n}/{limit}")
+        c.setProperty("over", n > limit)
+        repolish(c)
+
+    def shown_key(self) -> str:
+        return self._shown.key if self._shown else ""
 
     # ================= nạp dữ liệu =================
     def showEvent(self, e):
@@ -188,153 +619,382 @@ class PublishTab(QWidget):
         p = self.get_project()
         self._loading = True
         try:
-            self.setEnabled(bool(p) and not self._worker)
+            self.setEnabled(bool(p))
             if not p:
-                self.table.setRowCount(0)
+                self._clear_rows()
+                self._targets, self._project_name = [], ""
                 self.empty.setText("Hãy mở một dự án ở tab Dự án.")
-                self._shown = None
+                self.lbl_count.setText("Video sẽ đăng (0)")
+                self.show_target(None)
+                self.history.setRowCount(0)
                 return
-            if p.name != self._project_name:             # đổi dự án: bỏ lựa chọn/mục đang xem của dự án trước
-                self._project_name, self._targets, self._shown = p.name, [], None
+            if p.name != self._project_name:             # đổi dự án: bỏ lựa chọn/mục đang xem/ảnh của dự án trước
+                self._clear_rows()
+                self._project_name, self._targets, self._shown, self._thumbs = p.name, [], None, {}
             self.scope.setCurrentIndex(max(0, self.scope.findData(p.publish_scope)))
             self.privacy.setCurrentIndex(max(0, self.privacy.findData(p.publish_privacy)))
             self.auto.setChecked(p.publish_auto)
             self.refresh_accounts()
-            self.fill_table()
+            self.rebuild_list()
             self.fill_history()
         finally:
             self._loading = False
         self.update_buttons()
+        self.update_steps()
 
+    # ---------- danh sách video ----------
+    def _clear_rows(self) -> None:
+        for r in self._rows.values():
+            self.list_box.removeWidget(r)
+            r.deleteLater()
+        self._rows = {}
+
+    def row_info(self, p, t: service.Target) -> dict:
+        n, done = service.scene_count(p, t), len(service.clips_of(p, t))
+        accounts = [a["id"] for a in publish.accounts()]
+        target_accs = [a for a in p.publish_accounts if a in accounts] or accounts
+        posted_any = any(service.history_ok(p, t, a) for a in accounts)
+        posted_all = bool(target_accs) and all(service.history_ok(p, t, a) for a in target_accs)
+        ready = service.is_ready(p, t)
+        if posted_all:
+            status, kind = "Đã đăng", "info"
+        elif ready:
+            status, kind = "Sẵn sàng", "ok"
+        elif not n:
+            status, kind = "Chưa có scene", "warn"
+        else:
+            status, kind = f"Gen {done}/{n} scene", "warn"
+        name = service.meta_of(p, t).get("title") or t.label
+        created = service.created_at(p, t)
+        return dict(title=f"{t.key} - {name}" if t.chapter else name, status=status, kind=kind, ready=ready, posted_any=posted_any,
+                    posted_all=posted_all, created=created, date=f"Tạo: {_fmt_date(created)}" if created else "Chưa có clip")
+
+    def rebuild_list(self) -> None:
+        p = self.get_project()
+        keep_checked = {k for k, r in self._rows.items() if r.check.isChecked()}
+        first = not self._rows
+        keep_shown = self._shown.key if self._shown else None
+        self._clear_rows()
+        self._targets = service.targets(p)
+        for t in self._targets:
+            info = self.row_info(p, t)
+            row = VideoRow(info)
+            row.check.setChecked(t.key in keep_checked or (first and info["ready"] and not info["posted_all"]))
+            row.clicked.connect(lambda k=t.key: self.select_key(k))
+            row.checked.connect(self.on_checks_changed)
+            row.action.connect(lambda a, k=t.key: self.row_action(k, a))
+            pm, secs = self._thumbs.get(t.key, (None, 0.0))
+            row.thumb.set(pm, secs)
+            self._rows[t.key] = row
+            self.list_box.insertWidget(self.list_box.count() - 1, row)
+        self.apply_filter()
+        self.select_key(keep_shown if keep_shown in self._rows else (self._targets[0].key if self._targets else None))
+        self.load_thumbs()
+
+    def apply_filter(self) -> None:
+        p = self.get_project()
+        if not p:
+            return
+        q = self.search.text().strip().lower()
+        by_key = {t.key: t for t in self._targets}
+        infos = {k: r.info for k, r in self._rows.items()}
+        counts = dict(all=len(infos), ready=sum(1 for i in infos.values() if i["ready"] and not i["posted_all"]),
+                      posted=sum(1 for i in infos.values() if i["posted_any"]))
+        for k, label in FILTERS:
+            self.tab_btns[k].setText(f"{label}  {counts[k]}")
+
+        def show(k: str) -> bool:
+            i = infos[k]
+            ok = {"all": True, "ready": i["ready"] and not i["posted_all"], "posted": i["posted_any"]}[self._filter]
+            return ok and (not q or q in i["title"].lower() or q in by_key[k].label.lower())
+        order = self.sort.currentData() or "newest"
+        keys = list(self._rows)
+        if order == "newest":
+            keys.sort(key=lambda k: -infos[k]["created"])
+        elif order == "oldest":
+            keys.sort(key=lambda k: infos[k]["created"])
+        for r in self._rows.values():
+            self.list_box.removeWidget(r)
+        for i, k in enumerate(keys):
+            self.list_box.insertWidget(i, self._rows[k])
+            self._rows[k].setVisible(show(k))
+        if not self._targets:
+            self.empty.setText("Dự án chưa có chương nào.")
+        else:
+            self.empty.setText("" if any(show(k) for k in keys) else "Không có video nào khớp bộ lọc.")
+        self.on_checks_changed()
+
+    def set_filter(self, key: str) -> None:
+        self._filter = key
+        for k, b in self.tab_btns.items():
+            b.setChecked(k == key)
+        self.apply_filter()
+
+    def on_checks_changed(self, *_) -> None:
+        vis = [r for r in self._rows.values() if not r.isHidden()]
+        self.lbl_count.setText(f"Video sẽ đăng ({len(self.checked_targets())})")
+        self.all_check.blockSignals(True)
+        self.all_check.setChecked(bool(vis) and all(r.check.isChecked() for r in vis))
+        self.all_check.blockSignals(False)
+        self.update_buttons()
+
+    def check_all(self, on: bool) -> None:
+        for r in self._rows.values():
+            if not r.isHidden():
+                r.check.setChecked(on)
+
+    def checked_targets(self) -> list[service.Target]:
+        return [t for t in self._targets if (r := self._rows.get(t.key)) and r.check.isChecked() and not r.isHidden()]
+
+    def select_key(self, key: str | None) -> None:
+        if key is not None and key not in self._rows:
+            key = None
+        self.commit_editor(quiet=True)
+        for k, r in self._rows.items():
+            r.set_selected(k == key)
+        self.show_target(next((t for t in self._targets if t.key == key), None))
+
+    # ---------- ảnh đại diện (tạo ở luồng nền) ----------
+    def load_thumbs(self) -> None:
+        p = self.get_project()
+        if not p or self._thumb_worker is not None:
+            return
+        todo = [t for t in self._targets if service.clips_of(p, t) and t.key not in self._thumbs]
+        if not todo:
+            return
+
+        def job(log):
+            out = {}
+            for t in todo:
+                try:
+                    out[t.key] = (service.thumbnail(p, t), service.video_seconds(p, t))
+                except Exception:  # noqa: BLE001 - thiếu ảnh không phải lỗi nghiêm trọng
+                    out[t.key] = (None, 0.0)
+            return out
+
+        def done(res):
+            for k, (path, secs) in res.items():
+                pm = QPixmap(str(path)) if path else None
+                self._thumbs[k] = (pm, secs)
+                if k in self._rows:
+                    self._rows[k].thumb.set(pm, secs)
+                if self._shown and self._shown.key == k:
+                    self.big_thumb.set(pm, secs)
+        self._thumb_worker = w = Worker(job)
+        w.done.connect(done)
+        w.finished.connect(lambda: setattr(self, "_thumb_worker", None))
+        w.start()
+
+    def row_action(self, key: str, action: str) -> None:
+        p = self.get_project()
+        t = next((x for x in self._targets if x.key == key), None)
+        if not (p and t):
+            return
+        if action == "reveal":
+            f = service.video_path(p, t)
+            if f.exists():
+                flow.reveal_file(f)
+            else:
+                QMessageBox.information(self, "Chưa có video ghép", "Video chưa được ghép. Bấm “Ghép + viết mô tả” trước.")
+        elif action == "remerge":
+            service.video_path(p, t).unlink(missing_ok=True)
+            self.set_status("Đã xoá video ghép cũ, lần đăng sau sẽ ghép lại.", "info")
+            self.rebuild_list()
+        elif action == "clear":
+            service.set_meta(p, t, {})
+            p.save()
+            self.rebuild_list()
+            self.show_target(self._shown)
+
+    # ---------- lịch sử ----------
+    def fill_history(self) -> None:
+        p = self.get_project()
+        names = {t.key: t.label for t in service.targets(p)} if p else {}
+        rows = list(reversed(p.publish_history[-100:])) if p else []
+        expanded = self.hist_toggle.isChecked()
+        self.history.setRowCount(len(rows))
+        self.hist_empty.setVisible(not rows and expanded)
+        self.history.setVisible(bool(rows) and expanded)
+        for r, h in enumerate(rows):
+            who = publish.account_name(h["account"]) if h.get("account") else h.get("platform", "")
+            if h.get("ok"):
+                result = "✓ " + (service.PRIVACY_LABELS.get(h.get("privacy"), h.get("privacy", "")) or "Thành công") + (f" — {h['message']}" if h.get("message") else "")
+                color = theme.T["ok"]
+            else:
+                result, color = "✗ " + (h.get("message") or "Lỗi"), theme.T["err"]
+            link = f"Xem trên {publish.PLATFORMS[h['platform']].label}" if h.get("url") and h.get("platform") in publish.PLATFORMS else ""
+            cells = [h.get("time", ""), f"{names.get(h.get('chapter'), h.get('chapter', ''))} · {who}", result, link]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                it.setToolTip(h.get("message") or text)
+                if c == 2:
+                    it.setForeground(QColor(color))
+                if c == 3 and link:
+                    it.setData(Qt.UserRole, h["url"])
+                    it.setForeground(QColor(theme.T["info"]))
+                self.history.setItem(r, c, it)
+
+    def toggle_history(self, on: bool) -> None:
+        icons.attach(self.hist_toggle, "up" if on else "down", 16)
+        self.fill_history()
+
+    def open_history_link(self, row: int, col: int) -> None:
+        it = self.history.item(row, 3)
+        url = it.data(Qt.UserRole) if it else None
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+
+    # ================= tài khoản / nền tảng =================
     def refresh_accounts(self) -> None:
-        """Dựng lại danh sách tài khoản đã kết nối; tích sẵn những tài khoản dự án đã chọn."""
+        """Dựng lại các thẻ nền tảng từ tài khoản đã kết nối; tích sẵn những tài khoản dự án đã chọn."""
         p = self.get_project()
         chosen = set(p.publish_accounts) if p else set()
         was = self._loading
         self._loading = True
         try:
-            while self.acc_box.count():
-                w = self.acc_box.takeAt(0).widget()
+            while self.tiles_row.count():
+                w = self.tiles_row.takeAt(0).widget()
                 if w:
                     w.deleteLater()
             self.acc_checks = {}
+            by_plat: dict[str, list[dict]] = {}
             for a in publish.accounts():
-                cb = QCheckBox(publish.account_name(a["id"]))
-                cb.setChecked(a["id"] in chosen)
-                cb.toggled.connect(self.save_options)
-                self.acc_box.addWidget(cb)
-                self.acc_checks[a["id"]] = cb
-            if not self.acc_checks:
-                empty = QLabel("Chưa kết nối tài khoản nào. Vào Cài đặt → Đăng video để thêm.")
-                empty.setProperty("caption", True)
-                self.acc_box.addWidget(empty)
+                by_plat.setdefault(a["platform"], []).append(a)
+            for key, cls in publish.PLATFORMS.items():
+                self.tiles_row.addWidget(self._tile(key, cls.label, by_plat.get(key, []), chosen), 1)
         finally:
             self._loading = was
         self.update_buttons()
+        self.update_steps()
+        self.update_counters()
+
+    def _tile(self, key: str, label: str, accs: list[dict], chosen: set) -> QFrame:
+        tile = QFrame()
+        tile.setProperty("platile", True)
+        glyph, color = BRAND.get(key, ("?", "#6B6FF2"))
+        logo = logo_tile(glyph, "default", 32)
+        logo.setStyleSheet(f"background: {color};")
+        name = QLabel(label)
+        name.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
+        status = QLabel(f"{len(accs)} tài khoản" if accs else "Chưa kết nối")
+        status.setProperty("caption", True)
+        head = QHBoxLayout()
+        head.setSpacing(SP.s)
+        head.addWidget(logo)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addWidget(name)
+        col.addWidget(status)
+        head.addLayout(col, 1)
+        v = QVBoxLayout(tile)
+        v.setContentsMargins(SP.m, SP.m, SP.m, SP.m)
+        v.setSpacing(SP.s)
+        v.addLayout(head)
+        boxes = []
+        for a in accs:
+            cb = QCheckBox()
+            cb.setChecked(a["id"] in chosen)
+            text = a["label"] + (f"  ·  {a['page_name']}" if a.get("page_name") else "")
+            cb.setText(cb.fontMetrics().elidedText(text, Qt.ElideRight, 150))
+            cb.setToolTip(text)
+            cb.toggled.connect(self.save_options)
+            cb.toggled.connect(lambda _on, t=tile, bs=boxes: (t.setProperty("on", any(c.isChecked() for c in bs)), repolish(t)))
+            boxes.append(cb)
+            v.addWidget(cb)
+            self.acc_checks[a["id"]] = cb
+        tile.setProperty("on", any(a["id"] in chosen for a in accs))
+        if not accs:
+            b = QPushButton("Kết nối")
+            b.clicked.connect(self.open_settings_requested.emit)
+            v.addWidget(b)
+        v.addStretch(1)
+        return tile
 
     def chosen_accounts(self) -> list[str]:
         return [k for k, cb in self.acc_checks.items() if cb.isChecked()]
 
-    def fill_table(self) -> None:
+    # ================= nội dung đang soạn =================
+    def limits(self) -> tuple[int, int, int]:
+        """(tiêu đề, mô tả, hashtag) tối đa theo các nền tảng đang chọn: lấy mức chặt nhất."""
+        plats = {a.split(":", 1)[0] for a in self.chosen_accounts()}
+        return (100 if (plats & {"youtube", "facebook"} or not plats) else 200,
+                2200 if plats & {"tiktok", "facebook", "instagram"} else 5000, MAX_TAGS)
+
+    def update_counters(self) -> None:
+        lt, ld, lh = self.limits()
+        self._set_counter(self.cnt_title, len(self.edit_title.text()), lt)
+        self._set_counter(self.cnt_desc, len(self.edit_desc.toPlainText()), ld)
+        self._set_counter(self.cnt_tags, len(self._tags), lh)
+
+    def on_text_changed(self) -> None:
+        self.update_counters()
+        self.update_steps()
+
+    def show_target(self, t: service.Target | None) -> None:
         p = self.get_project()
-        keep = self._shown.key if self._shown else None
-        checked = {t.key for t in self.checked_targets()}
-        first = not self._targets
-        self._targets = service.targets(p)
-        self._checks = []
-        self.table.blockSignals(True)
-        self.table.setRowCount(len(self._targets))
-        for r, t in enumerate(self._targets):
-            n, done = service.scene_count(p, t), len(service.clips_of(p, t))
-            if not n:
-                video = "Chưa có scene"
-            elif done < n:
-                video = f"Gen {done}/{n} scene"
-            elif service.is_stale(p, t):
-                video = "Cần ghép"
-            else:
-                video = "Đã ghép"
-            posted = [publish.account_name(a["id"]) for a in publish.accounts() if service.history_ok(p, t, a["id"])]
-            cells = [t.label, video, "✓" if service.meta_of(p, t).get("title") else "—", ", ".join(posted) or "—"]
-            for c, text in enumerate(cells, 1):
-                it = QTableWidgetItem(text)
-                it.setToolTip(text)
-                self.table.setItem(r, c, it)
-            cb = QCheckBox()
-            cb.setChecked(t.key in checked or (first and service.is_ready(p, t)))
-            cb.toggled.connect(lambda *_: self.update_buttons())
-            self._checks.append(cb)
-            holder = QWidget()
-            hl = QHBoxLayout(holder)
-            hl.setContentsMargins(12, 0, 0, 0)
-            hl.addWidget(cb)
-            self.table.setCellWidget(r, 0, holder)
-        self.table.blockSignals(False)
-        self.empty.setText("" if self._targets else "Dự án chưa có chương nào.")
-        row = next((i for i, t in enumerate(self._targets) if t.key == keep), 0 if self._targets else -1)
-        self._shown = None
-        self.table.blockSignals(True)
-        self.table.setCurrentCell(row, 0)
-        self.table.blockSignals(False)
-        self.show_target(row)
-
-    def fill_history(self) -> None:
-        p = self.get_project()
-        names = {t.key: t.label for t in service.targets(p)} if p else {}
-        rows = list(reversed(p.publish_history[-100:])) if p else []
-        self.history.setRowCount(len(rows))
-        for r, h in enumerate(rows):
-            result = ("✓ " + (service.PRIVACY_LABELS.get(h.get("privacy"), h.get("privacy", "")) or "Đã đăng")
-                      + (f" — {h['message']}" if h.get("message") else "")) if h.get("ok") else "✗ " + (h.get("message") or "Lỗi")
-            cells = [h.get("time", ""), f"{names.get(h.get('chapter'), h.get('chapter', ''))} · {publish.account_name(h['account']) if h.get('account') else h.get('platform', '')}",
-                     result, h.get("url", "")]
-            for c, text in enumerate(cells):
-                it = QTableWidgetItem(text)
-                it.setToolTip(text)
-                self.history.setItem(r, c, it)
-
-    def open_history_link(self, row: int, _col: int) -> None:
-        it = self.history.item(row, 3)
-        if it and it.text().startswith("http"):
-            QDesktopServices.openUrl(QUrl(it.text()))
-
-    # ================= nội dung đang sửa =================
-    def current_target(self) -> service.Target | None:
-        r = self.table.currentRow()
-        return self._targets[r] if 0 <= r < len(self._targets) else None
-
-    def show_target(self, row: int) -> None:
-        self.commit_editor(quiet=True)
-        p = self.get_project()
-        t = self._targets[row] if 0 <= row < len(self._targets) else None
         self._shown = t
         meta = service.meta_of(p, t) if (p and t) else {}
+        self.edit_title.blockSignals(True)
+        self.edit_desc.blockSignals(True)
         self.edit_title.setText(meta.get("title", ""))
         self.edit_desc.setPlainText(meta.get("description", ""))
-        self.edit_tags.setText(_tags_text(meta.get("hashtags", [])))
-        self.lbl_target.setText(t.label if t else "Chọn một mục ở danh sách bên trái.")
-        for w in (self.edit_title, self.edit_desc, self.edit_tags, self.b_ai, self.b_save_meta):
-            w.setEnabled(t is not None and not self._worker)
+        self.edit_title.blockSignals(False)
+        self.edit_desc.blockSignals(False)
+        self._tags = list(meta.get("hashtags", []))
+        self.render_tags()
+        pm, secs = self._thumbs.get(t.key, (None, 0.0)) if t else (None, 0.0)
+        self.big_thumb.set(pm, secs)
+        for w in (self.edit_title, self.edit_desc, self.tag_input, self.b_add_tag, self.b_ai, self.b_save_meta, self.b_more, self.b_open_video):
+            w.setEnabled(t is not None and self._worker is None)
+        self.update_counters()
+        self.update_steps()
+
+    def render_tags(self) -> None:
+        while self.tag_flow.count():
+            it = self.tag_flow.takeAt(0)
+            w = it.widget()
+            if w is self.tag_input:
+                w.setParent(None)
+            elif w:
+                w.deleteLater()
+        for t in self._tags:
+            chip = HashChip(t)
+            chip.removed.connect(self.remove_tag)
+            self.tag_flow.addWidget(chip)
+        self.tag_flow.addWidget(self.tag_input)
+        self.tag_input.show()
+        self.tag_area.updateGeometry()
+        self.update_counters()
+
+    def add_tag_from_input(self) -> None:
+        new = base.clean_tags(self.tag_input.text(), MAX_TAGS)
+        self.tag_input.clear()
+        if not new:
+            return
+        self._tags = base.clean_tags(self._tags + new, MAX_TAGS)
+        self.render_tags()
+        self.commit_editor(quiet=True)
+
+    def remove_tag(self, tag: str) -> None:
+        self._tags = [t for t in self._tags if t != tag]
+        self.render_tags()
+        self.commit_editor(quiet=True)
 
     def commit_editor(self, quiet: bool = False) -> None:
         p, t = self.get_project(), self._shown
         if not p or not t:
             return
-        meta = dict(title=self.edit_title.text().strip(), description=self.edit_desc.toPlainText().strip(),
-                    hashtags=base.clean_tags(self.edit_tags.text(), 30))
-        if meta != {k: service.meta_of(p, t).get(k, [] if k == "hashtags" else "") for k in meta}:
+        meta = dict(title=self.edit_title.text().strip(), description=self.edit_desc.toPlainText().strip(), hashtags=list(self._tags))
+        old = service.meta_of(p, t)
+        if meta != {k: old.get(k, [] if k == "hashtags" else "") for k in meta}:
             service.set_meta(p, t, meta)
             p.save()
             if not quiet:
                 self.set_status("Đã lưu nội dung.", "ok")
-            self.fill_row_meta(t)
-
-    def fill_row_meta(self, t: service.Target) -> None:
-        p = self.get_project()
-        if t in self._targets:
-            it = self.table.item(self._targets.index(t), 3)
-            if it:
-                it.setText("✓" if service.meta_of(p, t).get("title") else "—")
+            if t.key in self._rows:
+                self._rows[t.key].update_info(self.row_info(p, t))
+        elif not quiet:
+            self.set_status("Nội dung không thay đổi.", "info")
 
     def ai_for_current(self) -> None:
         t, p = self._shown, self.get_project()
@@ -348,9 +1008,10 @@ class PublishTab(QWidget):
         def done(meta):
             service.set_meta(p, t, meta)
             p.save()
-            if self._shown is t:
-                self.show_target(self.table.currentRow())
-            self.fill_row_meta(t)
+            if self._shown and self._shown.key == t.key:
+                self.show_target(t)
+            if t.key in self._rows:
+                self._rows[t.key].update_info(self.row_info(p, t))
             self.set_status("AI đã viết xong, hãy xem lại rồi lưu/đăng.", "ok")
         self.start(job, done, "Đang nhờ AI viết mô tả…")
 
@@ -364,6 +1025,11 @@ class PublishTab(QWidget):
         p.publish_auto = self.auto.isChecked()
         p.save()
         self.update_buttons()
+        self.update_steps()
+        self.update_counters()
+        for t in self._targets:
+            if t.key in self._rows:
+                self._rows[t.key].update_info(self.row_info(p, t))
 
     def on_scope(self, *_) -> None:
         p = self.get_project()
@@ -372,16 +1038,15 @@ class PublishTab(QWidget):
         self.commit_editor(quiet=True)
         p.publish_scope = self.scope.currentData()
         p.save()
+        self._clear_rows()
         self._targets, self._shown = [], None
-        self.fill_table()
+        self.rebuild_list()
         self.update_buttons()
 
-    def check_all(self, on: bool) -> None:
-        for cb in self._checks:
-            cb.setChecked(on)
-
-    def checked_targets(self) -> list[service.Target]:
-        return [t for t, cb in zip(self._targets, self._checks) if cb.isChecked()]
+    def update_steps(self) -> None:
+        has_content = bool(self.edit_title.text().strip())
+        has_accounts = bool(self.chosen_accounts())
+        self.stepper.set_done([has_content, has_content and has_accounts, False])
 
     def update_buttons(self) -> None:
         idle = self._worker is None
@@ -402,6 +1067,11 @@ class PublishTab(QWidget):
         low = msg.lower()
         self.activity.emit(msg.splitlines()[0][:300] if msg else "", "error" if "lỗi" in low else "info")
 
+    def _lockables(self) -> list[QWidget]:
+        return [self.scope, self.sort, self.search, self.privacy, self.auto, self.force, self.edit_title, self.edit_desc, self.tag_input,
+                self.b_add_tag, self.b_ai, self.b_save_meta, self.b_more, self.b_refresh, self.all_check,
+                *self.acc_checks.values(), *(r.check for r in self._rows.values())]
+
     def start(self, fn, on_done, message: str) -> None:
         self._cancel.clear()
         self._worker = w = Worker(fn)
@@ -413,15 +1083,16 @@ class PublishTab(QWidget):
         w.finished.connect(self._finished)
         self.update_buttons()
         w.start()
-        for wd in (self.table, self.scope, self.edit_title, self.edit_desc, self.edit_tags, self.b_ai, self.b_save_meta, self.privacy,
-                   self.auto, self.force, *self.acc_checks.values()):
+        for wd in self._lockables():
             wd.setEnabled(False)
 
     def _finished(self) -> None:
         self._worker = None
-        for wd in (self.table, self.scope, self.privacy, self.auto, self.force, *self.acc_checks.values()):
-            wd.setEnabled(True)
+        status, kind = self.status.text(), self.status.property("pill")
         self.reload()
+        for wd in self._lockables():
+            wd.setEnabled(True)
+        self.set_status(status, kind or "info")
 
     def prepare(self) -> None:
         p, tgts = self.get_project(), self.checked_targets()
@@ -450,12 +1121,12 @@ class PublishTab(QWidget):
 
     def publish(self) -> None:
         p, tgts = self.get_project(), self.checked_targets()
-        plats = self.chosen_accounts()
-        if not (p and tgts and plats):
+        accs = self.chosen_accounts()
+        if not (p and tgts and accs):
             return
         self.commit_editor(quiet=True)
         priv = self.privacy.currentData()
-        lines = [f"• {len(tgts)} video × {len(plats)} tài khoản:\n   " + "\n   ".join(publish.account_name(a) for a in plats),
+        lines = [f"• {len(tgts)} video × {len(accs)} tài khoản:\n   " + "\n   ".join(publish.account_name(a) for a in accs),
                  f"• Chế độ: {service.PRIVACY_LABELS[priv]}"]
         if priv == "public":
             lines.append("\n⚠ Công khai: bài sẽ hiện ngay với mọi người và không thể thu hồi từ Kevit.")
@@ -463,11 +1134,11 @@ class PublishTab(QWidget):
             lines.append("\n⚠ Sẽ đăng LẠI cả những mục đã đăng (có thể trùng bài).")
         if QMessageBox.question(self, "Xác nhận đăng", "\n".join(lines) + "\n\nTiếp tục?") != QMessageBox.Yes:
             return
-        self.run_publish(p, tgts, plats, priv, self.force.isChecked())
+        self.run_publish(p, tgts, accs, priv, self.force.isChecked())
 
-    def run_publish(self, p, tgts, plats, priv, force=False) -> None:
+    def run_publish(self, p, tgts, accs, priv, force=False) -> None:
         def job(log):
-            return service.run(p, tgts, plats, priv, log, self._cancel, force)
+            return service.run(p, tgts, accs, priv, log, self._cancel, force)
 
         def done(results):
             ok = sum(1 for r in results if r.ok)
@@ -482,11 +1153,11 @@ class PublishTab(QWidget):
         p = self.get_project()
         if not p or not p.publish_auto or self._worker is not None:
             return
-        plats = [a for a in p.publish_accounts if publish.store.get_account(a).get("access_token")]
-        for a in set(p.publish_accounts) - set(plats):
+        accs = [a for a in p.publish_accounts if publish.store.get_account(a).get("access_token")]
+        for a in set(p.publish_accounts) - set(accs):
             self.log(f"Tự động đăng: bỏ qua {publish.account_name(a)} vì tài khoản chưa kết nối hoặc đã bị xoá.")
-        todo = [t for t in service.targets(p) if service.is_ready(p, t) and any(not service.history_ok(p, t, k) for k in plats)]
-        if not (plats and todo):
+        todo = [t for t in service.targets(p) if service.is_ready(p, t) and any(not service.history_ok(p, t, a) for a in accs)]
+        if not (accs and todo):
             return
-        self.log(f"Tự động đăng: {len(todo)} video lên {', '.join(publish.account_name(a) for a in plats)} ({service.PRIVACY_LABELS[p.publish_privacy]}).")
-        self.run_publish(p, todo, plats, p.publish_privacy)
+        self.log(f"Tự động đăng: {len(todo)} video lên {', '.join(publish.account_name(a) for a in accs)} ({service.PRIVACY_LABELS[p.publish_privacy]}).")
+        self.run_publish(p, todo, accs, p.publish_privacy)
