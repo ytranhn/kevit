@@ -328,6 +328,12 @@ class ProjectSettingsDialog(QDialog):
         pair2.addLayout(_labeled("Số scene gửi cùng lúc", self.tab.flow_parallel, "Credit không đổi. Flow báo lỗi hoặc giới hạn thì giảm xuống."), 1)
         body.addWidget(pair1)
         body.addWidget(pair2)
+        self.auto_merge = QCheckBox("Tự ghép video khi chương gen xong")
+        self.auto_merge.setToolTip("Khi mọi scene của một chương đã xong (sau khi gen, hoặc sau khi đồng bộ Flow), tự ghép thành video chương")
+        self.auto_sync = QCheckBox("Tự đồng bộ với Flow khi có scene lỗi")
+        self.auto_sync.setToolTip("Sau một lượt gen mà còn scene lỗi, tự tìm clip đã render trên Flow và tải về (không tốn credit)")
+        body.addWidget(self.auto_merge)
+        body.addWidget(self.auto_sync)
 
         est = QFrame()
         est.setProperty("estimate", True)
@@ -521,6 +527,7 @@ class ProjectSettingsDialog(QDialog):
         p = self.tab.project
         if not p:
             return
+        p.gen_auto_merge, p.gen_auto_sync = self.auto_merge.isChecked(), self.auto_sync.isChecked()
         p.publish_accounts = [k for k, cb in self.acc_checks.items() if cb.isChecked()] + [a for a in p.publish_accounts if a not in self.acc_checks]
         p.publish_privacy = self.pub_privacy.currentData() or "private"
         p.publish_auto = self.pub_auto.isChecked()
@@ -541,6 +548,8 @@ class ProjectSettingsDialog(QDialog):
         t.voice_style.setText(DEFAULT_VOICE_STYLE)
         self.pub_privacy.setCurrentIndex(max(0, self.pub_privacy.findData("private")))
         self.pub_auto.setChecked(False)
+        self.auto_merge.setChecked(True)
+        self.auto_sync.setChecked(True)
         self.refresh_flow()
 
     def snapshot(self) -> dict:
@@ -560,6 +569,9 @@ class ProjectSettingsDialog(QDialog):
         """Hiện hộp thoại; trả True nếu người dùng bấm Lưu."""
         self.sub.setText(self.tab.project.name if self.tab.project else "")
         self.fill_accounts()
+        p = self.tab.project
+        self.auto_merge.setChecked(bool(p and p.gen_auto_merge))
+        self.auto_sync.setChecked(bool(p and p.gen_auto_sync))
         self.refresh_flow()
         self.refresh_voice()
         self.refresh_credit_card()

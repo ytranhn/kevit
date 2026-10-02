@@ -192,6 +192,8 @@ class Project:
     publish_privacy: str = "private"   # private | unlisted | public
     publish_auto: bool = False         # tự ghép, viết mô tả và đăng ngay khi một chương gen xong
     publish_history: list[dict] = field(default_factory=list)    # nhật ký các lần đăng: {chapter, platform, account, ok, url, post_id, time, privacy, message}
+    gen_auto_merge: bool = True        # tự ghép video chương khi mọi scene của chương gen xong
+    gen_auto_sync: bool = True         # tự đồng bộ với Flow (không tốn credit) khi sau lượt gen còn scene lỗi
     publish_queue: list[dict] = field(default_factory=list)      # lịch đăng: {id, key, at, accounts, privacy, status, message, ran_at}
     chapters: list[Chapter] = field(default_factory=list)
 

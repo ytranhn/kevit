@@ -269,7 +269,7 @@ class ProjectTab(QWidget):
         self.pop_chapter = popover_button(self.nav_chapter, self.build_chapter_pop, side="below", align="left", width=460)
         self.sync_btn = QPushButton("Đồng bộ Flow")
         icons.attach(self.sync_btn, "refresh")
-        self.sync_btn.clicked.connect(self.flow_sync)
+        self.sync_btn.clicked.connect(lambda *_: self.flow_sync())
         self.more = QPushButton("Khác")
         icons.attach(self.more, "down", 18)
         self.more.setLayoutDirection(Qt.RightToLeft)          # mũi tên xổ nằm bên phải chữ
@@ -921,6 +921,10 @@ class ProjectTab(QWidget):
         pop.item(f"Gen lại tất cả  ·  {len(sc)}", "Ghi đè cả scene đã xong, tốn nhiều credit",
                  lambda: self.flow_auto_run("all"), enabled=bool(sc), danger=True)
         pop.separator()
+        chap_pend = sum(1 for c in (self.project.chapters if self.project else []) if any(s.status != "done" for s in c.scenes))
+        pop.item(f"Gen nhiều chương…  ·  {chap_pend} chương chưa xong", "Chọn các chương, gen lần lượt, tự ghép video và tự đồng bộ khi lỗi",
+                 self.gen_chapters_dialog, enabled=chap_pend > 0)
+        pop.separator()
         pop.section("Số scene gửi cùng lúc lên Flow")
         seg = Segmented()
         for k in (1, 2, 3, 4):
@@ -1542,7 +1546,7 @@ class ProjectTab(QWidget):
         s = self.scenes[self._row]
         ctx = f"{self.chapter.name}  ·  Scene {s.index}: {s.title}" if s.title else f"{self.chapter.name}  ·  Scene {s.index}"
         dlg = ErrorDialog(self, f"Scene {s.index} gặp lỗi", ctx, s.error,
-                          copy_text=f"{self.chapter.name} / Scene {s.index} [{s.status}]\n{s.error}".strip(), sync_cb=self.flow_sync)
+                          copy_text=f"{self.chapter.name} / Scene {s.index} [{s.status}]\n{s.error}".strip(), sync_cb=lambda *_: self.flow_sync())
         dlg.exec()
 
     def copy_error(self):
@@ -1688,6 +1692,8 @@ class ProjectTab(QWidget):
         self.activity.emit(msg.splitlines()[0][:300] if msg else "", level)
 
     def request_cancel(self):
+        if getattr(self, "_batch", None):
+            self._batch["stop"] = True            # dừng cả lô: không bắt đầu chương kế tiếp
         if self._busy and self._cancelable:
             self._cancel.set()
             self.log("Sẽ dừng sau scene đang chạy (scene đã gửi lên Flow vẫn hoàn tất vì credit đã được trừ).")
@@ -1850,6 +1856,9 @@ class ProjectTab(QWidget):
         self._restore_queue()
         self.progress_changed.emit(0, 0)
         self.refresh_view()
+        cb, self._then = getattr(self, "_then", None), None
+        if cb:
+            QTimer.singleShot(0, cb)
 
     def need_project(self, need_key: bool = False) -> bool:
         if not self.project:
@@ -1860,7 +1869,10 @@ class ProjectTab(QWidget):
             return True
         return False
 
-    def run(self, fn, on_done, cancelable: bool = False, on_fail=None):
+    def run(self, fn, on_done, cancelable: bool = False, on_fail=None, then=None):
+        """Chạy `fn` ở luồng nền. `then` (tuỳ chọn) được gọi trên luồng giao diện SAU KHI tiến trình kết thúc và giao diện đã mở khoá
+        (dù thành công, lỗi hay bị dừng), dùng để nối tiếp các bước (đồng bộ → ghép → chương kế tiếp)."""
+        self._then = then
         self._cancelable = cancelable
         self._cancel.clear()
         self._prog = (0, 0)
@@ -2120,26 +2132,31 @@ class ProjectTab(QWidget):
                 QTimer.singleShot(0, then)
         self.run(job, done)
 
-    def flow_auto_run(self, mode: str = "pending"):
+    def flow_auto_run(self, mode: str = "pending", silent: bool = False, then=None):
+        """Gen scene của chương đang xem. silent=True (dùng khi gen nhiều chương): không hỏi xác nhận/cổng credit từng chương (đã hỏi một lần
+        cho cả lô) và không bật hộp thoại; `then` được gọi khi chương xong (sau tự đồng bộ/ghép)."""
         if not self.need_project():
-            return
+            return self._skip_run(then)
         if not self.scenes:
+            if silent:
+                self.log(f"[{self.chapter.name}] Chưa có scene, bỏ qua.")
+                return self._skip_run(then)
             QMessageBox.warning(self, "Thiếu scene", "Bấm ① Tạo scene trước.")
             return
         self.save_edits()
         p, ch = self.project, self.chapter
         todo = self.pick_todo(mode)
         if not todo:
-            self.log(f"Không có scene nào để gen ({self.MODE_LABEL[mode]}).")
-            return
+            self.log(f"[{ch.name}] Không có scene nào để gen ({self.MODE_LABEL[mode]}).")
+            return self._skip_run(then, ch) if silent else None
         redo = sum(1 for s in todo if s.status == "done")
         est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration, p.narration_lang)
-        if not self.credit_gate(est, lambda: self.flow_auto_run(mode)):
+        if not silent and not self.credit_gate(est, lambda: self.flow_auto_run(mode)):
             return
         cfg = p.flow_model + (f" {p.flow_resolution}" if p.flow_model == credits.OMNI else "")
         acc_now = accounts.get(p.account_id)
         auto = accounts.auto_switch()
-        if QMessageBox.question(self, "Xác nhận trừ credit",
+        if not silent and QMessageBox.question(self, "Xác nhận trừ credit",
                                 f"Sẽ tạo {len(todo)} clip ({ch.name}: {self.MODE_LABEL[mode]}) bằng {cfg} trên Google Flow.\n"
                                 + (f"⚠ {redo} scene đã xong sẽ bị gen LẠI và ghi đè clip cũ.\n" if redo else "") +
                                 f"Ước tính khoảng {est} credit (giá thật hiện trong nhật ký).\n"
@@ -2363,24 +2380,36 @@ class ProjectTab(QWidget):
 
         def on_fail(msg):
             if "Không đủ credit" in msg:
-                QMessageBox.warning(self, "Không đủ credit", msg)
+                if silent and getattr(self, "_batch", None):
+                    self._batch["stop"] = True          # hết credit giữa lô: dừng cả lô, thông báo ở cuối
+                    self._batch["why"] = msg
+                else:
+                    QMessageBox.warning(self, "Không đủ credit", msg)
         self._prog = (0, len(todo))
-        self.run(job, lambda _: self.generation_done.emit(), cancelable=True, on_fail=on_fail)
+        # sau lượt gen: tự đồng bộ Flow nếu còn scene lỗi, tự ghép nếu chương đã đủ scene, rồi mới báo hoàn tất (tab Đăng video dùng tín hiệu này)
+        after = then if then is not None else self.generation_done.emit
+        self.run(job, lambda _: None, cancelable=True, on_fail=on_fail, then=lambda: self._finish_chapter(ch, after))
 
-    def flow_sync(self):
+    def flow_sync(self, chapters=None, then=None, quiet: bool = False) -> bool:
         """Đối soát với Flow, không tốn credit: (1) scene đã có clip gốc nhưng chưa xong -> tạo giọng + ghép;
-        (2) scene chưa có clip -> tìm clip đã render trên Flow theo nội dung prompt (quét TẤT CẢ chương) và tải về."""
+        (2) scene chưa có clip -> tìm clip đã render trên Flow theo nội dung prompt và tải về. `chapters`: chỉ đối soát các chương này
+        (mặc định tất cả). `then`: gọi khi xong; mặc định tự ghép các chương đã đủ scene. Trả True nếu đã bắt đầu một tiến trình nền."""
         if not self.need_project():
-            return
+            return False
         self.save_edits()
         p = self.project
+        scope = set(map(id, chapters)) if chapters is not None else None
         owner = {id(s): ch for ch, s in p.all_scenes()}
+        pairs = [(ch, s) for ch, s in p.all_scenes() if scope is None or id(ch) in scope]
         has_raw = lambda s: bool(s.raw_clip and Path(s.raw_clip).exists())
-        heal = [s for _, s in p.all_scenes() if s.status != "done" and has_raw(s)]
-        missing = [s for _, s in p.all_scenes() if s.status != "done" and not has_raw(s)]
+        heal = [s for _, s in pairs if s.status != "done" and has_raw(s)]
+        missing = [s for _, s in pairs if s.status != "done" and not has_raw(s)]
+        if then is None:
+            then = self._merge_ready_chapters
         if not heal and not missing:
-            self.log("Mọi scene đều đã xong, không có gì để đồng bộ.")
-            return
+            if not quiet:
+                self.log("Mọi scene đều đã xong, không có gì để đồng bộ.")
+            return False
 
         def finish(s, log):
             try:
@@ -2426,7 +2455,8 @@ class ProjectTab(QWidget):
                             s.status, s.error = "pending", ""
                     p.save()
             log("Đồng bộ xong.")
-        self.run(job, lambda _: None, cancelable=bool(heal))
+        self.run(job, lambda _: None, cancelable=bool(heal), then=then)
+        return True
 
     def generate(self, mode: str = "pending"):
         """Đường Gemini API (Veo) — chỉ dùng khi có key."""
@@ -2535,6 +2565,136 @@ class ProjectTab(QWidget):
             self.preview.load(str(o), autoplay=True)
         self._keep_preview = True
         self.run(lambda log: merge(clips, out), done)
+
+
+    # ================= hậu xử lý sau khi gen: tự đồng bộ Flow, tự ghép =================
+    def _skip_run(self, then, ch=None) -> None:
+        """Không có gì để gen nhưng vẫn phải nối tiếp chuỗi (và vẫn xử lý lỗi/ghép của chương nếu có)."""
+        if ch is not None:
+            QTimer.singleShot(0, lambda: self._finish_chapter(ch, then))
+        elif then:
+            QTimer.singleShot(0, then)
+
+    def _stopping(self) -> bool:
+        return bool(self._cancel.is_set() or (getattr(self, "_batch", None) or {}).get("stop"))
+
+    def _chapter_ready(self, ch) -> bool:
+        return bool(ch.scenes) and all(s.status == "done" and s.clip and Path(s.clip).exists() for s in ch.scenes)
+
+    def _needs_merge(self, ch) -> bool:
+        from .publish import service
+        return service.is_stale(self.project, service.Target(ch.id, ch.name, ch))
+
+    def _finish_chapter(self, ch, cont=None, synced: bool = False) -> None:
+        """Sau lượt gen của một chương: (1) còn scene lỗi -> tự đồng bộ Flow (miễn phí, chỉ chương này); (2) chương đủ scene xong -> tự ghép
+        video; rồi gọi `cont`. Mỗi bước tự bỏ qua khi tắt trong Cài đặt dự án hoặc khi người dùng đã bấm Dừng."""
+        p = self.project
+        if p is None or ch not in p.chapters:
+            return cont() if cont else None
+        if not self._stopping():
+            errs = [s for s in ch.scenes if s.status == "error"]
+            if errs and p.gen_auto_sync and not synced:
+                self.log(f"[{ch.name}] {len(errs)} scene lỗi: tự đồng bộ với Flow (không tốn credit)…")
+                if self.flow_sync(chapters=[ch], then=lambda: self._finish_chapter(ch, cont, True), quiet=True):
+                    return
+            if p.gen_auto_merge and self._chapter_ready(ch) and self._needs_merge(ch):
+                return self._merge_chapter(ch, cont)
+        if cont:
+            cont()
+
+    def _merge_chapter(self, ch, then=None) -> None:
+        """Ghép video của chương ở nền (không đổi khung xem trước đang mở)."""
+        p = self.project
+        clips = [Path(s.clip) for s in ch.scenes]
+        out = p.merged_path(ch)
+        self.log(f"[{ch.name}] Đã gen xong mọi scene: tự ghép video…")
+
+        def fail(msg):
+            self.log(f"[{ch.name}] LỖI khi tự ghép video: {msg}")
+        self._keep_preview = True
+        self.run(lambda log: merge(clips, out), lambda o: self.log(f"[{ch.name}] Đã ghép video: {o}"), on_fail=fail, then=then)
+
+    def _merge_ready_chapters(self) -> None:
+        """Ghép lần lượt mọi chương đã đủ scene mà video ghép chưa có/đã cũ (dùng sau Đồng bộ Flow)."""
+        p = self.project
+        if p is None or not p.gen_auto_merge or self._stopping():
+            return
+        ch = next((c for c in p.chapters if self._chapter_ready(c) and self._needs_merge(c)), None)
+        if ch is not None:
+            self._merge_chapter(ch, self._merge_ready_chapters)
+
+    # ================= gen nhiều chương =================
+    _batch = None
+
+    def gen_chapters_dialog(self) -> None:
+        if not self.need_project():
+            return
+        self.save_edits()
+        from .chapter_gen_dialog import ChapterGenDialog
+        dlg = ChapterGenDialog(self, self.project)
+        if dlg.exec() != ChapterGenDialog.Accepted or not dlg.chosen():
+            return
+        p = self.project
+        p.gen_auto_merge, p.gen_auto_sync = dlg.auto_merge.isChecked(), dlg.auto_sync.isChecked()
+        p.save()
+        self.start_batch([c.id for c in dlg.chosen()])
+
+    def start_batch(self, ids: list[str]) -> None:
+        p = self.project
+        chosen = [c for c in p.chapters if c.id in ids]
+        todo = [s for c in chosen for s in c.scenes if s.status != "done"]
+        if not todo:
+            QMessageBox.information(self, "Không có gì để gen", "Các chương đã chọn không còn scene nào chưa xong.")
+            return
+        est = credits.estimate(p.flow_model, p.flow_resolution, todo, p.flow_auto_duration, p.narration_lang)
+        if not self.credit_gate(est, lambda: self.start_batch(ids)):
+            return
+        acc = accounts.get(p.account_id)
+        cfg = p.flow_model + (f" {p.flow_resolution}" if p.flow_model == credits.OMNI else "")
+        auto = accounts.auto_switch() and len(accounts.all_accounts()) > 1
+        if QMessageBox.question(
+                self, "Xác nhận gen nhiều chương",
+                f"Sẽ gen {len(todo)} scene của {len(chosen)} chương, lần lượt từng chương, bằng {cfg} trên Google Flow.\n"
+                f"Ước tính khoảng {est} credit (giá thật hiện trong nhật ký).\n"
+                f"Tài khoản Flow: «{acc.name}» ({accounts.describe_credits(acc)})" + ("; tự chuyển tài khoản khi hết credit." if auto else ".") + "\n\n"
+                + ("• Chương đủ scene sẽ tự ghép video.\n" if p.gen_auto_merge else "") + ("• Scene lỗi sẽ tự đồng bộ với Flow (không tốn credit).\n" if p.gen_auto_sync else "")
+                + "\nBấm Dừng để ngừng sau scene đang chạy. Chrome Flow phải đã đăng nhập. Tiếp tục?") != QMessageBox.Yes:
+            return
+        self._batch = dict(ids=[c.id for c in chosen], i=0, stop=False, why="", start_ok=sum(1 for c in chosen for s in c.scenes if s.status == "done"))
+        self._batch_next()
+
+    def _batch_next(self) -> None:
+        b = self._batch
+        if not b:
+            return
+        p = self.project
+        if b["i"] > 0:
+            self.generation_done.emit()           # chương vừa rồi đã xong (đã đồng bộ/ghép): tab Đăng video có thể tự đăng ngay chương đó
+        if b["stop"] or b["i"] >= len(b["ids"]) or p is None:
+            return self._batch_end()
+        cid = b["ids"][b["i"]]
+        b["i"] += 1
+        idx = next((i for i, c in enumerate(p.chapters) if c.id == cid), -1)
+        if idx < 0:
+            return self._batch_next()
+        self.fill_chapter_combo(idx)
+        self.show_chapter(idx)
+        self.log(f"[Lô] Chương {b['i']}/{len(b['ids'])}: {self.chapter.name}")
+        self.flow_auto_run("pending", silent=True, then=self._batch_next)
+
+    def _batch_end(self) -> None:
+        b, self._batch = self._batch, None
+        p = self.project
+        if not b or p is None:
+            return
+        chosen = [c for c in p.chapters if c.id in b["ids"]]
+        done = sum(1 for c in chosen for s in c.scenes if s.status == "done")
+        total = sum(len(c.scenes) for c in chosen)
+        full = sum(1 for c in chosen if self._chapter_ready(c))
+        errs = sum(1 for c in chosen for s in c.scenes if s.status == "error")
+        head = "Đã dừng gen nhiều chương." if b["stop"] else "Gen nhiều chương xong."
+        self.log(f"{head} {done}/{total} scene xong, {full}/{len(chosen)} chương đủ scene"
+                 + (f", {errs} scene lỗi (gen lại hoặc Đồng bộ Flow)" if errs else "") + "." + (f" {b['why']}" if b["why"] else ""))
 
     # ================= Flow thủ công =================
     def flow_export(self):

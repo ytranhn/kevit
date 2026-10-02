@@ -567,3 +567,206 @@ class TestScheduleUI(Tmp):
         self.tab.job_remove()
         self.assertEqual(self.p.publish_queue, [])
         self.assertEqual(schedule.projects_with_pending(), [])
+
+
+class TestBatchGen(Tmp):
+    """Gen nhiều chương: chuỗi gen → (lỗi: đồng bộ Flow) → (đủ scene: ghép) → chương kế. Phần gọi Flow thật được thay bằng bản giả."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        from app import theme, ui
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        p = models.Project("Gen lô")
+        for i in range(3):
+            ch = p.new_chapter(f"Chương {i + 1}")
+            for k in (1, 2):
+                ch.scenes.append(models.Scene(k, narration="x", visual="v", status="pending"))
+        p.save()
+        self.w = ui.MainWindow()
+        self.addCleanup(self.w.close)
+        self.tab = self.w.proj
+        self.tab.combo.setCurrentText("Gen lô")
+        self.calls, self.syncs = [], []
+        self.fail_chapters = set()
+        tab = self.tab
+
+        def fake_gen(mode="pending", silent=False, then=None):
+            ch = tab.chapter
+            self.calls.append(ch.id)
+            for s in ch.scenes:
+                if s.status == "done":
+                    continue
+                if ch.id in self.fail_chapters:
+                    s.status, s.error = "error", "Không tải được clip"
+                else:
+                    self.finish_scene(ch, s)
+            after = then if then is not None else tab.generation_done.emit
+            tab.run(lambda log: None, lambda _: None, cancelable=True, then=lambda: tab._finish_chapter(ch, after))
+
+        def fake_sync(chapters=None, then=None, quiet=False):
+            self.syncs.append([c.id for c in chapters] if chapters else None)
+            for c in chapters or []:
+                for s in c.scenes:
+                    if s.status == "error":
+                        self.finish_scene(c, s)
+            tab.run(lambda log: None, lambda _: None, then=then)
+            return True
+        tab.flow_auto_run = fake_gen
+        tab.flow_sync = fake_sync
+        self.done_signals = []
+        tab.generation_done.connect(lambda: self.done_signals.append(1))
+        patcher = mock.patch.object(QMessageBox, "question", return_value=QMessageBox.Yes)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def finish_scene(self, ch, s):
+        p = self.tab.project
+        clip = p.chapter_dir(ch) / "clips" / f"scene_{s.index:02d}.mp4"
+        make_clip(clip)
+        s.raw_clip = s.clip = str(clip)
+        s.status, s.error = "done", ""
+
+    def run_batch(self, ids):
+        self.tab.start_batch(ids)
+        self.assertTrue(wait(lambda: self.tab._batch is None and not self.tab._busy, 60))
+
+    def test_batch_runs_chapters_in_order_and_merges_each(self):
+        p = self.tab.project
+        self.run_batch(["01", "02", "03"])
+        self.assertEqual(self.calls, ["01", "02", "03"])
+        for ch in p.chapters:
+            self.assertTrue(p.merged_path(ch).exists(), ch.name)              # mỗi chương đủ scene đều được tự ghép
+        self.assertEqual(self.syncs, [])
+        self.assertEqual(len(self.done_signals), 3)                             # phát khi TỪNG chương xong (tab Đăng video dùng để tự đăng ngay chương đó)
+
+    def test_error_scenes_trigger_auto_sync_then_merge(self):
+        p = self.tab.project
+        self.fail_chapters = {"02"}
+        self.run_batch(["01", "02", "03"])
+        self.assertEqual(self.syncs, [["02"]])                                   # chỉ đồng bộ đúng chương lỗi
+        self.assertTrue(p.merged_path(p.chapters[1]).exists())                   # đồng bộ khôi phục clip → ghép được
+        self.assertTrue(all(s.status == "done" for c in p.chapters for s in c.scenes))
+
+    def test_options_off_means_no_sync_no_merge(self):
+        p = self.tab.project
+        p.gen_auto_merge = p.gen_auto_sync = False
+        self.fail_chapters = {"02"}
+        self.run_batch(["01", "02"])
+        self.assertEqual(self.syncs, [])
+        self.assertFalse(p.merged_path(p.chapters[0]).exists())
+        self.assertEqual([s.status for s in p.chapters[1].scenes], ["error", "error"])      # lỗi giữ nguyên, không tự xử lý
+
+    def test_stop_ends_the_batch_cleanly(self):
+        original = self.tab.flow_auto_run
+
+        def stopping(mode="pending", silent=False, then=None):
+            original(mode, silent, then)
+            self.tab.request_cancel()                                           # người dùng bấm Dừng ngay sau chương đầu
+        self.tab.flow_auto_run = stopping
+        self.run_batch(["01", "02", "03"])
+        self.assertEqual(self.calls, ["01"])
+        self.assertIsNone(self.tab._batch)
+
+    def test_already_done_chapters_are_skipped_but_still_merged(self):
+        p = self.tab.project
+        for s in p.chapters[0].scenes:
+            self.finish_scene(p.chapters[0], s)
+        self.assertFalse(p.merged_path(p.chapters[0]).exists())
+        self.tab._finish_chapter(p.chapters[0])
+        self.assertTrue(wait(lambda: p.merged_path(p.chapters[0]).exists() and not self.tab._busy, 30))
+
+    def test_no_pending_scenes_shows_message_instead_of_starting(self):
+        from unittest import mock
+        p = self.tab.project
+        for ch in p.chapters:
+            for s in ch.scenes:
+                s.status = "done"
+        with mock.patch.object(QMessageBox, "information") as info:
+            self.tab.start_batch(["01", "02"])
+        info.assert_called_once()
+        self.assertIsNone(self.tab._batch)
+
+    def test_dialog_summary_and_selection(self):
+        from app.chapter_gen_dialog import ChapterGenDialog
+        p = self.tab.project
+        for s in p.chapters[0].scenes:
+            s.status = "done"                                                   # chương 1 đã xong: không chọn được
+        d = ChapterGenDialog(None, p)
+        self.assertFalse(d.checks[0].isEnabled())
+        self.assertEqual([c.id for c in d.chosen()], ["02", "03"])               # mặc định chọn mọi chương chưa xong
+        self.assertIn("4 scene của 2 chương", d.summary.text())
+        d.checks[2].setChecked(False)
+        self.assertIn("2 scene của 1 chương", d.summary.text())
+        d.set_all(False)
+        self.assertFalse(d.ok.isEnabled())
+
+    def test_project_settings_toggles_roundtrip(self):
+        d = self.tab.settings_dialog
+        d.auto_merge.setChecked(False)
+        d.auto_sync.setChecked(False)
+        d.apply_publish()
+        p = models.Project.load("Gen lô") if False else self.tab.project
+        self.assertEqual((p.gen_auto_merge, p.gen_auto_sync), (False, False))
+
+
+class TestRealFlowAutoRunChain(Tmp):
+    """Dùng hàm flow_auto_run THẬT với Chrome/Flow giả (luôn lỗi) để chắc chuỗi vẫn đi tiếp, không treo và không đổi trạng thái scene."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+        from app import flow_auto, theme, ui
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        p = models.Project("Flow lỗi")
+        for i in range(2):
+            ch = p.new_chapter(f"Chương {i + 1}")
+            for k in (1, 2):
+                ch.scenes.append(models.Scene(k, narration="x", visual="v", status="pending"))
+        p.save()
+        self.w = ui.MainWindow()
+        self.addCleanup(self.w.close)
+        self.tab = self.w.proj
+        self.tab.combo.setCurrentText("Flow lỗi")
+
+        class Broken:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                raise flow_auto.FlowError("Chrome Flow chưa mở")
+
+            def __exit__(self, *a):
+                return False
+        for patcher in (mock.patch.object(flow_auto, "FlowAuto", Broken), mock.patch.object(QMessageBox, "question", return_value=QMessageBox.Yes),
+                        mock.patch.object(QMessageBox, "warning")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_failed_flow_does_not_break_the_chain(self):
+        order = []
+        self.tab.generation_done.connect(lambda: order.append("done"))
+        self.tab.start_batch(["01", "02"])
+        self.assertTrue(wait(lambda: self.tab._batch is None and not self.tab._busy, 60))
+        p = self.tab.project
+        self.assertTrue(all(s.status == "pending" for c in p.chapters for s in c.scenes))     # không gen được → trả về chờ gen, không kẹt "queued"
+        self.assertEqual(len(order), 2)                                                        # cả hai chương đều được xử lý rồi kết thúc lô
+
+    def test_single_chapter_run_emits_done_after_post_processing(self):
+        got = []
+        self.tab.generation_done.connect(lambda: got.append(1))
+        self.tab.show_chapter(0)
+        self.tab.flow_auto_run("pending")
+        self.assertTrue(wait(lambda: not self.tab._busy and bool(got), 60))
+        self.assertEqual(len(got), 1)
+
+    def test_silent_with_nothing_to_do_still_continues(self):
+        p = self.tab.project
+        for s in p.chapters[0].scenes:
+            s.status = "done"
+        called = []
+        self.tab.show_chapter(0)
+        self.tab.flow_auto_run("pending", silent=True, then=lambda: called.append(1))
+        self.assertTrue(wait(lambda: bool(called), 30))

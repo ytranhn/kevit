@@ -68,6 +68,8 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 - **Tự động hoá qua Chrome của chính bạn.** Mỗi chương một project Flow riêng (đặt tên «Dự án · Chương»), tải ảnh nhân vật, tạo clip, tải bản gốc về.
 - **Nhiều tài khoản Google Flow.** Mỗi tài khoản có cửa sổ Chrome, đăng nhập và credit riêng (mở song song được); mỗi dự án gắn một tài khoản, đổi nhanh ở chip Flow dưới cùng hoặc trong Cài đặt dự án.
 - **Theo dõi credit từng tài khoản và tự chuyển tài khoản.** Kevit đọc credit còn lại (và credit tặng hằng ngày, thời gian làm mới) của mỗi tài khoản Flow; tài khoản đích không đủ credit thì **cảnh báo và không cho chạy**. Bật *tự động chuyển tài khoản* để phần scene còn lại tự sang tài khoản khác còn credit, không gián đoạn phiên làm việc.
+- **Gen nhiều chương một lượt.** Menu *Gen video → Gen nhiều chương…*: chọn các chương, xem số scene và ước tính credit, xác nhận một lần rồi Kevit gen lần lượt từng chương.
+- **Tự ghép khi chương xong, tự đồng bộ khi lỗi.** Chương nào đủ mọi scene thì tự ghép video; sau lượt gen mà còn scene lỗi thì tự đồng bộ với Flow (không tốn credit) để lấy lại clip đã render. Cả hai áp dụng cho gen một chương lẻ và bật/tắt được ở Cài đặt dự án → Google Flow.
 - **Gen song song.** Gửi nhiều scene một lượt rồi thu clip về, credit không đổi.
 - **Đồng bộ Flow.** Lấy lại clip đã render mà app chưa tải, không tốn credit.
 - **Chọn khổ video:** 9:16 dọc, 16:9 ngang, hoặc **Theo Flow**.
