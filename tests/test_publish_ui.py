@@ -46,6 +46,7 @@ class TestPublishTab(Tmp):
         p.save()
         self.p = p
         self.tab = PublishTab(lambda: self.p)
+        self.addCleanup(lambda: wait(lambda: self.tab._thumb_worker is None and self.tab._worker is None))   # luồng nền xong rồi mới xoá thư mục tạm
         self.tab.reload()
 
     def test_default_selection_is_ready_chapters_only(self):

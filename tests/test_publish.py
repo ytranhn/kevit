@@ -33,7 +33,7 @@ def fake_video(tmp: Path, name="v.mp4", size=2500) -> Path:
 class Tmp(unittest.TestCase):
     def setUp(self):
         import tempfile
-        self._d = tempfile.TemporaryDirectory()
+        self._d = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.tmp = Path(self._d.name)
         for k in ("publish_creds", "publish_accounts"):
             models.qsettings().remove(k)
