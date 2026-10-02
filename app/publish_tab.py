@@ -589,8 +589,10 @@ class PublishTab(QWidget):
 
         # ---------- thanh thao tác dưới cùng ----------
         self.status = QLabel("")
+        self.status.setProperty("statusline", True)
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.status.hide()
         self.b_prepare = QPushButton("Ghép + viết mô tả")
         icons.attach(self.b_prepare, "link", 18)
         self.b_prepare.clicked.connect(self.prepare)
@@ -1069,7 +1071,8 @@ class PublishTab(QWidget):
     # ================= chạy nền =================
     def set_status(self, text: str, kind: str = "info") -> None:
         self.status.setText(text)
-        self.status.setProperty("pill", kind)
+        self.status.setProperty("kind", kind)
+        self.status.setVisible(bool(text))
         repolish(self.status)
         self.activity.emit(text, {"ok": "ok", "err": "error", "warn": "warn"}.get(kind, "info"))
 
@@ -1099,7 +1102,7 @@ class PublishTab(QWidget):
 
     def _finished(self) -> None:
         self._worker = None
-        status, kind = self.status.text(), self.status.property("pill")
+        status, kind = self.status.text(), self.status.property("kind")
         self.reload()
         for wd in self._lockables():
             wd.setEnabled(True)

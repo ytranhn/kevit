@@ -249,6 +249,7 @@ class PlatformCard(QFrame):
         self.acc_box = QVBoxLayout()
         self.acc_box.setSpacing(SP.s)
         self.msg = QLabel("")
+        self.msg.setProperty("statusline", True)
         self.msg.setWordWrap(True)
         self.msg.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
@@ -313,7 +314,7 @@ class PlatformCard(QFrame):
 
     def set_msg(self, text: str, kind: str = "info") -> None:
         self.msg.setText(text)
-        self.msg.setProperty("pill", kind)
+        self.msg.setProperty("kind", kind)
         self.msg.setVisible(bool(text))
         repolish(self.msg)
 
@@ -379,7 +380,7 @@ class PlatformCard(QFrame):
         self.login_worker.start()
 
     def refresh_keep_msg(self) -> None:
-        text, kind = self.msg.text(), self.msg.property("pill")
+        text, kind = self.msg.text(), self.msg.property("kind")
         self.refresh()
         if text:
             self.set_msg(text, kind or "info")

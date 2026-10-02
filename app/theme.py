@@ -132,6 +132,10 @@ QPushButton[aspcard="true"]:hover { border-color: $border_strong; }
 QPushButton[aspcard="true"]:checked { border: 1px solid $accent; background: $accent_tint; }
 QFrame[creditcard="true"] { background: $ok_tint; border: 1px solid $ok; border-radius: 12px; }
 QFrame[estimate="true"] { background: $warn_tint; border: 1px solid $border; border-radius: 10px; }
+QLabel[statusline="true"] { background: $surface2; color: $muted; border-radius: 10px; padding: 10px 14px; }
+QLabel[statusline="true"][kind="ok"] { background: $ok_tint; color: $ok; }
+QLabel[statusline="true"][kind="warn"] { background: $warn_tint; color: $warn; }
+QLabel[statusline="true"][kind="err"] { background: $err_tint; color: $err; }
 QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
