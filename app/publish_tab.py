@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHBoxLayout
 
 from . import flow, icons, publish, theme
 from .publish import base, describe, service
-from .shell import logo_tile
+from .shell import logo_tile, platform_tile, section
 from .theme import SP
 from .widgets import Combo, ElidedLabel, repolish
 from .workers import Worker
@@ -265,37 +265,43 @@ class Stepper(QWidget):
             repolish(dot)
 
 
-def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QFrame, QVBoxLayout]:
-    """Thẻ có đầu thẻ (ô icon · tiêu đề · mô tả · nút hành động) và thân thẻ; trả về (thẻ, layout thân)."""
-    box = QFrame()
-    box.setProperty("card", True)
-    tile = QLabel()
-    tile.setProperty("navtile", True)
-    tile.setFixedSize(36, 36)
-    tile.setAlignment(Qt.AlignCenter)
-    icons.attach(tile, icon, 20)
-    t = QLabel(title)
-    t.setProperty("subheading", True)
-    s = QLabel(subtitle)
-    s.setProperty("caption", True)
+def account_tile(key: str, label: str, accs: list[dict], chosen: set, on_connect) -> tuple[QFrame, dict[str, QCheckBox]]:
+    """Thẻ một nền tảng: logo + tên + số tài khoản, dưới là ô tích cho từng tài khoản (hoặc nút Kết nối nếu chưa có). Dùng ở tab Đăng video và Cài đặt dự án."""
+    tile = QFrame()
+    tile.setProperty("platile", True)
+    name = QLabel(label)
+    name.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
+    status = QLabel(f"{len(accs)} tài khoản" if accs else "Chưa kết nối")
+    status.setProperty("caption", True)
+    head = QHBoxLayout()
+    head.setSpacing(SP.s)
+    head.addWidget(platform_tile(key, 32))
     col = QVBoxLayout()
     col.setSpacing(0)
-    col.addWidget(t)
-    col.addWidget(s)
-    head = QHBoxLayout()
-    head.setSpacing(SP.m)
-    head.addWidget(tile)
+    col.addWidget(name)
+    col.addWidget(status)
     head.addLayout(col, 1)
-    for a in actions:
-        head.addWidget(a, 0, Qt.AlignVCenter)
-    body = QVBoxLayout()
-    body.setSpacing(SP.m)
-    v = QVBoxLayout(box)
-    v.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
-    v.setSpacing(SP.m)
+    v = QVBoxLayout(tile)
+    v.setContentsMargins(SP.m, SP.m, SP.m, SP.m)
+    v.setSpacing(SP.s)
     v.addLayout(head)
-    v.addLayout(body)
-    return box, body
+    boxes: dict[str, QCheckBox] = {}
+    for a in accs:
+        cb = QCheckBox()
+        cb.setChecked(a["id"] in chosen)
+        text = a["label"] + (f"  ·  {a['page_name']}" if a.get("page_name") else "")
+        cb.setText(cb.fontMetrics().elidedText(text, Qt.ElideRight, 150))
+        cb.setToolTip(text)
+        cb.toggled.connect(lambda _on, t=tile, bs=boxes: (t.setProperty("on", any(c.isChecked() for c in bs.values())), repolish(t)))
+        boxes[a["id"]] = cb
+        v.addWidget(cb)
+    tile.setProperty("on", any(a["id"] in chosen for a in accs))
+    if not accs:
+        b = QPushButton("Kết nối")
+        b.clicked.connect(on_connect)
+        v.addWidget(b)
+    v.addStretch(1)
+    return tile, boxes
 
 
 # ================================================================ tab chính
@@ -871,45 +877,10 @@ class PublishTab(QWidget):
         self.update_counters()
 
     def _tile(self, key: str, label: str, accs: list[dict], chosen: set) -> QFrame:
-        tile = QFrame()
-        tile.setProperty("platile", True)
-        glyph, color = BRAND.get(key, ("?", "#6B6FF2"))
-        logo = logo_tile(glyph, "default", 32)
-        logo.setStyleSheet(f"background: {color};")
-        name = QLabel(label)
-        name.setStyleSheet("font-weight: 600; font-size: 14px; background: transparent;")
-        status = QLabel(f"{len(accs)} tài khoản" if accs else "Chưa kết nối")
-        status.setProperty("caption", True)
-        head = QHBoxLayout()
-        head.setSpacing(SP.s)
-        head.addWidget(logo)
-        col = QVBoxLayout()
-        col.setSpacing(0)
-        col.addWidget(name)
-        col.addWidget(status)
-        head.addLayout(col, 1)
-        v = QVBoxLayout(tile)
-        v.setContentsMargins(SP.m, SP.m, SP.m, SP.m)
-        v.setSpacing(SP.s)
-        v.addLayout(head)
-        boxes = []
-        for a in accs:
-            cb = QCheckBox()
-            cb.setChecked(a["id"] in chosen)
-            text = a["label"] + (f"  ·  {a['page_name']}" if a.get("page_name") else "")
-            cb.setText(cb.fontMetrics().elidedText(text, Qt.ElideRight, 150))
-            cb.setToolTip(text)
+        tile, boxes = account_tile(key, label, accs, chosen, self.open_settings_requested.emit)
+        for aid, cb in boxes.items():
             cb.toggled.connect(self.save_options)
-            cb.toggled.connect(lambda _on, t=tile, bs=boxes: (t.setProperty("on", any(c.isChecked() for c in bs)), repolish(t)))
-            boxes.append(cb)
-            v.addWidget(cb)
-            self.acc_checks[a["id"]] = cb
-        tile.setProperty("on", any(a["id"] in chosen for a in accs))
-        if not accs:
-            b = QPushButton("Kết nối")
-            b.clicked.connect(self.open_settings_requested.emit)
-            v.addWidget(b)
-        v.addStretch(1)
+            self.acc_checks[aid] = cb
         return tile
 
     def chosen_accounts(self) -> list[str]:

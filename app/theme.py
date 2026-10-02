@@ -127,6 +127,11 @@ QPushButton[platab="true"]:hover { background: $surface2; color: $text; }
 QPushButton[platab="true"]:checked { background: $accent_tint; border: 1px solid $accent; color: $text; }
 QFrame[guide="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[secure="true"] { background: $accent_tint; border: 1px solid $border; border-radius: 12px; }
+QPushButton[aspcard="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; padding: 0; text-align: center; }
+QPushButton[aspcard="true"]:hover { border-color: $border_strong; }
+QPushButton[aspcard="true"]:checked { border: 1px solid $accent; background: $accent_tint; }
+QFrame[creditcard="true"] { background: $ok_tint; border: 1px solid $ok; border-radius: 12px; }
+QFrame[estimate="true"] { background: $warn_tint; border: 1px solid $border; border-radius: 10px; }
 QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }

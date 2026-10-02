@@ -204,6 +204,7 @@ class PreviewPanel(QWidget):
 
 class ProjectTab(QWidget):
     opened = Signal(str)
+    open_settings_section = Signal(str)  # yêu cầu mở tab Cài đặt ở một mục (vd. 'flow', 'publish')
     publish_settings_changed = Signal()  # cài đặt đăng video của dự án vừa được lưu trong Cài đặt dự án
     generation_done = Signal()           # một đợt gen clip vừa chạy xong (tab Đăng video dùng để tự động đăng)
     account_changed = Signal(str)        # id tài khoản Flow đang dùng vừa đổi

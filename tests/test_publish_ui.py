@@ -225,3 +225,66 @@ class TestSettingsPanel(Tmp):
         self.assertIn("1 lỗi", card.msg.text())
         self.assertIn("✓", card.rows["youtube:A"].result.text())
         self.assertIn("✗", card.rows["youtube:B"].result.text())
+
+
+class TestProjectSettingsDialogUI(Tmp):
+    def _window(self):
+        from app import accounts, theme, ui
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        models.Project("PX", style="phong cách riêng", aspect_ratio="16:9", publish_accounts=[]).save()
+        w = ui.MainWindow()
+        self.addCleanup(w.close)
+        w.proj.combo.setCurrentText("PX")
+        return w, accounts
+
+    def test_aspect_cards_follow_and_drive_the_hidden_selector(self):
+        w, _ = self._window()
+        d, tab = w.proj.settings_dialog, w.proj
+        d.sync_aspect()
+        self.assertEqual([c.ratio for c in d.aspect_cards if c.isChecked()], ["16:9"])
+        d.pick_aspect("flow")
+        self.assertEqual(tab.aspect.currentData(), "flow")
+        self.assertEqual([c.ratio for c in d.aspect_cards if c.isChecked()], ["flow"])
+        tab.aspect.setCurrentIndex(tab.aspect.findData("9:16"))          # đổi từ phía khác (vd. khôi phục khi Huỷ)
+        self.assertEqual([c.ratio for c in d.aspect_cards if c.isChecked()], ["9:16"])
+
+    def test_nav_scrolls_and_highlights(self):
+        w, _ = self._window()
+        d = w.proj.settings_dialog
+        d.show()
+        QCoreApplication.processEvents()
+        d.go("voice")
+        QCoreApplication.processEvents()
+        self.assertEqual([k for k, n in d._navs.items() if n.property("active")], ["voice"])
+        self.assertGreater(d.scroll.verticalScrollBar().value(), 0)
+        d.scroll.verticalScrollBar().setValue(0)
+        QCoreApplication.processEvents()
+        self.assertEqual([k for k, n in d._navs.items() if n.property("active")], ["visual"])
+        d.close()
+
+    def test_reset_defaults_keeps_accounts_and_voice(self):
+        from unittest import mock
+        from PySide6.QtWidgets import QMessageBox
+        w, _ = self._window()
+        d, tab = w.proj.settings_dialog, w.proj
+        tab.style.setText("khác")
+        tab.max_scenes.setValue(40)
+        tab.flow_parallel.setValue(5)
+        lang = tab.narr_lang.currentIndex()
+        d.pub_auto.setChecked(True)
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+            d.reset_defaults()
+        self.assertEqual((tab.style.text(), tab.max_scenes.value(), tab.flow_parallel.value()), ("cinematic, soft lighting, 35mm film look", 16, 1))
+        self.assertEqual(tab.aspect.currentData(), "9:16")
+        self.assertFalse(d.pub_auto.isChecked())
+        self.assertEqual(tab.narr_lang.currentIndex(), lang)
+
+    def test_credit_card_shows_account_credit(self):
+        w, accounts = self._window()
+        accounts.save_credits("default", 1234, 2, "30 Oct 2026")
+        d = w.proj.settings_dialog
+        d.refresh_credit_card()
+        self.assertIn("1.234", d.credit_big.text())
+        self.assertIn("Còn 2 credit ngày", d.credit_detail.text())
+        self.assertIn("30 Oct 2026", d.credit_detail.text())

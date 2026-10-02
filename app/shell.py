@@ -55,6 +55,39 @@ def platform_tile(key: str, size: int = 32) -> QLabel:
     return t
 
 
+def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QFrame, QVBoxLayout]:
+    """Thẻ có đầu thẻ (ô icon · tiêu đề · mô tả · nút hành động) và thân thẻ; trả về (thẻ, layout thân)."""
+    box = QFrame()
+    box.setProperty("card", True)
+    tile = QLabel()
+    tile.setProperty("navtile", True)
+    tile.setFixedSize(36, 36)
+    tile.setAlignment(Qt.AlignCenter)
+    icons.attach(tile, icon, 20)
+    t = QLabel(title)
+    t.setProperty("subheading", True)
+    s = QLabel(subtitle)
+    s.setProperty("caption", True)
+    col = QVBoxLayout()
+    col.setSpacing(0)
+    col.addWidget(t)
+    col.addWidget(s)
+    head = QHBoxLayout()
+    head.setSpacing(SP.m)
+    head.addWidget(tile)
+    head.addLayout(col, 1)
+    for a in actions:
+        head.addWidget(a, 0, Qt.AlignVCenter)
+    body = QVBoxLayout()
+    body.setSpacing(SP.m)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
+    v.setSpacing(SP.m)
+    v.addLayout(head)
+    v.addLayout(body)
+    return box, body
+
+
 class NavItem(QPushButton):
     """Một mục điều hướng: ô icon + tiêu đề + mô tả ngắn. `text()` trả về tiêu đề (các nút này không vẽ chữ của chính nó)."""
 
