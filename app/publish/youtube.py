@@ -1,6 +1,7 @@
 """YouTube (Shorts và video thường) qua YouTube Data API v3: OAuth 2.0 + tải lên resumable."""
 from __future__ import annotations
 
+import hashlib
 import time
 from pathlib import Path
 
@@ -19,6 +20,7 @@ CATEGORY_ENTERTAINMENT = "24"
 
 class YouTube(Platform):
     key = "youtube"
+    creds_key = "youtube"
     label = "YouTube"
     default_redirect = "http://127.0.0.1:53682/callback"
     setup_url = "https://console.cloud.google.com/apis/credentials"
@@ -27,40 +29,35 @@ class YouTube(Platform):
     max_title = 100
 
     # ---- kết nối ----
-    def connect(self, log=print) -> str:
+    def connect(self, log=print) -> list[dict]:
         c = self.require_creds()
         state = oauth.secrets.token_urlsafe(16)
         verifier, challenge = oauth.pkce_pair()
         url = oauth.auth_url(AUTH_URL, client_id=c["client_id"], redirect_uri=c["redirect_uri"], response_type="code", scope=SCOPES,
-                             access_type="offline", prompt="consent", state=state, code_challenge=challenge, code_challenge_method="S256")
+                             access_type="offline", prompt="consent select_account", state=state, code_challenge=challenge,
+                             code_challenge_method="S256")
         code = oauth.wait_for_code(c["redirect_uri"], state, url, log)
         r = request(self.client, "POST", TOKEN_URL, data=dict(
             code=code, client_id=c["client_id"], client_secret=c["client_secret"], redirect_uri=c["redirect_uri"],
             grant_type="authorization_code", code_verifier=verifier))
-        tok = self._store(r.json())
-        if not tok.get("refresh_token"):
+        data = r.json()
+        if not data.get("refresh_token"):
             raise PublishError("Google không trả refresh token. Hãy gỡ quyền của ứng dụng ở myaccount.google.com/permissions rồi kết nối lại.")
-        tok["account"] = self._channel_name(tok["access_token"])
-        store.set_token(self.key, tok)
-        return tok["account"] or "YouTube"
+        chan_id, title = self._channel(data["access_token"])
+        acc_id = f"youtube:{chan_id or hashlib.sha1(data['refresh_token'].encode()).hexdigest()[:10]}"
+        acc = dict(platform=self.key, label=title or "Kênh YouTube", access_token=data["access_token"], refresh_token=data["refresh_token"],
+                   expires_at=time.time() + int(data.get("expires_in", 3600)), channel_id=chan_id)
+        store.set_account(acc_id, acc)
+        return [dict(acc, id=acc_id)]
 
-    def _store(self, data: dict, old: dict | None = None) -> dict:
-        tok = dict(old or {})
-        tok["access_token"] = data["access_token"]
-        tok["expires_at"] = time.time() + int(data.get("expires_in", 3600))
-        if data.get("refresh_token"):
-            tok["refresh_token"] = data["refresh_token"]
-        store.set_token(self.key, tok)
-        return tok
-
-    def _channel_name(self, access: str) -> str:
+    def _channel(self, access: str) -> tuple[str, str]:
         try:
             r = request(self.client, "GET", CHANNELS_URL, params={"part": "snippet", "mine": "true"},
                         headers={"Authorization": f"Bearer {access}"}, retries=1)
             items = r.json().get("items") or []
-            return items[0]["snippet"]["title"] if items else ""
-        except Exception:  # noqa: BLE001 - tên kênh chỉ để hiển thị
-            return ""
+            return (items[0]["id"], items[0]["snippet"]["title"]) if items else ("", "")
+        except Exception:  # noqa: BLE001 - chỉ để nhận diện/hiển thị tên kênh
+            return "", ""
 
     def access_token(self) -> str:
         t = self.require_connected()
@@ -68,16 +65,21 @@ class YouTube(Platform):
             return t["access_token"]
         c = self.require_creds()
         if not t.get("refresh_token"):
-            raise PublishError("YouTube: phiên đăng nhập hết hạn, hãy kết nối lại.")
+            raise PublishError(f"YouTube «{t.get('label', '')}»: phiên đăng nhập hết hạn, hãy kết nối lại.")
         try:
             r = request(self.client, "POST", TOKEN_URL, data=dict(
                 client_id=c["client_id"], client_secret=c["client_secret"], refresh_token=t["refresh_token"], grant_type="refresh_token"))
         except PublishError as e:
             if "invalid_grant" in str(e):
-                store.clear_token(self.key)
-                raise PublishError("YouTube: quyền truy cập đã bị thu hồi hoặc hết hạn, hãy kết nối lại.") from e
+                self.disconnect()
+                raise PublishError(f"YouTube «{t.get('label', '')}»: quyền truy cập đã bị thu hồi hoặc hết hạn, hãy kết nối lại tài khoản này.") from e
             raise
-        return self._store(r.json(), t)["access_token"]
+        data = r.json()
+        t.update(access_token=data["access_token"], expires_at=time.time() + int(data.get("expires_in", 3600)))
+        if data.get("refresh_token"):
+            t["refresh_token"] = data["refresh_token"]
+        self.save_account(t)
+        return t["access_token"]
 
     # ---- nội dung ----
     def compose(self, post: Post) -> dict:
@@ -124,4 +126,4 @@ class YouTube(Platform):
         note = ""
         if got and got != body["status"]["privacyStatus"]:
             note = f"YouTube giữ ở chế độ “{got}” thay vì “{body['status']['privacyStatus']}” (dự án API chưa được Google kiểm duyệt)."
-        return Result(self.key, True, vid, f"https://youtu.be/{vid}", note, got or body["status"]["privacyStatus"])
+        return Result(self.key, True, vid, f"https://youtu.be/{vid}", note, got or body["status"]["privacyStatus"], self.account_id)

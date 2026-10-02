@@ -80,7 +80,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 **Ghép, viết mô tả và đăng tự động (hoàn toàn qua API)**
 - **Ghép video** từng chương hoặc cả dự án; chỉ ghép lại khi có clip mới hơn video đã ghép.
 - **AI viết tiêu đề, mô tả và hashtag** theo nội dung chương, cùng ngôn ngữ với thuyết minh; sửa tay được trước khi đăng.
-- **Đăng lên YouTube (Shorts), TikTok, Facebook Reels, Instagram Reels** bằng API chính thức (OAuth 2.0 trên máy bạn, không điều khiển trình duyệt, không gửi khoá đi đâu). Chọn nền tảng nào cũng được, mỗi nền tảng tự cắt tiêu đề/hashtag theo giới hạn của nó.
+- **Đăng lên YouTube (Shorts), TikTok, Facebook Reels, Instagram Reels** bằng API chính thức (OAuth 2.0 trên máy bạn, không điều khiển trình duyệt, không gửi khoá đi đâu). **Nhiều tài khoản cho mỗi nền tảng** (nhiều kênh YouTube, nhiều tài khoản TikTok, nhiều Trang Facebook/Instagram), và **mỗi dự án chọn riêng** đăng lên tài khoản nào. Mỗi nền tảng tự cắt tiêu đề/hashtag theo giới hạn của nó.
 - **Không đăng trùng:** mục đã đăng được ghi lại, lần sau tự bỏ qua trừ khi chọn «Đăng lại». Một nền tảng lỗi không làm hỏng các nền tảng khác.
 - **Tự động hoàn toàn (tuỳ chọn):** bật «Tự động đăng khi một chương gen xong» để gen xong là ghép, viết mô tả và đăng luôn.
 
@@ -223,7 +223,7 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
 
 ### Đăng video lên mạng xã hội
 
-1. **Đăng ký ứng dụng (một lần, miễn phí)** trên trang nhà phát triển của từng nền tảng, rồi dán khoá vào **Cài đặt → Đăng video** và bấm **Kết nối** (trình duyệt mở ra để bạn cấp quyền; token chỉ lưu trên máy). Mỗi thẻ có sẵn hướng dẫn ngắn và địa chỉ chuyển hướng cần đăng ký.
+1. **Đăng ký ứng dụng (một lần, miễn phí)** trên trang nhà phát triển của từng nền tảng, rồi dán khoá vào **Cài đặt → Đăng video** và bấm **Thêm tài khoản** (bấm lại để thêm tài khoản khác; trình duyệt mở ra để bạn cấp quyền; token chỉ lưu trên máy). Mỗi thẻ có sẵn hướng dẫn ngắn và địa chỉ chuyển hướng cần đăng ký.
 
    | Nền tảng | Cần | Lưu ý |
    |---|---|---|
@@ -232,7 +232,7 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
    | Facebook | App Meta + Trang Facebook bạn quản lý | Reels lên Trang; chọn «Riêng tư» thì lưu thành bản nháp |
    | Instagram | Tài khoản Professional liên kết với Trang | Dùng chung kết nối Meta; không có chế độ riêng tư nên chỉ đăng «Công khai» |
 
-2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn nền tảng và chế độ hiển thị (nên thử ở «Riêng tư» trước).
+2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn **tài khoản mà dự án này đăng lên** (mỗi dự án nhớ lựa chọn riêng) và chế độ hiển thị (nên thử ở «Riêng tư» trước).
 3. Bấm **Ghép + viết mô tả** để chuẩn bị và xem lại nội dung, hoặc **Đăng ngay** để làm trọn quy trình ghép → viết mô tả → đăng. Lịch sử và liên kết bài đã đăng nằm ở cuối trang.
 
 Hãy tuân thủ điều khoản của từng nền tảng (nhất là quy định gắn nhãn nội dung do AI tạo) khi đăng.

@@ -1,7 +1,6 @@
 """Facebook Reels (Trang) và Instagram Reels qua Graph API. Hai nền tảng dùng chung một lần đăng nhập Meta và một ứng dụng."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import httpx
@@ -53,7 +52,9 @@ def _safe_json(r: httpx.Response) -> dict:
 
 
 class Meta(Platform):
-    """Kết nối Meta chung: đăng nhập, lấy danh sách Trang (kèm tài khoản Instagram doanh nghiệp liên kết) và token của Trang."""
+    """Kết nối Meta: một lần đăng nhập tạo ra MỘT TÀI KHOẢN cho mỗi Trang Facebook, và thêm một tài khoản Instagram cho mỗi Trang có
+    Instagram Professional liên kết. Mỗi tài khoản giữ token riêng của Trang."""
+    creds_key = "meta"
     fields = (("client_id", "App ID", "", False), ("client_secret", "App secret", "", True))
     default_redirect = "http://localhost:53684/callback"
     setup_url = "https://developers.facebook.com/apps/"
@@ -61,27 +62,30 @@ class Meta(Platform):
                   "vào Valid OAuth Redirect URIs. Ở chế độ Development chỉ tài khoản Admin/Tester của app đăng được. "
                   "Instagram phải là tài khoản Professional (Business/Creator) và liên kết với Trang Facebook.")
 
-    @property
-    def store_key(self) -> str:
-        return "meta"
-
-    def connect(self, log=print) -> str:
+    def connect(self, log=print) -> list[dict]:
         c = self.require_creds()
         state = oauth.secrets.token_urlsafe(16)
-        url = oauth.auth_url(DIALOG, client_id=c["client_id"], redirect_uri=c["redirect_uri"], state=state, scope=SCOPES, response_type="code")
+        url = oauth.auth_url(DIALOG, client_id=c["client_id"], redirect_uri=c["redirect_uri"], state=state, scope=SCOPES,
+                             response_type="code", auth_type="reauthenticate")
         code = oauth.wait_for_code(c["redirect_uri"], state, url, log)
         short = graph(self.client, "GET", "oauth/access_token", params=dict(
             client_id=c["client_id"], client_secret=c["client_secret"], redirect_uri=c["redirect_uri"], code=code))
         long = graph(self.client, "GET", "oauth/access_token", params=dict(
             grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=short["access_token"]))
-        tok = dict(access_token=long["access_token"], expires_at=time.time() + int(long.get("expires_in", 5_184_000)))
-        tok["pages"] = self._pages(tok["access_token"])
-        if not tok["pages"]:
+        pages = self._pages(long["access_token"])
+        if not pages:
             raise PublishError("Tài khoản này không quản lý Trang Facebook nào (hoặc chưa cấp quyền cho Trang). Hãy chọn Trang ở bước cấp quyền.")
-        tok["page_id"] = tok["pages"][0]["id"]
-        tok["account"] = tok["pages"][0]["name"]
-        store.set_token("meta", tok)
-        return tok["account"]
+        out = []
+        for pg in pages:
+            fb = dict(platform="facebook", label=pg["name"], access_token=pg["access_token"], page_id=pg["id"])
+            store.set_account(f"facebook:{pg['id']}", fb)         # token Trang lấy từ token dài hạn: không hết hạn
+            out.append(dict(fb, id=f"facebook:{pg['id']}"))
+            if pg["ig_id"]:
+                ig = dict(platform="instagram", label=f"@{pg['ig_username'] or pg['ig_id']}", access_token=pg["access_token"],
+                          page_id=pg["id"], page_name=pg["name"], ig_id=pg["ig_id"])
+                store.set_account(f"instagram:{pg['ig_id']}", ig)
+                out.append(dict(ig, id=f"instagram:{pg['ig_id']}"))
+        return out
 
     def _pages(self, user_token: str) -> list[dict]:
         out, url, params = [], "me/accounts", dict(
@@ -94,27 +98,6 @@ class Meta(Platform):
                                 ig_id=ig.get("id", ""), ig_username=ig.get("username", "")))
             url, params = (j.get("paging") or {}).get("next"), None
         return out
-
-    # ---- Trang đang dùng ----
-    def pages(self) -> list[dict]:
-        return list(self.token().get("pages", []))
-
-    def set_page(self, page_id: str) -> None:
-        t = self.require_connected()
-        page = next((p for p in t.get("pages", []) if p["id"] == page_id), None)
-        if not page:
-            raise PublishError("Trang không nằm trong danh sách đã kết nối.")
-        t["page_id"], t["account"] = page_id, page["name"]
-        store.set_token("meta", t)
-
-    def page(self) -> dict:
-        t = self.require_connected()
-        page = next((p for p in t.get("pages", []) if p["id"] == t.get("page_id")), None) or (t.get("pages") or [None])[0]
-        if not page:
-            raise PublishError("Chưa chọn Trang Facebook.")
-        if t.get("expires_at", 0) < time.time():
-            raise PublishError("Phiên đăng nhập Meta đã hết hạn, hãy kết nối lại.")
-        return page
 
     # ---- tải lên dùng chung (rupload) ----
     def _rupload(self, url: str, token: str, video: Path, log, name: str) -> None:
@@ -138,8 +121,8 @@ class FacebookReels(Meta):
         return dict(description=truncate(body, CAPTION_MAX), title=truncate(post.title, 100))
 
     def upload(self, video: Path, post: Post, log=print) -> Result:
-        page = self.page()
-        tok, pid = page["access_token"], page["id"]
+        acc = self.require_connected()
+        tok, pid = acc["access_token"], acc["page_id"]
         c = self.compose(post)
         start = graph(self.client, "POST", f"{pid}/video_reels", data={"upload_phase": "start", "access_token": tok})
         vid, up = start.get("video_id"), start.get("upload_url") or f"{RUPLOAD}/video-upload/{GRAPH_VERSION}/{start.get('video_id')}"
@@ -153,7 +136,7 @@ class FacebookReels(Meta):
         self._wait(vid, tok, log)
         note = "Facebook Reels không có chế độ riêng tư: video được lưu ở BẢN NHÁP của Trang, chưa đăng." if state == "DRAFT" else ""
         return Result(self.key, True, vid, "" if state == "DRAFT" else f"https://www.facebook.com/reel/{vid}", note,
-                      "private" if state == "DRAFT" else "public")
+                      "private" if state == "DRAFT" else "public", self.account_id)
 
     def _wait(self, vid: str, token: str, log) -> None:
         for _ in range(POLL_MAX):
@@ -180,11 +163,10 @@ class InstagramReels(Meta):
     def upload(self, video: Path, post: Post, log=print) -> Result:
         if post.privacy == "private":
             raise PublishError("Instagram không có chế độ riêng tư: chọn “Công khai” nếu muốn đăng Reels thật.")
-        page = self.page()
-        ig = page.get("ig_id")
+        acc = self.require_connected()
+        ig, tok = acc.get("ig_id"), acc["access_token"]
         if not ig:
-            raise PublishError(f"Trang “{page['name']}” chưa liên kết với tài khoản Instagram Professional.")
-        tok = page["access_token"]
+            raise PublishError(f"Tài khoản “{acc.get('label', '')}” chưa có Instagram Professional liên kết.")
         c = self.compose(post)
         cont = graph(self.client, "POST", f"{ig}/media", data={
             "media_type": "REELS", "upload_type": "resumable", "caption": c["caption"], "share_to_feed": "true", "access_token": tok})
@@ -209,4 +191,4 @@ class InstagramReels(Meta):
             url = graph(self.client, "GET", mid, params={"fields": "permalink", "access_token": tok}).get("permalink", "") if mid else ""
         except PublishError:
             pass
-        return Result(self.key, True, mid, url, "", "public")
+        return Result(self.key, True, mid, url, "", "public", self.account_id)

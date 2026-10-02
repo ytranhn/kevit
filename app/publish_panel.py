@@ -1,37 +1,61 @@
-"""Cài đặt → Đăng video: khoá ứng dụng và kết nối tài khoản cho từng nền tảng (YouTube, TikTok, Facebook + Instagram)."""
+"""Cài đặt → Đăng video: khoá ứng dụng cho từng nền tảng và danh sách TÀI KHOẢN đã kết nối (thêm bao nhiêu tài khoản tuỳ ý)."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
+from . import publish
 from .llm_panel import card, field, secret
 from .publish import FacebookReels, TikTok, YouTube, store
 from .theme import SP
 from .widgets import repolish
 from .workers import Worker
 
-# nhóm kết nối: (khoá lưu, tiêu đề thẻ, lớp dùng để kết nối, các nền tảng dùng chung kết nối này)
-GROUPS = (("youtube", "YouTube", YouTube, "Shorts và video thường"),
-          ("tiktok", "TikTok", TikTok, "Đăng thẳng từ máy qua Content Posting API"),
-          ("meta", "Facebook và Instagram", FacebookReels, "Reels lên Trang Facebook và tài khoản Instagram liên kết, dùng chung một ứng dụng Meta"))
+# nhóm khoá ứng dụng: (khoá lưu, tiêu đề thẻ, lớp dùng để kết nối, các nền tảng của nhóm, mô tả)
+GROUPS = (("youtube", "YouTube", YouTube, ("youtube",), "Shorts và video thường. Mỗi tài khoản Google là một kênh."),
+          ("tiktok", "TikTok", TikTok, ("tiktok",), "Đăng thẳng từ máy qua Content Posting API."),
+          ("meta", "Facebook và Instagram", FacebookReels, ("facebook", "instagram"),
+           "Một lần đăng nhập Meta thêm mọi Trang bạn quản lý, và Instagram liên kết với từng Trang."))
+
+
+class AccountRow(QFrame):
+    removed = Signal(str)
+
+    def __init__(self, acc: dict):
+        super().__init__()
+        self.setProperty("card", True)
+        tag = QLabel(publish.PLATFORMS[acc["platform"]].label)
+        tag.setProperty("pill", "info")
+        name = QLabel(acc.get("label", acc["id"]))
+        name.setStyleSheet("font-weight: 600; background: transparent;")
+        name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        sub = acc.get("page_name")
+        hint = QLabel(f"Trang liên kết: {sub}" if sub else "")
+        hint.setProperty("caption", True)
+        hint.setVisible(bool(sub))
+        b = QPushButton("Xoá")
+        b.setProperty("ghost", True)
+        b.setToolTip("Gỡ tài khoản này khỏi Kevit (không xoá gì trên nền tảng). Dự án đang chọn tài khoản này sẽ bỏ qua nó.")
+        b.clicked.connect(lambda: self.removed.emit(acc["id"]))
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, SP.s, SP.s, SP.s)
+        row.addWidget(tag)
+        row.addWidget(name)
+        row.addWidget(hint)
+        row.addStretch(1)
+        row.addWidget(b)
 
 
 class ConnectionCard(QWidget):
     changed = Signal()
 
-    def __init__(self, store_key: str, title: str, cls, subtitle: str):
+    def __init__(self, group: str, title: str, cls, platforms: tuple[str, ...], subtitle: str):
         super().__init__()
-        self.store_key, self.cls = store_key, cls
+        self.group, self.cls, self.platforms = group, cls, platforms
         self.plat = cls()
         self.worker: Worker | None = None
         self.box = card(title, subtitle)
         v = self.box.layout()
-        self.status = QLabel("")
-        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        head = QHBoxLayout()
-        head.addStretch(1)
-        head.addWidget(self.status)
-        v.insertLayout(1, head)
 
         note = QLabel(f'{self.plat.setup_note} <a href="{self.plat.setup_url}">Mở trang nhà phát triển</a>')
         note.setProperty("caption", True)
@@ -39,10 +63,9 @@ class ConnectionCard(QWidget):
         note.setOpenExternalLinks(True)
         v.addWidget(note)
 
-        c = store.get_creds(store_key)
-        labels = {k: (lbl, hint, sec) for k, lbl, hint, sec in self.plat.fields}
+        c = store.get_creds(group)
         self.edits: dict[str, QWidget] = {}
-        for k, (lbl, hint, sec) in labels.items():
+        for k, lbl, hint, sec in self.plat.fields:
             w = secret(c.get(k, ""), hint) if sec else QLineEdit(c.get(k, ""))
             self.edits[k] = w
             v.addWidget(field(lbl, "", w))
@@ -50,28 +73,28 @@ class ConnectionCard(QWidget):
         v.addWidget(field("Địa chỉ chuyển hướng (Redirect URI)",
                           "Đăng ký đúng địa chỉ này trên trang nhà phát triển. Phải là địa chỉ trên máy bạn (127.0.0.1 hoặc localhost).", self.redirect))
 
-        self.page_row = QWidget()
-        pr = QVBoxLayout(self.page_row)
-        pr.setContentsMargins(0, 0, 0, 0)
-        self.pages = QComboBox()
-        self.pages.activated.connect(self.pick_page)
-        pr.addWidget(field("Trang Facebook đang dùng", "Instagram sẽ đăng lên tài khoản liên kết với Trang này.", self.pages))
-        v.addWidget(self.page_row)
-        self.page_row.setVisible(store_key == "meta")
+        head = QLabel("Tài khoản đã kết nối")
+        head.setProperty("subheading", True)
+        v.addWidget(head)
+        self.rows = QVBoxLayout()
+        self.rows.setSpacing(SP.s)
+        v.addLayout(self.rows)
+        self.status = QLabel("")
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.status.setWordWrap(True)
+        v.addWidget(self.status)
 
         self.b_save = QPushButton("Lưu khoá")
-        self.b_connect = QPushButton("Kết nối")
-        self.b_connect.setProperty("primary", True)
-        self.b_off = QPushButton("Ngắt kết nối")
-        for b in (self.b_save, self.b_connect, self.b_off):
+        self.b_add = QPushButton("Thêm tài khoản")
+        self.b_add.setProperty("primary", True)
+        for b in (self.b_save, self.b_add):
             b.setFixedHeight(40)
         self.b_save.clicked.connect(self.save)
-        self.b_connect.clicked.connect(self.connect)
-        self.b_off.clicked.connect(self.disconnect)
+        self.b_add.clicked.connect(self.add_account)
         row = QHBoxLayout()
         row.addStretch(1)
-        for b in (self.b_off, self.b_save, self.b_connect):
-            row.addWidget(b)
+        row.addWidget(self.b_save)
+        row.addWidget(self.b_add)
         v.addLayout(row)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -86,56 +109,54 @@ class ConnectionCard(QWidget):
     def set_status(self, text: str, kind: str) -> None:
         self.status.setText(text)
         self.status.setProperty("pill", kind)
+        self.status.setVisible(bool(text))
         repolish(self.status)
 
     def refresh(self) -> None:
-        connected = self.plat.is_connected()
-        if connected:
-            self.set_status(f"Đã kết nối: {self.plat.account_label() or 'tài khoản'}", "ok")
-        else:
-            self.set_status("Chưa kết nối", "info")
-        self.b_connect.setText("Kết nối lại" if connected else "Kết nối")
-        self.b_off.setEnabled(connected)
-        if self.store_key == "meta":
-            self.pages.blockSignals(True)
-            self.pages.clear()
-            cur = self.plat.token().get("page_id")
-            for p in self.plat.pages():
-                self.pages.addItem(p["name"] + (f"  ·  Instagram @{p['ig_username']}" if p.get("ig_username") else "  ·  chưa liên kết Instagram"), p["id"])
-                if p["id"] == cur:
-                    self.pages.setCurrentIndex(self.pages.count() - 1)
-            self.pages.blockSignals(False)
-            self.page_row.setVisible(connected and self.pages.count() > 0)
+        while self.rows.count():
+            w = self.rows.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        accs = [a for pl in self.platforms for a in store.list_accounts(pl)]
+        for a in accs:
+            r = AccountRow(a)
+            r.removed.connect(self.remove)
+            self.rows.addWidget(r)
+        if not accs:
+            empty = QLabel("Chưa có tài khoản nào. Nhập khoá rồi bấm “Thêm tài khoản”.")
+            empty.setProperty("caption", True)
+            self.rows.addWidget(empty)
 
     def save(self) -> None:
-        store.set_creds(self.store_key, self.values())
-        self.set_status("Đã lưu khoá", "ok")
+        store.set_creds(self.group, self.values())
+        self.set_status("Đã lưu khoá.", "ok")
 
-    def connect(self) -> None:
-        self.save()
-        self.b_connect.setEnabled(False)
-        self.b_connect.setText("Đang chờ đăng nhập trên trình duyệt…")
+    def add_account(self) -> None:
+        store.set_creds(self.group, self.values())
+        self.b_add.setEnabled(False)
+        self.b_add.setText("Đang chờ đăng nhập trên trình duyệt…")
+        self.set_status("", "info")
         self.worker = Worker(lambda log: self.cls().connect(log))
-        self.worker.done.connect(lambda name: (self.refresh(), self.changed.emit(), self.set_status(f"Đã kết nối: {name}", "ok")))
-        self.worker.failed.connect(lambda e: self.set_status(e[:300], "err"))
-        self.worker.finished.connect(lambda: (self.b_connect.setEnabled(True), self.refresh()))
+        self.worker.done.connect(self.on_connected)
+        self.worker.failed.connect(lambda e: self.set_status(e[:400], "err"))
+        self.worker.finished.connect(lambda: (self.b_add.setEnabled(True), self.b_add.setText("Thêm tài khoản"), self.refresh()))
         self.worker.start()
 
-    def disconnect(self) -> None:
-        self.plat.disconnect()
+    def on_connected(self, accs: list) -> None:
+        self.set_status("Đã kết nối: " + ", ".join(a["label"] for a in accs), "ok")
+        self.changed.emit()
+
+    def remove(self, account_id: str) -> None:
+        name = publish.account_name(account_id)
+        if QMessageBox.question(self, "Xoá tài khoản", f"Gỡ “{name}” khỏi Kevit?\nLịch sử đăng được giữ nguyên.") != QMessageBox.Yes:
+            return
+        store.remove_account(account_id)
         self.refresh()
         self.changed.emit()
 
-    def pick_page(self, i: int) -> None:
-        try:
-            self.plat.set_page(self.pages.itemData(i))
-            self.changed.emit()
-        except Exception as e:  # noqa: BLE001
-            self.set_status(str(e), "err")
-
 
 class PublishSettingsPanel(QWidget):
-    changed = Signal()          # kết nối vừa đổi: tab Đăng video cập nhật trạng thái
+    changed = Signal()          # danh sách tài khoản vừa đổi: tab Đăng video cập nhật
 
     def __init__(self):
         super().__init__()

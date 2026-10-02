@@ -16,6 +16,9 @@ from app.publish import PLATFORMS, base, meta, oauth, service, store, tiktok, yo
 from app.publish.base import Post, PublishError, clean_tags
 
 
+YT, TT, FB, IG = "youtube:UC1", "tiktok:OP1", "facebook:PG", "instagram:IG"
+
+
 def client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -32,7 +35,7 @@ class Tmp(unittest.TestCase):
         import tempfile
         self._d = tempfile.TemporaryDirectory()
         self.tmp = Path(self._d.name)
-        for k in ("publish_creds", "publish_tokens"):
+        for k in ("publish_creds", "publish_accounts"):
             models.qsettings().remove(k)
         self.addCleanup(self._d.cleanup)
 
@@ -78,7 +81,7 @@ class TestBase(Tmp):
 
 class TestYouTube(Tmp):
     def test_compose_shorts_and_limits(self):
-        yt = youtube.YouTube()
+        yt = youtube.YouTube(YT)
         c = yt.compose(Post("T" * 150 + "<b>", "mô tả", ["a", "b"], vertical=True, duration=60))
         self.assertLessEqual(len(c["title"]), 100)
         self.assertNotIn("<", c["title"])
@@ -92,7 +95,7 @@ class TestYouTube(Tmp):
         youtube.CHUNK = 1000
         self.addCleanup(setattr, youtube, "CHUNK", old)
         store.set_creds("youtube", {"client_id": "i", "client_secret": "s"})
-        store.set_token("youtube", {"access_token": "AT", "refresh_token": "RT", "expires_at": time.time() + 3600})
+        store.set_account(YT, {"platform": "youtube", "label": "Kênh A", "access_token": "AT", "refresh_token": "RT", "expires_at": time.time() + 3600})
         video = fake_video(self.tmp)
         seen = []
 
@@ -107,51 +110,51 @@ class TestYouTube(Tmp):
             if req.headers["content-range"].endswith("2499/2500"):
                 return httpx.Response(200, json={"id": "VID", "status": {"privacyStatus": "private"}})
             return httpx.Response(308)
-        r = youtube.YouTube(client(h)).upload(video, Post("t", "d", ["x"]))
+        r = youtube.YouTube(YT, client(h)).upload(video, Post("t", "d", ["x"]))
         self.assertEqual(seen, [("bytes 0-999/2500", 1000), ("bytes 1000-1999/2500", 1000), ("bytes 2000-2499/2500", 500)])
         self.assertTrue(r.ok)
         self.assertEqual(r.url, "https://youtu.be/VID")
         self.assertEqual(r.message, "")
 
     def test_unverified_project_note(self):
-        store.set_token("youtube", {"access_token": "AT", "expires_at": time.time() + 3600})
+        store.set_account(YT, {"platform": "youtube", "label": "Kênh A", "access_token": "AT", "expires_at": time.time() + 3600})
 
         def h(req):
             if "upload/youtube" in str(req.url):
                 return httpx.Response(200, headers={"Location": "https://up.example/s"})
             return httpx.Response(200, json={"id": "V", "status": {"privacyStatus": "private"}})
-        r = youtube.YouTube(client(h)).upload(fake_video(self.tmp, size=100), Post("t", privacy="public"))
+        r = youtube.YouTube(YT, client(h)).upload(fake_video(self.tmp, size=100), Post("t", privacy="public"))
         self.assertIn("giữ ở chế độ", r.message)
 
     def test_refresh_token(self):
         store.set_creds("youtube", {"client_id": "i", "client_secret": "s"})
-        store.set_token("youtube", {"access_token": "OLD", "refresh_token": "RT", "expires_at": 0})
+        store.set_account(YT, {"platform": "youtube", "label": "Kênh A", "access_token": "OLD", "refresh_token": "RT", "expires_at": 0})
 
         def h(req):
             form = dict(urllib.parse.parse_qsl(req.content.decode()))
             self.assertEqual(form["grant_type"], "refresh_token")
             return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
-        self.assertEqual(youtube.YouTube(client(h)).access_token(), "NEW")
-        self.assertEqual(store.get_token("youtube")["refresh_token"], "RT")      # giữ refresh token cũ
+        self.assertEqual(youtube.YouTube(YT, client(h)).access_token(), "NEW")
+        self.assertEqual(store.get_account(YT)["refresh_token"], "RT")      # giữ refresh token cũ
 
     def test_revoked_refresh_clears_token(self):
         store.set_creds("youtube", {"client_id": "i", "client_secret": "s"})
-        store.set_token("youtube", {"access_token": "OLD", "refresh_token": "RT", "expires_at": 0})
+        store.set_account(YT, {"platform": "youtube", "label": "Kênh A", "access_token": "OLD", "refresh_token": "RT", "expires_at": 0})
         h = lambda req: httpx.Response(400, json={"error": "invalid_grant"})  # noqa: E731
         with self.assertRaisesRegex(PublishError, "kết nối lại"):
-            youtube.YouTube(client(h)).access_token()
-        self.assertFalse(store.get_token("youtube"))
+            youtube.YouTube(YT, client(h)).access_token()
+        self.assertFalse(store.get_account(YT))
 
     def test_not_connected(self):
         with self.assertRaisesRegex(PublishError, "chưa kết nối"):
-            youtube.YouTube().upload(fake_video(self.tmp), Post("t"))
+            youtube.YouTube(YT).upload(fake_video(self.tmp), Post("t"))
 
 
 class TestTikTok(Tmp):
     def setUp(self):
         super().setUp()
         store.set_creds("tiktok", {"client_id": "ck", "client_secret": "cs"})
-        store.set_token("tiktok", {"access_token": "AT", "refresh_token": "RT", "expires_at": time.time() + 9999})
+        store.set_account(TT, {"platform": "tiktok", "label": "T", "access_token": "AT", "refresh_token": "RT", "expires_at": time.time() + 9999})
         old = tiktok.CHUNK
         tiktok.CHUNK = 1000
         self.addCleanup(setattr, tiktok, "CHUNK", old)
@@ -174,7 +177,7 @@ class TestTikTok(Tmp):
 
     def test_chunking_last_chunk_takes_remainder(self):
         puts, inits = [], []
-        r = tiktok.TikTok(client(self.handler(["SELF_ONLY", "PUBLIC_TO_EVERYONE"], puts, inits))).upload(
+        r = tiktok.TikTok(TT, client(self.handler(["SELF_ONLY", "PUBLIC_TO_EVERYONE"], puts, inits))).upload(
             fake_video(self.tmp), Post("Tiêu đề", hashtags=["a", "b"], privacy="public", duration=30))
         self.assertEqual(inits[0]["source_info"], {"source": "FILE_UPLOAD", "video_size": 2500, "chunk_size": 1000, "total_chunk_count": 2})
         self.assertEqual(puts, [("bytes 0-999/2500", 1000), ("bytes 1000-2499/2500", 1500)])
@@ -184,41 +187,41 @@ class TestTikTok(Tmp):
 
     def test_small_video_single_chunk(self):
         puts, inits = [], []
-        tiktok.TikTok(client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp, size=500), Post("t"))
+        tiktok.TikTok(TT, client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp, size=500), Post("t"))
         self.assertEqual(inits[0]["source_info"]["total_chunk_count"], 1)
         self.assertEqual(inits[0]["source_info"]["chunk_size"], 500)
 
     def test_privacy_falls_back_to_self_only(self):
         puts, inits = [], []
-        r = tiktok.TikTok(client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp), Post("t", privacy="public"))
+        r = tiktok.TikTok(TT, client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp), Post("t", privacy="public"))
         self.assertEqual(inits[0]["post_info"]["privacy_level"], "SELF_ONLY")
         self.assertEqual(r.privacy, "SELF_ONLY")
         self.assertIn("riêng tư", r.message)
 
     def test_failed_status(self):
         with self.assertRaisesRegex(PublishError, "bad"):
-            tiktok.TikTok(client(self.handler(["SELF_ONLY"], [], [], status="FAILED"))).upload(fake_video(self.tmp), Post("t"))
+            tiktok.TikTok(TT, client(self.handler(["SELF_ONLY"], [], [], status="FAILED"))).upload(fake_video(self.tmp), Post("t"))
 
     def test_api_error_envelope(self):
         h = lambda req: httpx.Response(200, json={"data": {}, "error": {"code": "spam_risk_too_many_posts", "message": "m"}})  # noqa: E731
         with self.assertRaisesRegex(PublishError, "quá số bài"):
-            tiktok.TikTok(client(h)).upload(fake_video(self.tmp), Post("t"))
+            tiktok.TikTok(TT, client(h)).upload(fake_video(self.tmp), Post("t"))
 
     def test_duration_over_limit(self):
         puts, inits = [], []
         with self.assertRaisesRegex(PublishError, "tối đa 600s"):
-            tiktok.TikTok(client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp), Post("t", duration=900))
+            tiktok.TikTok(TT, client(self.handler(["SELF_ONLY"], puts, inits))).upload(fake_video(self.tmp), Post("t", duration=900))
 
     def test_caption_limit(self):
-        self.assertLessEqual(len(tiktok.TikTok().compose(Post("x" * 5000, hashtags=["a"]))["title"]), 2200)
+        self.assertLessEqual(len(tiktok.TikTok(TT).compose(Post("x" * 5000, hashtags=["a"]))["title"]), 2200)
 
 
 class TestMeta(Tmp):
     def setUp(self):
         super().setUp()
         store.set_creds("meta", {"client_id": "a", "client_secret": "s"})
-        store.set_token("meta", {"access_token": "UT", "expires_at": time.time() + 9999, "page_id": "PG", "account": "Trang",
-                                 "pages": [{"id": "PG", "name": "Trang", "access_token": "PT", "ig_id": "IG", "ig_username": "u"}]})
+        store.set_account(FB, {"platform": "facebook", "label": "Trang", "access_token": "PT", "page_id": "PG"})
+        store.set_account(IG, {"platform": "instagram", "label": "@u", "access_token": "PT", "page_id": "PG", "ig_id": "IG"})
 
     def test_facebook_reels_flow(self):
         calls = []
@@ -237,7 +240,7 @@ class TestMeta(Tmp):
                 self.assertIn("#a", form["description"])
                 return httpx.Response(200, json={"success": True})
             return httpx.Response(200, json={"status": {"video_status": "ready"}})
-        r = meta.FacebookReels(client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("Tiêu đề", "mô tả", ["a"], privacy="public"))
+        r = meta.FacebookReels(FB, client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("Tiêu đề", "mô tả", ["a"], privacy="public"))
         self.assertEqual(r.url, "https://www.facebook.com/reel/V1")
         self.assertEqual([c[2] for c in calls if c[2]], ["start", "finish"])
         self.assertEqual([c[3] for c in calls if c[3]], ["PUBLISHED"])
@@ -250,7 +253,7 @@ class TestMeta(Tmp):
             if form.get("upload_phase") == "finish":
                 self.assertEqual(form["video_state"], "DRAFT")
             return httpx.Response(200, json={"success": True, "status": {"video_status": "ready"}})
-        r = meta.FacebookReels(client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("t", privacy="private"))
+        r = meta.FacebookReels(FB, client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("t", privacy="private"))
         self.assertEqual((r.url, r.privacy), ("", "private"))
         self.assertIn("BẢN NHÁP", r.message)
 
@@ -272,19 +275,19 @@ class TestMeta(Tmp):
                 self.assertEqual(len(polls), 3)           # chỉ đăng sau khi xử lý xong
                 return httpx.Response(200, json={"id": "M1"})
             return httpx.Response(200, json={"permalink": "https://instagram.com/reel/xyz"})
-        r = meta.InstagramReels(client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("t", privacy="public", hashtags=["a"]))
+        r = meta.InstagramReels(IG, client(h), sleep=lambda s: None).upload(fake_video(self.tmp), Post("t", privacy="public", hashtags=["a"]))
         self.assertEqual(r.url, "https://instagram.com/reel/xyz")
 
     def test_instagram_refuses_private(self):
         with self.assertRaisesRegex(PublishError, "riêng tư"):
-            meta.InstagramReels().upload(fake_video(self.tmp), Post("t", privacy="private"))
+            meta.InstagramReels(IG).upload(fake_video(self.tmp), Post("t", privacy="private"))
 
     def test_instagram_needs_linked_account(self):
-        t = store.get_token("meta")
-        t["pages"][0]["ig_id"] = ""
-        store.set_token("meta", t)
-        with self.assertRaisesRegex(PublishError, "chưa liên kết"):
-            meta.InstagramReels().upload(fake_video(self.tmp), Post("t", privacy="public"))
+        a = store.get_account(IG)
+        a["ig_id"] = ""
+        store.set_account(IG, a)
+        with self.assertRaisesRegex(PublishError, "chưa có Instagram"):
+            meta.InstagramReels(IG).upload(fake_video(self.tmp), Post("t", privacy="public"))
 
     def test_graph_error_translated(self):
         h = lambda req: httpx.Response(400, json={"error": {"message": "Invalid OAuth", "code": 190}})  # noqa: E731
@@ -292,36 +295,97 @@ class TestMeta(Tmp):
             meta.graph(client(h), "GET", "me")
 
     def test_instagram_hashtag_cap(self):
-        c = meta.InstagramReels().compose(Post("t", hashtags=[f"t{i}" for i in range(60)]))
+        c = meta.InstagramReels(IG).compose(Post("t", hashtags=[f"t{i}" for i in range(60)]))
         self.assertLessEqual(c["caption"].count("#"), 30)
 
-    def test_connected_state_shared(self):
-        self.assertTrue(meta.FacebookReels().is_connected())
-        self.assertTrue(meta.InstagramReels().is_connected())
-        meta.FacebookReels().disconnect()
-        self.assertFalse(meta.InstagramReels().is_connected())
+    def test_disconnect_removes_only_that_account(self):
+        meta.FacebookReels(FB).disconnect()
+        self.assertFalse(meta.FacebookReels(FB).is_connected())
+        self.assertTrue(meta.InstagramReels(IG).is_connected())
 
-    def test_expired_user_token(self):
-        t = store.get_token("meta")
-        t["expires_at"] = 1
-        store.set_token("meta", t)
-        with self.assertRaisesRegex(PublishError, "hết hạn"):
-            meta.FacebookReels().upload(fake_video(self.tmp), Post("t"))
+    def test_removed_account_cannot_upload(self):
+        meta.FacebookReels(FB).disconnect()
+        with self.assertRaisesRegex(PublishError, "chưa kết nối"):
+            meta.FacebookReels(FB).upload(fake_video(self.tmp), Post("t"))
+
+    def test_connect_creates_account_per_page_and_instagram(self):
+        old = oauth.wait_for_code
+        oauth_code = lambda *a, **k: "CODE"  # noqa: E731
+        meta.oauth.wait_for_code = oauth_code
+        self.addCleanup(setattr, meta.oauth, "wait_for_code", old)
+        for k in list(store._load("publish_accounts")):
+            store.remove_account(k)
+
+        def h(req: httpx.Request):
+            if req.url.path.endswith("/me/accounts"):
+                return httpx.Response(200, json={"data": [
+                    {"id": "P1", "name": "Trang Một", "access_token": "T1", "instagram_business_account": {"id": "I1", "username": "mot"}},
+                    {"id": "P2", "name": "Trang Hai", "access_token": "T2"}]})
+            return httpx.Response(200, json={"access_token": "USER", "expires_in": 5000000})
+        out = meta.FacebookReels("", client(h)).connect()
+        self.assertEqual(sorted(a["id"] for a in out), ["facebook:P1", "facebook:P2", "instagram:I1"])
+        self.assertEqual(store.get_account("facebook:P2")["access_token"], "T2")      # mỗi Trang giữ token riêng
+        self.assertEqual(store.get_account("instagram:I1")["label"], "@mot")
+        meta.FacebookReels("", client(h)).connect()                                     # kết nối lại không tạo bản trùng
+        self.assertEqual(len(store.list_accounts()), 3)
+
+
+class TestAccounts(Tmp):
+    def test_two_youtube_accounts_are_independent(self):
+        store.set_creds("youtube", {"client_id": "i", "client_secret": "s"})
+        for acc, tok in (("youtube:A", "TOKEN_A"), ("youtube:B", "TOKEN_B")):
+            store.set_account(acc, {"platform": "youtube", "label": acc, "access_token": tok, "expires_at": time.time() + 3600})
+        used = []
+
+        def h(req):
+            if "upload/youtube" in str(req.url):
+                used.append(req.headers["authorization"])
+                return httpx.Response(200, headers={"Location": "https://up.example/s"})
+            return httpx.Response(200, json={"id": "V", "status": {"privacyStatus": "private"}})
+        v = fake_video(self.tmp, size=100)
+        ra = youtube.YouTube("youtube:A", client(h)).upload(v, Post("t"))
+        rb = youtube.YouTube("youtube:B", client(h)).upload(v, Post("t"))
+        self.assertEqual(used, ["Bearer TOKEN_A", "Bearer TOKEN_B"])
+        self.assertEqual((ra.account, rb.account), ("youtube:A", "youtube:B"))
+
+    def test_youtube_connect_adds_account_keyed_by_channel(self):
+        store.set_creds("youtube", {"client_id": "i", "client_secret": "s"})
+        old = youtube.oauth.wait_for_code
+        youtube.oauth.wait_for_code = lambda *a, **k: "CODE"
+        self.addCleanup(setattr, youtube.oauth, "wait_for_code", old)
+
+        def h(req):
+            if "oauth2" in req.url.host or req.url.path.endswith("/token"):
+                return httpx.Response(200, json={"access_token": "AT", "refresh_token": "RT", "expires_in": 3600})
+            return httpx.Response(200, json={"items": [{"id": "UCxyz", "snippet": {"title": "Kênh Truyện"}}]})
+        youtube.YouTube("", client(h)).connect()
+        youtube.YouTube("", client(h)).connect()
+        accs = store.list_accounts("youtube")
+        self.assertEqual([(a["id"], a["label"]) for a in accs], [("youtube:UCxyz", "Kênh Truyện")])
+
+    def test_account_name_and_listing(self):
+        from app import publish
+        store.set_account("tiktok:1", {"platform": "tiktok", "label": "Bé Na", "access_token": "x"})
+        store.set_account("youtube:1", {"platform": "youtube", "label": "Kênh", "access_token": "x"})
+        self.assertEqual(publish.account_name("tiktok:1"), "TikTok · Bé Na")
+        self.assertIn("đã xoá", publish.account_name("tiktok:gone"))
+        self.assertEqual([a["id"] for a in publish.accounts()], ["tiktok:1", "youtube:1"])
 
 
 class FakePlatform(base.Platform):
     key, label = "fake", "Giả"
     sent: list = []
     fail = False
+    fail_accounts: set = set()
 
     def is_connected(self):
         return True
 
     def upload(self, video, post, log=print):
-        if self.fail:
+        if self.fail or self.account_id in self.fail_accounts:
             raise PublishError("hỏng")
-        FakePlatform.sent.append((video, post))
-        return base.Result(self.key, True, "id1", "https://x/1", "", post.privacy)
+        FakePlatform.sent.append((video, post, self.account_id))
+        return base.Result(self.key, True, "id1", "https://x/1", "", post.privacy, self.account_id)
 
 
 def make_clip(path: Path, color="red"):
@@ -338,7 +402,7 @@ class TestService(Tmp):
         models.PROJ_DIR = self.tmp / "projects"
         PLATFORMS["fake"] = FakePlatform
         self.addCleanup(PLATFORMS.pop, "fake", None)
-        FakePlatform.sent, FakePlatform.fail = [], False
+        FakePlatform.sent, FakePlatform.fail, FakePlatform.fail_accounts = [], False, set()
         p = models.Project("Truyện thử")
         for i in range(2):
             ch = p.new_chapter()
@@ -352,41 +416,52 @@ class TestService(Tmp):
 
     def test_end_to_end_merge_and_publish_per_chapter(self):
         logs = []
-        res = service.run(self.p, service.targets(self.p), ["fake"], "unlisted", logs.append)
+        res = service.run(self.p, service.targets(self.p), ["fake:1"], "unlisted", logs.append)
         self.assertEqual([r.ok for r in res], [True, True])
         self.assertEqual(len(FakePlatform.sent), 2)
-        video, post = FakePlatform.sent[0]
+        video, post, _ = FakePlatform.sent[0]
         self.assertTrue(video.exists() and video.stat().st_size > 0)
         self.assertEqual((post.title, post.privacy, post.vertical), ("Tập 1", "unlisted", True))
         self.assertGreater(post.duration, 1.5)             # 2 clip × 1 giây
         self.assertEqual(len(self.p.publish_history), 2)
         # lần 2: đã đăng thì bỏ qua, không đăng trùng
-        service.run(self.p, service.targets(self.p), ["fake"], "unlisted", logs.append)
+        service.run(self.p, service.targets(self.p), ["fake:1"], "unlisted", logs.append)
         self.assertEqual(len(FakePlatform.sent), 2)
         self.assertTrue(any("bỏ qua" in m for m in logs))
-        service.run(self.p, service.targets(self.p)[:1], ["fake"], "unlisted", logs.append, force=True)
+        service.run(self.p, service.targets(self.p)[:1], ["fake:1"], "unlisted", logs.append, force=True)
         self.assertEqual(len(FakePlatform.sent), 3)
         # lịch sử lưu xuống đĩa
         self.assertEqual(len(models.Project.load("Truyện thử").publish_history), 3)
 
+    def test_several_accounts_one_failing_does_not_block_others(self):
+        FakePlatform.fail_accounts = {"fake:2"}
+        t = service.targets(self.p)[:1]
+        res = service.run(self.p, t, ["fake:1", "fake:2", "fake:3"], "private")
+        self.assertEqual([(r.account, r.ok) for r in res], [("fake:1", True), ("fake:2", False), ("fake:3", True)])
+        self.assertEqual([a for *_, a in FakePlatform.sent], ["fake:1", "fake:3"])
+        # lần sau chỉ thử lại tài khoản đã lỗi
+        FakePlatform.fail_accounts = set()
+        service.run(self.p, t, ["fake:1", "fake:2", "fake:3"], "private")
+        self.assertEqual([a for *_, a in FakePlatform.sent], ["fake:1", "fake:3", "fake:2"])
+
     def test_whole_project_video(self):
         self.p.publish_scope = "project"
         self.p.post_meta = {"title": "Cả bộ", "hashtags": []}
-        service.run(self.p, service.targets(self.p), ["fake"], "private")
-        video, post = FakePlatform.sent[0]
+        service.run(self.p, service.targets(self.p), ["fake:1"], "private")
+        video, post, _ = FakePlatform.sent[0]
         self.assertEqual(video, self.p.full_path)
         self.assertGreater(post.duration, 3.5)
 
     def test_failure_isolated_and_recorded(self):
         FakePlatform.fail = True
-        res = service.run(self.p, service.targets(self.p), ["fake"], "private")
+        res = service.run(self.p, service.targets(self.p), ["fake:1"], "private")
         self.assertEqual([r.ok for r in res], [False, False])
         self.assertEqual(res[0].message, "hỏng")
-        self.assertFalse(service.history_ok(self.p, service.targets(self.p)[0], "fake"))   # lỗi thì lần sau được thử lại
+        self.assertFalse(service.history_ok(self.p, service.targets(self.p)[0], "fake:1"))   # lỗi thì lần sau được thử lại
 
     def test_incomplete_chapter_is_skipped_not_fatal(self):
         self.p.chapters[0].scenes[1].status = "error"
-        res = service.run(self.p, service.targets(self.p), ["fake"], "private")
+        res = service.run(self.p, service.targets(self.p), ["fake:1"], "private")
         self.assertEqual([r.ok for r in res], [False, True])
         self.assertIn("chưa gen xong", res[0].message)
 
@@ -403,7 +478,7 @@ class TestService(Tmp):
         self.p.chapters[0].post_meta = {}
         gen = {"title": "AI", "description": "d", "hashtags": ["h"]}
         with mock.patch("app.publish.describe.generate", return_value=gen):
-            service.run(self.p, service.targets(self.p)[:1], ["fake"], "private")
+            service.run(self.p, service.targets(self.p)[:1], ["fake:1"], "private")
         self.assertEqual(FakePlatform.sent[0][1].title, "AI")
         self.assertEqual(self.p.chapters[0].post_meta["title"], "AI")
 
@@ -414,7 +489,7 @@ class TestService(Tmp):
     def test_cancel(self):
         ev = threading.Event()
         ev.set()
-        self.assertEqual(service.run(self.p, service.targets(self.p), ["fake"], "private", cancel=ev), [])
+        self.assertEqual(service.run(self.p, service.targets(self.p), ["fake:1"], "private", cancel=ev), [])
 
 
 class TestDescribe(Tmp):

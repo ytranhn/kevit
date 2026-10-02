@@ -39,12 +39,13 @@ class Post:
 
 @dataclass
 class Result:
-    platform: str
+    platform: str                       # nền tảng (youtube, tiktok, facebook, instagram)
     ok: bool
     post_id: str = ""
     url: str = ""
     message: str = ""
     privacy: str = ""
+    account: str = ""                   # id tài khoản đã đăng
 
 
 def clean_tags(tags: list[str] | str, limit: int = 30) -> list[str]:
@@ -103,9 +104,10 @@ def request(client: httpx.Client, method: str, url: str, *, retries: int = 3, ok
 
 
 class Platform:
-    """Một nền tảng. Lớp con định nghĩa key/label/fields và các hàm connect/upload."""
+    """Một nền tảng, gắn với MỘT tài khoản đã kết nối (account_id). Lớp con định nghĩa key/label/fields và connect/upload."""
     key = ""
     label = ""
+    creds_key = ""                      # nhóm khoá ứng dụng dùng chung (mặc định = key)
     # (khoá, nhãn, gợi ý, là bí mật)
     fields: tuple[tuple[str, str, str, bool], ...] = (("client_id", "Client ID", "", False), ("client_secret", "Client secret", "", True))
     default_redirect = "http://127.0.0.1:53682/callback"
@@ -113,37 +115,23 @@ class Platform:
     setup_note = ""
     max_title = 100
 
-    def __init__(self, client: httpx.Client | None = None, sleep=time.sleep):
+    def __init__(self, account_id: str = "", client: httpx.Client | None = None, sleep=time.sleep):
+        self.account_id = account_id
         self._client = client
         self.sleep = sleep
 
-    # ---- cấu hình / kết nối ----
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
             self._client = httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True)
         return self._client
 
-    @property
-    def store_key(self) -> str:
-        """Khoá lưu cấu hình/token; Facebook và Instagram dùng chung một kết nối Meta."""
-        return self.key
-
+    # ---- khoá ứng dụng ----
     def creds(self) -> dict:
-        c = store.get_creds(self.store_key)
-        c.setdefault("redirect_uri", self.default_redirect)
-        if not c["redirect_uri"].strip():
+        c = store.get_creds(self.creds_key or self.key)
+        if not c.get("redirect_uri", "").strip():
             c["redirect_uri"] = self.default_redirect
         return c
-
-    def token(self) -> dict:
-        return store.get_token(self.store_key)
-
-    def is_connected(self) -> bool:
-        return bool(self.token().get("access_token"))
-
-    def account_label(self) -> str:
-        return self.token().get("account", "")
 
     def require_creds(self) -> dict:
         c = self.creds()
@@ -152,17 +140,33 @@ class Platform:
             raise PublishError(f"{self.label}: thiếu {', '.join(missing)}. Nhập ở Cài đặt → Đăng video.")
         return c
 
-    def require_connected(self) -> dict:
-        t = self.token()
-        if not t.get("access_token"):
-            raise NotConnected(f"{self.label}: chưa kết nối tài khoản. Bấm Kết nối ở Cài đặt → Đăng video.")
-        return t
+    # ---- tài khoản ----
+    def account(self) -> dict:
+        return store.get_account(self.account_id) if self.account_id else {}
 
-    def connect(self, log=print) -> str:
+    token = account                     # tên cũ: các hàm đọc/ghi token dùng chung một bản ghi tài khoản
+
+    def save_account(self, data: dict) -> None:
+        store.set_account(self.account_id, data)
+
+    def is_connected(self) -> bool:
+        return bool(self.account().get("access_token"))
+
+    def account_label(self) -> str:
+        return self.account().get("label", "")
+
+    def require_connected(self) -> dict:
+        a = self.account()
+        if not a.get("access_token"):
+            raise NotConnected(f"{self.label}: tài khoản này chưa kết nối hoặc đã bị xoá. Kết nối ở Cài đặt → Đăng video.")
+        return a
+
+    def connect(self, log=print) -> list[dict]:
+        """Đăng nhập một tài khoản mới (hoặc kết nối lại); lưu và trả về danh sách tài khoản vừa kết nối."""
         raise NotImplementedError
 
     def disconnect(self) -> None:
-        store.clear_token(self.store_key)
+        store.remove_account(self.account_id)
 
     # ---- đăng ----
     def compose(self, post: Post) -> dict:

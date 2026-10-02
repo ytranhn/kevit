@@ -11,7 +11,7 @@ import imageio_ffmpeg
 
 from .. import merger
 from ..models import Chapter, Project
-from . import PLATFORMS, describe
+from . import account_name, describe, get
 from .base import Post, PublishError, Result
 
 PRIVACY_LABELS = {"private": "Riêng tư", "unlisted": "Không công khai", "public": "Công khai"}
@@ -98,58 +98,59 @@ def ensure_meta(p: Project, t: Target, log=print, regenerate: bool = False) -> d
     return meta
 
 
-def history_ok(p: Project, t: Target, platform: str) -> dict | None:
-    return next((h for h in reversed(p.publish_history) if h.get("chapter") == t.key and h.get("platform") == platform and h.get("ok")), None)
+def history_ok(p: Project, t: Target, account_id: str) -> dict | None:
+    return next((h for h in reversed(p.publish_history) if h.get("chapter") == t.key and h.get("account") == account_id and h.get("ok")), None)
 
 
 def _record(p: Project, t: Target, r: Result) -> None:
-    p.publish_history.append(dict(chapter=t.key, platform=r.platform, ok=r.ok, url=r.url, post_id=r.post_id, privacy=r.privacy,
-                                  message=r.message, time=time.strftime("%Y-%m-%d %H:%M:%S")))
+    p.publish_history.append(dict(chapter=t.key, platform=r.platform, account=r.account, ok=r.ok, url=r.url, post_id=r.post_id,
+                                  privacy=r.privacy, message=r.message, time=time.strftime("%Y-%m-%d %H:%M:%S")))
     del p.publish_history[:-300]
     p.save()
 
 
-def run(p: Project, tgts: list[Target], platforms: list[str], privacy: str | None = None, log=print, cancel=None,
+def run(p: Project, tgts: list[Target], accounts: list[str], privacy: str | None = None, log=print, cancel=None,
         force: bool = False, regenerate_meta: bool = False) -> list[Result]:
-    """Ghép + viết mô tả + đăng cho từng đích lên từng nền tảng. Lỗi ở một đích/nền tảng không làm dừng các phần còn lại."""
+    """Ghép + viết mô tả + đăng cho từng đích lên từng TÀI KHOẢN đã chọn. Lỗi ở một đích/tài khoản không làm dừng các phần còn lại."""
     privacy = privacy or p.publish_privacy
     results: list[Result] = []
-    if not platforms:
-        raise PublishError("Chưa chọn nền tảng nào để đăng.")
+    if not accounts:
+        raise PublishError("Chưa chọn tài khoản nào để đăng.")
     for t in tgts:
         if cancel and cancel.is_set():
             log("Đã dừng theo yêu cầu.")
             break
-        todo = [k for k in platforms if force or not history_ok(p, t, k)]
-        for k in platforms:
-            if k not in todo:
-                h = history_ok(p, t, k)
-                log(f"[{t.label}] {PLATFORMS[k].label}: đã đăng ({h.get('time', '')}), bỏ qua. Chọn “Đăng lại” nếu muốn đăng lần nữa.")
+        todo = [a for a in accounts if force or not history_ok(p, t, a)]
+        for a in accounts:
+            if a not in todo:
+                log(f"[{t.label}] {account_name(a)}: đã đăng ({history_ok(p, t, a).get('time', '')}), bỏ qua. Chọn “Đăng lại” nếu muốn đăng lần nữa.")
         if not todo:
             continue
         try:
             video = ensure_video(p, t, log)
-            meta = ensure_meta(p, t, log, regenerate_meta)
+            meta = ensure_meta(p, t, log)
             vertical, secs = probe(video)
-        except Exception as e:  # noqa: BLE001 - lỗi chuẩn bị video áp cho mọi nền tảng của đích này
+        except Exception as e:  # noqa: BLE001 - lỗi chuẩn bị video áp cho mọi tài khoản của đích này
             log(f"[{t.label}] LỖI: {e}")
-            results += [Result(k, False, message=str(e)) for k in todo]
+            results += [Result(a.split(":", 1)[0], False, message=str(e), account=a) for a in todo]
             continue
         post = Post(meta.get("title", ""), meta.get("description", ""), list(meta.get("hashtags", [])), privacy, vertical, secs)
-        for k in todo:
+        for a in todo:
             if cancel and cancel.is_set():
                 log("Đã dừng theo yêu cầu.")
                 return results
-            plat = PLATFORMS[k]()
+            name = account_name(a)
             try:
+                plat = get(a)
                 if not plat.is_connected():
-                    raise PublishError(f"{plat.label}: chưa kết nối tài khoản (Cài đặt → Đăng video).")
-                log(f"[{t.label}] Đang đăng lên {plat.label}…")
+                    raise PublishError(f"{name}: tài khoản chưa kết nối hoặc đã bị xoá (Cài đặt → Đăng video).")
+                log(f"[{t.label}] Đang đăng lên {name}…")
                 r = plat.upload(video, post, log)
-                log(f"[{t.label}] Đã đăng lên {plat.label}" + (f": {r.url}" if r.url else "") + (f" — {r.message}" if r.message else ""))
+                r.account = r.account or a
+                log(f"[{t.label}] Đã đăng lên {name}" + (f": {r.url}" if r.url else "") + (f" — {r.message}" if r.message else ""))
             except Exception as e:  # noqa: BLE001
-                r = Result(k, False, message=str(e)[:600])
-                log(f"[{t.label}] {plat.label} lỗi: {e}")
+                r = Result(a.split(":", 1)[0], False, message=str(e)[:600], account=a)
+                log(f"[{t.label}] {name} lỗi: {e}")
             results.append(r)
             _record(p, t, r)
     return results

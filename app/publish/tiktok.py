@@ -1,6 +1,7 @@
 """TikTok qua Content Posting API (Direct Post, tải file lên theo khúc)."""
 from __future__ import annotations
 
+import hashlib
 import time
 from pathlib import Path
 
@@ -30,6 +31,7 @@ def _check(r) -> dict:
 
 class TikTok(Platform):
     key = "tiktok"
+    creds_key = "tiktok"
     label = "TikTok"
     fields = (("client_id", "Client key", "", False), ("client_secret", "Client secret", "", True))
     default_redirect = "http://localhost:53683/callback"
@@ -38,18 +40,20 @@ class TikTok(Platform):
                   "đăng ký ĐÚNG địa chỉ chuyển hướng bên dưới. Trước khi TikTok duyệt app, chỉ đăng được ở chế độ riêng tư (SELF_ONLY) "
                   "và tài khoản phải được thêm làm Target User.")
 
-    def connect(self, log=print) -> str:
+    def connect(self, log=print) -> list[dict]:
         c = self.require_creds()
         state = oauth.secrets.token_urlsafe(16)
         verifier, challenge = oauth.pkce_pair(hex_challenge=True)      # TikTok: challenge là SHA-256 dạng hex
         url = oauth.auth_url(AUTH_URL, client_key=c["client_id"], scope=SCOPES, response_type="code", redirect_uri=c["redirect_uri"],
-                             state=state, code_challenge=challenge, code_challenge_method="S256")
+                             state=state, code_challenge=challenge, code_challenge_method="S256", disable_auto_auth=1)
         code = oauth.wait_for_code(c["redirect_uri"], state, url, log)
         tok = self._token_call(dict(client_key=c["client_id"], client_secret=c["client_secret"], code=code,
                                     grant_type="authorization_code", redirect_uri=c["redirect_uri"], code_verifier=verifier))
-        tok["account"] = self._display_name(tok["access_token"])
-        store.set_token(self.key, tok)
-        return tok["account"] or "TikTok"
+        name = self._display_name(tok["access_token"])
+        acc_id = f"tiktok:{tok.get('open_id') or hashlib.sha1(tok['refresh_token'].encode()).hexdigest()[:10]}"
+        acc = dict(tok, platform=self.key, label=name or "Tài khoản TikTok")
+        store.set_account(acc_id, acc)
+        return [dict(acc, id=acc_id)]
 
     def _token_call(self, form: dict, old: dict | None = None) -> dict:
         r = request(self.client, "POST", f"{API}/v2/oauth/token/", data=form,
@@ -76,13 +80,13 @@ class TikTok(Platform):
             return t["access_token"]
         c = self.require_creds()
         if not t.get("refresh_token"):
-            raise PublishError("TikTok: phiên đăng nhập hết hạn, hãy kết nối lại.")
+            raise PublishError(f"TikTok «{t.get('label', '')}»: phiên đăng nhập hết hạn, hãy kết nối lại.")
         try:
             t = self._token_call(dict(client_key=c["client_id"], client_secret=c["client_secret"],
                                       grant_type="refresh_token", refresh_token=t["refresh_token"]), t)
         except PublishError as e:
-            raise PublishError(f"{e}. Hãy kết nối lại TikTok.") from e
-        store.set_token(self.key, t)
+            raise PublishError(f"{e}. Hãy kết nối lại tài khoản TikTok này.") from e
+        self.save_account(t)
         return t["access_token"]
 
     def compose(self, post: Post) -> dict:
@@ -123,7 +127,7 @@ class TikTok(Platform):
                     ok=(200, 201, 206))
                 log(f"TikTok: đã gửi khúc {i + 1}/{count}")
         post_id = self._wait(auth, pub_id, log)
-        return Result(self.key, True, post_id or pub_id, "", note or "Đã đăng lên TikTok (có thể mất vài phút để hiện).", level)
+        return Result(self.key, True, post_id or pub_id, "", note or "Đã đăng lên TikTok (có thể mất vài phút để hiện).", level, self.account_id)
 
     def _wait(self, auth: dict, pub_id: str, log) -> str:
         for _ in range(POLL_MAX):

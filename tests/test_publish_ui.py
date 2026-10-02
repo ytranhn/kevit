@@ -31,8 +31,10 @@ class TestPublishTab(Tmp):
         models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
         PLATFORMS["fake"] = FakePlatform
         self.addCleanup(PLATFORMS.pop, "fake", None)
+        from app.publish import store
+        store.set_account("fake:1", {"platform": "fake", "label": "Giả 1", "access_token": "x"})
         FakePlatform.sent, FakePlatform.fail = [], False
-        p = models.Project("Dự án UI", publish_platforms=["fake"], publish_privacy="unlisted")
+        p = models.Project("Dự án UI", publish_accounts=["fake:1"], publish_privacy="unlisted")
         for i in range(3):
             ch = p.new_chapter()
             ch.post_meta = {"title": f"Tập {i + 1}", "description": "d", "hashtags": ["h"]}
@@ -48,16 +50,15 @@ class TestPublishTab(Tmp):
 
     def test_default_selection_is_ready_chapters_only(self):
         self.assertEqual([t.key for t in self.tab.checked_targets()], ["01", "02"])
-        self.assertTrue(self.tab.plat_checks["fake"].isChecked() if "fake" in self.tab.plat_checks else True)
 
     def test_publish_runs_in_background_and_updates_history(self):
         t = self.tab
-        t.run_publish(self.p, t.checked_targets(), ["fake"], "unlisted")
+        t.run_publish(self.p, t.checked_targets(), ["fake:1"], "unlisted")
         self.assertTrue(wait(lambda: t._worker is None))
         self.assertEqual(len(FakePlatform.sent), 2)
         self.assertEqual(t.history.rowCount(), 2)
         self.assertIn("Đã đăng 2/2", t.status.text())
-        self.assertEqual(t.table.item(0, 4).text(), "Giả")
+        self.assertIn("Giả", t.table.item(0, 4).text())
 
     def test_edit_metadata_is_saved(self):
         t = self.tab
@@ -80,6 +81,32 @@ class TestPublishTab(Tmp):
         t.on_generation_done()                                  # gọi lại: đã đăng thì không đăng trùng
         self.assertTrue(wait(lambda: t._worker is None))
         self.assertEqual(len(FakePlatform.sent), 2)
+
+    def test_account_selection_is_per_project(self):
+        from app.publish import store
+        store.set_account("youtube:A", {"platform": "youtube", "label": "Kênh A", "access_token": "x"})
+        store.set_account("youtube:B", {"platform": "youtube", "label": "Kênh B", "access_token": "x"})
+        t = self.tab
+        t.refresh_accounts()
+        self.assertEqual(set(t.acc_checks), {"fake:1", "youtube:A", "youtube:B"})
+        t.acc_checks["youtube:B"].setChecked(True)
+        self.assertEqual(sorted(models.Project.load("Dự án UI").publish_accounts), ["fake:1", "youtube:B"])
+        other = models.Project("Dự án khác")
+        other.save()
+        self.p = other
+        t.reload()
+        self.assertFalse(any(cb.isChecked() for cb in t.acc_checks.values()))     # dự án khác chưa chọn tài khoản nào
+        t.acc_checks["youtube:A"].setChecked(True)
+        self.assertEqual(models.Project.load("Dự án khác").publish_accounts, ["youtube:A"])
+        self.assertEqual(sorted(models.Project.load("Dự án UI").publish_accounts), ["fake:1", "youtube:B"])
+
+    def test_old_project_with_publish_platforms_still_loads(self):
+        import json
+        f = models.PROJ_DIR / "Dự án UI" / "project.json"
+        d = json.loads(f.read_text(encoding="utf-8"))
+        d["publish_platforms"] = ["youtube"]
+        f.write_text(json.dumps(d), encoding="utf-8")
+        self.assertEqual(models.Project.load("Dự án UI").publish_accounts, ["fake:1"])
 
     def test_scope_switch_to_project(self):
         t = self.tab

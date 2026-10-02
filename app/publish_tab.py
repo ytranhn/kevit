@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, 
 
 from . import icons
 from .llm_panel import card, field
-from .publish import PLATFORMS, base, describe, service
+from . import publish
+from .publish import base, describe, service
 from .shell import PageHeader
 from .theme import SP
 from .widgets import repolish
@@ -99,18 +100,12 @@ class PublishTab(QWidget):
         row.addWidget(self.b_save_meta)
         content.layout().addLayout(row)
 
-        self.plat_checks: dict[str, QCheckBox] = {}
-        self.plat_status: dict[str, QLabel] = {}
-        plats = card("Đăng lên", "Kết nối tài khoản ở Cài đặt → Đăng video.")
-        for k, cls in PLATFORMS.items():
-            cb = QCheckBox(cls.label)
-            cb.toggled.connect(self.save_options)
-            st = QLabel("")
-            r = QHBoxLayout()
-            r.addWidget(cb, 1)
-            r.addWidget(st)
-            plats.layout().addLayout(r)
-            self.plat_checks[k], self.plat_status[k] = cb, st
+        self.acc_checks: dict[str, QCheckBox] = {}
+        plats = card("Đăng lên tài khoản", "Chọn các tài khoản mà DỰ ÁN NÀY sẽ đăng lên (mỗi dự án nhớ lựa chọn riêng). "
+                     "Thêm tài khoản ở Cài đặt → Đăng video.")
+        self.acc_box = QVBoxLayout()
+        self.acc_box.setSpacing(SP.s)
+        plats.layout().addLayout(self.acc_box)
         self.privacy = QComboBox()
         for k, label in PRIVACY:
             self.privacy.addItem(label, k)
@@ -204,23 +199,41 @@ class PublishTab(QWidget):
             self.scope.setCurrentIndex(max(0, self.scope.findData(p.publish_scope)))
             self.privacy.setCurrentIndex(max(0, self.privacy.findData(p.publish_privacy)))
             self.auto.setChecked(p.publish_auto)
-            for k, cb in self.plat_checks.items():
-                cb.setChecked(k in p.publish_platforms)
-            self.refresh_platforms()
+            self.refresh_accounts()
             self.fill_table()
             self.fill_history()
         finally:
             self._loading = False
         self.update_buttons()
 
-    def refresh_platforms(self) -> None:
-        for k, cls in PLATFORMS.items():
-            plat = cls()
-            ok = plat.is_connected()
-            lab = self.plat_status[k]
-            lab.setText(f"Đã kết nối · {plat.account_label()}" if ok else "Chưa kết nối")
-            lab.setProperty("pill", "ok" if ok else "warn")
-            repolish(lab)
+    def refresh_accounts(self) -> None:
+        """Dựng lại danh sách tài khoản đã kết nối; tích sẵn những tài khoản dự án đã chọn."""
+        p = self.get_project()
+        chosen = set(p.publish_accounts) if p else set()
+        was = self._loading
+        self._loading = True
+        try:
+            while self.acc_box.count():
+                w = self.acc_box.takeAt(0).widget()
+                if w:
+                    w.deleteLater()
+            self.acc_checks = {}
+            for a in publish.accounts():
+                cb = QCheckBox(publish.account_name(a["id"]))
+                cb.setChecked(a["id"] in chosen)
+                cb.toggled.connect(self.save_options)
+                self.acc_box.addWidget(cb)
+                self.acc_checks[a["id"]] = cb
+            if not self.acc_checks:
+                empty = QLabel("Chưa kết nối tài khoản nào. Vào Cài đặt → Đăng video để thêm.")
+                empty.setProperty("caption", True)
+                self.acc_box.addWidget(empty)
+        finally:
+            self._loading = was
+        self.update_buttons()
+
+    def chosen_accounts(self) -> list[str]:
+        return [k for k, cb in self.acc_checks.items() if cb.isChecked()]
 
     def fill_table(self) -> None:
         p = self.get_project()
@@ -241,7 +254,7 @@ class PublishTab(QWidget):
                 video = "Cần ghép"
             else:
                 video = "Đã ghép"
-            posted = [PLATFORMS[k].label for k in PLATFORMS if service.history_ok(p, t, k)]
+            posted = [publish.account_name(a["id"]) for a in publish.accounts() if service.history_ok(p, t, a["id"])]
             cells = [t.label, video, "✓" if service.meta_of(p, t).get("title") else "—", ", ".join(posted) or "—"]
             for c, text in enumerate(cells, 1):
                 it = QTableWidgetItem(text)
@@ -271,10 +284,9 @@ class PublishTab(QWidget):
         rows = list(reversed(p.publish_history[-100:])) if p else []
         self.history.setRowCount(len(rows))
         for r, h in enumerate(rows):
-            plat = PLATFORMS.get(h.get("platform"))
             result = ("✓ " + (service.PRIVACY_LABELS.get(h.get("privacy"), h.get("privacy", "")) or "Đã đăng")
                       + (f" — {h['message']}" if h.get("message") else "")) if h.get("ok") else "✗ " + (h.get("message") or "Lỗi")
-            cells = [h.get("time", ""), f"{names.get(h.get('chapter'), h.get('chapter', ''))} · {plat.label if plat else h.get('platform')}",
+            cells = [h.get("time", ""), f"{names.get(h.get('chapter'), h.get('chapter', ''))} · {publish.account_name(h['account']) if h.get('account') else h.get('platform', '')}",
                      result, h.get("url", "")]
             for c, text in enumerate(cells):
                 it = QTableWidgetItem(text)
@@ -347,7 +359,7 @@ class PublishTab(QWidget):
         p = self.get_project()
         if not p or self._loading:
             return
-        p.publish_platforms = [k for k, cb in self.plat_checks.items() if cb.isChecked()]
+        p.publish_accounts = self.chosen_accounts() + [a for a in p.publish_accounts if a not in self.acc_checks]    # giữ lựa chọn của tài khoản đang ẩn
         p.publish_privacy = self.privacy.currentData() or "private"
         p.publish_auto = self.auto.isChecked()
         p.save()
@@ -375,7 +387,7 @@ class PublishTab(QWidget):
         idle = self._worker is None
         any_t = bool(self.checked_targets())
         self.b_prepare.setEnabled(idle and any_t)
-        self.b_publish.setEnabled(idle and any_t and any(cb.isChecked() for cb in self.plat_checks.values()))
+        self.b_publish.setEnabled(idle and any_t and bool(self.chosen_accounts()))
         self.b_stop.setVisible(not idle)
 
     # ================= chạy nền =================
@@ -402,12 +414,12 @@ class PublishTab(QWidget):
         self.update_buttons()
         w.start()
         for wd in (self.table, self.scope, self.edit_title, self.edit_desc, self.edit_tags, self.b_ai, self.b_save_meta, self.privacy,
-                   self.auto, self.force, *self.plat_checks.values()):
+                   self.auto, self.force, *self.acc_checks.values()):
             wd.setEnabled(False)
 
     def _finished(self) -> None:
         self._worker = None
-        for wd in (self.table, self.scope, self.privacy, self.auto, self.force, *self.plat_checks.values()):
+        for wd in (self.table, self.scope, self.privacy, self.auto, self.force, *self.acc_checks.values()):
             wd.setEnabled(True)
         self.reload()
 
@@ -438,12 +450,12 @@ class PublishTab(QWidget):
 
     def publish(self) -> None:
         p, tgts = self.get_project(), self.checked_targets()
-        plats = [k for k, cb in self.plat_checks.items() if cb.isChecked()]
+        plats = self.chosen_accounts()
         if not (p and tgts and plats):
             return
         self.commit_editor(quiet=True)
         priv = self.privacy.currentData()
-        lines = [f"• {len(tgts)} video × {len(plats)} nền tảng ({', '.join(PLATFORMS[k].label for k in plats)})",
+        lines = [f"• {len(tgts)} video × {len(plats)} tài khoản:\n   " + "\n   ".join(publish.account_name(a) for a in plats),
                  f"• Chế độ: {service.PRIVACY_LABELS[priv]}"]
         if priv == "public":
             lines.append("\n⚠ Công khai: bài sẽ hiện ngay với mọi người và không thể thu hồi từ Kevit.")
@@ -460,7 +472,7 @@ class PublishTab(QWidget):
         def done(results):
             ok = sum(1 for r in results if r.ok)
             bad = [r for r in results if not r.ok]
-            text = f"Đã đăng {ok}/{len(results)} bài." + (f" Lỗi {PLATFORMS[bad[0].platform].label}: {bad[0].message[:200]}" if bad else "")
+            text = f"Đã đăng {ok}/{len(results)} bài." + (f" Lỗi {publish.account_name(bad[0].account)}: {bad[0].message[:200]}" if bad else "")
             self.set_status(text, "warn" if bad else "ok")
         self.start(job, done, "Đang đăng…")
 
@@ -470,11 +482,11 @@ class PublishTab(QWidget):
         p = self.get_project()
         if not p or not p.publish_auto or self._worker is not None:
             return
-        plats = [k for k in p.publish_platforms if PLATFORMS[k]().is_connected()]
-        for k in set(p.publish_platforms) - set(plats):
-            self.log(f"Tự động đăng: bỏ qua {PLATFORMS[k].label} vì chưa kết nối.")
+        plats = [a for a in p.publish_accounts if publish.store.get_account(a).get("access_token")]
+        for a in set(p.publish_accounts) - set(plats):
+            self.log(f"Tự động đăng: bỏ qua {publish.account_name(a)} vì tài khoản chưa kết nối hoặc đã bị xoá.")
         todo = [t for t in service.targets(p) if service.is_ready(p, t) and any(not service.history_ok(p, t, k) for k in plats)]
         if not (plats and todo):
             return
-        self.log(f"Tự động đăng: {len(todo)} video lên {', '.join(PLATFORMS[k].label for k in plats)} ({service.PRIVACY_LABELS[p.publish_privacy]}).")
+        self.log(f"Tự động đăng: {len(todo)} video lên {', '.join(publish.account_name(a) for a in plats)} ({service.PRIVACY_LABELS[p.publish_privacy]}).")
         self.run_publish(p, todo, plats, p.publish_privacy)

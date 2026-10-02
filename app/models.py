@@ -187,11 +187,11 @@ class Project:
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
     post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video ghép cả dự án
-    publish_platforms: list[str] = field(default_factory=list)   # nền tảng được chọn để đăng (youtube, tiktok, facebook, instagram)
+    publish_accounts: list[str] = field(default_factory=list)    # tài khoản (id trong cài đặt Đăng video) mà dự án này đăng lên
     publish_scope: str = "chapters"    # chapters: đăng video từng chương | project: đăng một video cả dự án
     publish_privacy: str = "private"   # private | unlisted | public
     publish_auto: bool = False         # tự ghép, viết mô tả và đăng ngay khi một chương gen xong
-    publish_history: list[dict] = field(default_factory=list)    # nhật ký các lần đăng: {chapter, platform, ok, url, post_id, time, privacy, message}
+    publish_history: list[dict] = field(default_factory=list)    # nhật ký các lần đăng: {chapter, platform, account, ok, url, post_id, time, privacy, message}
     chapters: list[Chapter] = field(default_factory=list)
 
     @property
@@ -249,6 +249,7 @@ class Project:
     @classmethod
     def load(cls, name: str) -> "Project":
         d = json.loads((PROJ_DIR / name / "project.json").read_text(encoding="utf-8"))
+        d.pop("publish_platforms", None)        # bản thử cũ chọn theo nền tảng; nay chọn theo tài khoản
         old_scenes, old_story = d.pop("scenes", None), d.pop("story", None)   # định dạng cũ: 1 dự án = 1 chapter
         chapters = []
         for c in d.pop("chapters", []):
