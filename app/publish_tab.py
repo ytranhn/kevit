@@ -501,12 +501,22 @@ class PublishTab(QWidget):
         sb.addLayout(srow2)
 
         # 4. Lịch sử (thu gọn được)
-        self.hist_toggle = QPushButton("Lịch sử đăng")
+        self.hist_toggle = QPushButton()
         self.hist_toggle.setProperty("ghost", True)
         self.hist_toggle.setCheckable(True)
         self.hist_toggle.setChecked(True)
-        icons.attach(self.hist_toggle, "up", 16)
-        self.hist_toggle.setStyleSheet("font-weight: 600; font-size: 15px; text-align: left;")
+        self.hist_toggle.setCursor(Qt.PointingHandCursor)
+        self.hist_toggle.setFixedHeight(36)
+        ht = QLabel("Lịch sử đăng")
+        ht.setProperty("subheading", True)
+        ht.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.hist_caret = QLabel()
+        self.hist_caret.setAttribute(Qt.WA_TransparentForMouseEvents)
+        icons.attach(self.hist_caret, "up", 18, role="muted")
+        hrow = QHBoxLayout(self.hist_toggle)
+        hrow.setContentsMargins(SP.xs, 0, SP.xs, 0)
+        hrow.addWidget(ht, 1)
+        hrow.addWidget(self.hist_caret)
         self.history = QTableWidget(0, 4)
         self.history.setHorizontalHeaderLabels(["Lúc", "Mục · tài khoản", "Kết quả", "Liên kết"])
         self.history.verticalHeader().hide()
@@ -827,7 +837,7 @@ class PublishTab(QWidget):
                 self.history.setItem(r, c, it)
 
     def toggle_history(self, on: bool) -> None:
-        icons.attach(self.hist_toggle, "up" if on else "down", 16)
+        icons.attach(self.hist_caret, "up" if on else "down", 18, role="muted")
         self.fill_history()
 
     def open_history_link(self, row: int, col: int) -> None:

@@ -372,23 +372,42 @@ def _apply(w: QWidget, name: str, size: int, role: str | None) -> None:
         w.setIcon(ic)
         w.setIconSize(QSize(size, size))
         return
-    ic.addPixmap(_padded(pixmap(name, size, normal), name), QIcon.Normal)
+    normal_pm = _padded(pixmap(name, size, normal), name)
+    ic.addPixmap(normal_pm, QIcon.Normal)
     ic.addPixmap(_padded(pixmap(name, size, dis), name), QIcon.Disabled)
     w.setIcon(ic)
-    w.setIconSize(QSize(size + GAP, size))
+    w.setIconSize(QSize(round(normal_pm.width() / normal_pm.devicePixelRatio()), size))
 
 
 GAP = 5                    # px đệm giữa icon và chữ (Qt để icon sát chữ)
 
 
+def _tight_x(pm: QPixmap) -> QPixmap:
+    """Cắt bỏ phần trống hai bên của hình (giữ nguyên chiều cao): mũi tên xổ vẽ trên lưới 24px nên có lề trống bên trong,
+    nếu không cắt thì nội dung nút (chữ + mũi tên) trông lệch khỏi tâm."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QBitmap, QRegion
+    r = QRegion(QBitmap.fromImage(pm.toImage().createAlphaMask())).boundingRect()
+    return pm.copy(QRect(r.x(), 0, max(r.width(), 1), pm.height())) if not r.isEmpty() else pm
+
+
+CARET_IN, CARET_OUT = 4, 8     # px đệm quanh mũi tên xổ: bên trong (giữa chữ và mũi tên) và bên ngoài (phía mép nút).
+                               # Qt xếp nội dung nút có icon lệch ~4px về phía icon, nên phần đệm ngoài phải lớn hơn phần trong 4px thì chữ + mũi tên mới cân giữa nút.
+
+
 def _padded(pm: QPixmap, name: str) -> QPixmap:
-    """Thêm GAP px trống vào phía đối diện với chữ: mũi tên xổ (đứng bên phải chữ) đệm bên trái, icon khác đệm bên phải."""
+    """Thêm khoảng trống quanh icon. Mũi tên xổ (đứng bên phải chữ): cắt sát hình rồi đệm CARET_IN bên trái, CARET_OUT bên phải.
+    Icon khác: đệm GAP bên phải (phía chữ)."""
+    caret = name in _DOWN_CARET_NAMES
+    if caret:
+        pm = _tight_x(pm)
     dpr = pm.devicePixelRatio()
-    out = QPixmap(pm.width() + int(GAP * dpr), pm.height())
+    left, right = (CARET_IN, CARET_OUT) if caret else (0, GAP)
+    out = QPixmap(pm.width() + int((left + right) * dpr), pm.height())
     out.setDevicePixelRatio(dpr)
     out.fill(Qt.transparent)
     p = QPainter(out)
-    p.drawPixmap(int(GAP * dpr) if name in _DOWN_CARET_NAMES else 0, 0, pm)
+    p.drawPixmap(int(left * dpr), 0, pm)
     p.end()
     return out
 
