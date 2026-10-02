@@ -78,14 +78,14 @@ class AccountCard(QFrame):
     def __init__(self, a: accounts.Account, active: bool, default_new: bool, up: bool | None, n_projects: int):
         super().__init__()
         self.setProperty("provrow", True)
-        self.setFixedHeight(122)
+        self.setFixedHeight(142)
         name = ElidedLabel()
         name.setStyleSheet("font-weight: 600; font-size: 15px; background: transparent;")
         name.set_full(a.name)
         state = {True: "Đang mở", False: "Chưa mở", None: "Đang kiểm tra…"}[up]          # ngắn hơn bản chi tiết: thẻ hẹp
         info = ElidedLabel()
         info.setProperty("caption", True)
-        info.set_full("" if active else f"Chrome {state.lower()}  ·  Cổng {a.port}  ·  {n_projects} dự án")   # có nhãn 'Đang dùng' thì không đủ chỗ cho chữ: chấm màu + tooltip nói trạng thái Chrome
+        info.set_full(f"Chrome {state.lower()}")           # chi tiết (cổng, số dự án) nằm trong tooltip và trang bên phải
         info.setToolTip(f"Chrome {state.lower()} · Cổng {a.port} · {n_projects} dự án")
         srow = QHBoxLayout()
         srow.setSpacing(SP.s)
@@ -97,11 +97,11 @@ class AccountCard(QFrame):
         col.setContentsMargins(0, 0, 0, 0)
         col.addWidget(name)
         col.addLayout(srow)
-        if active:                                     # nhãn nằm ở dòng trạng thái để tên tài khoản được rộng tối đa
+        if active:                                     # nhãn riêng một dòng: tên và thông tin Chrome luôn hiện đủ, kể cả cột hẹp
             p1 = QLabel("Đang dùng")
             p1.setProperty("pill", "ok")
-            p1.setFixedHeight(24)
-            srow.addWidget(p1, 0, Qt.AlignVCenter)
+            p1.setFixedHeight(22)
+            col.addWidget(p1, 0, Qt.AlignLeft)
         more = QPushButton()
         more.setProperty("iconbtn", True)
         icons.attach(more, "more", 20)
@@ -340,7 +340,7 @@ class AccountsPanel(QWidget):
         for a in accs:
             it = QListWidgetItem()
             it.setData(Qt.UserRole, a.id)
-            it.setSizeHint(QSize(0, 122 + SP.s))
+            it.setSizeHint(QSize(0, 142 + SP.s))
             self.list.addItem(it)
             card = AccountCard(a, a.id == act, a.id == dflt, self._up.get(a.id), len(accounts.usage(a.id)))
             card.selected.connect(lambda i=a.id: self.select_id(i))
