@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
 from . import accounts, theme, characters_pack, flow_auto, icons, llm, models, settings, trash
+from .publish_tab import PublishTab
 from .settings_tab import SettingsTab
 from .models import Character
 from .project_tab import ProjectTab
@@ -572,6 +573,10 @@ class MainWindow(QMainWindow):
         proj.update_welcome()
         tabs.addTab(proj, "Dự án")
         tabs.addTab(chars, "Nhân vật")
+        self.publish_tab = PublishTab(lambda: proj.project, self.logbox.appendPlainText)
+        proj.generation_done.connect(self.publish_tab.on_generation_done)
+        self.settings_tab.publish_changed.connect(self.publish_tab.refresh_platforms)
+        tabs.addTab(self.publish_tab, "Đăng video")
         tabs.addTab(self.settings_tab, "Cài đặt")
 
         # nhật ký: ngăn kéo nổi phía trên thanh trạng thái, ẩn mặc định (không chiếm chỗ của nội dung)
@@ -582,12 +587,13 @@ class MainWindow(QMainWindow):
         proj.activity.connect(self.strip.set_activity)
         proj.busy_changed.connect(lambda busy, cancel: self.strip.set_busy(busy, cancel))
         proj.progress_changed.connect(self.strip.set_progress)
+        self.publish_tab.activity.connect(self.strip.set_activity)
         self.strip.set_activity("Sẵn sàng.", "info")
 
         central = QWidget()
         # thanh trên cùng (logo, tab có icon, tài khoản Flow) thay thanh tab mặc định; QTabWidget vẫn giữ để chuyển trang
         tabs.tabBar().hide()
-        self.topbar = TopBar(ICON_PATH, [("Dự án", "folder"), ("Nhân vật", "users"), ("Cài đặt", "gear")])
+        self.topbar = TopBar(ICON_PATH, [("Dự án", "folder"), ("Nhân vật", "users"), ("Đăng video", "open"), ("Cài đặt", "gear")])
         self.topbar.tab_clicked.connect(tabs.setCurrentIndex)
         self.topbar.account_clicked.connect(lambda: self.on_chip("flow", anchor=self.topbar.pill))
         tabs.currentChanged.connect(self.topbar.set_current)

@@ -77,6 +77,13 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 - Giọng đọc từ **Edge TTS miễn phí** (hơn 300 giọng, 75 ngôn ngữ) hoặc Gemini TTS, lưu bộ nhớ đệm, khớp độ dài với clip.
 - Đổi ngôn ngữ giữa chừng: tool hỏi có dịch lại các scene đã có và tạo lại giọng không (không tốn credit Flow).
 
+**Ghép, viết mô tả và đăng tự động (hoàn toàn qua API)**
+- **Ghép video** từng chương hoặc cả dự án; chỉ ghép lại khi có clip mới hơn video đã ghép.
+- **AI viết tiêu đề, mô tả và hashtag** theo nội dung chương, cùng ngôn ngữ với thuyết minh; sửa tay được trước khi đăng.
+- **Đăng lên YouTube (Shorts), TikTok, Facebook Reels, Instagram Reels** bằng API chính thức (OAuth 2.0 trên máy bạn, không điều khiển trình duyệt, không gửi khoá đi đâu). Chọn nền tảng nào cũng được, mỗi nền tảng tự cắt tiêu đề/hashtag theo giới hạn của nó.
+- **Không đăng trùng:** mục đã đăng được ghi lại, lần sau tự bỏ qua trừ khi chọn «Đăng lại». Một nền tảng lỗi không làm hỏng các nền tảng khác.
+- **Tự động hoàn toàn (tuỳ chọn):** bật «Tự động đăng khi một chương gen xong» để gen xong là ghép, viết mô tả và đăng luôn.
+
 **Trải nghiệm**
 - Giao diện sáng và tối, tự theo hệ điều hành; chạy trên macOS và Windows.
 - Danh sách dự án/chương có ô tìm kiếm (gõ không dấu cũng được), mở tức thì dù có hàng trăm mục.
@@ -84,7 +91,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 
 ## Giao diện
 
-Thanh trên cùng gồm ba mục **Dự án · Nhân vật · Cài đặt** và chip tài khoản Flow đang dùng; thanh dưới cùng là các chip trạng thái nhanh (mô hình AI, tài khoản Flow kèm credit, giọng đọc) bấm vào để đổi ngay.
+Thanh trên cùng gồm bốn mục **Dự án · Nhân vật · Đăng video · Cài đặt** và chip tài khoản Flow đang dùng; thanh dưới cùng là các chip trạng thái nhanh (mô hình AI, tài khoản Flow kèm credit, giọng đọc) bấm vào để đổi ngay.
 
 <table>
   <tr>
@@ -214,6 +221,22 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
 
 </details>
 
+### Đăng video lên mạng xã hội
+
+1. **Đăng ký ứng dụng (một lần, miễn phí)** trên trang nhà phát triển của từng nền tảng, rồi dán khoá vào **Cài đặt → Đăng video** và bấm **Kết nối** (trình duyệt mở ra để bạn cấp quyền; token chỉ lưu trên máy). Mỗi thẻ có sẵn hướng dẫn ngắn và địa chỉ chuyển hướng cần đăng ký.
+
+   | Nền tảng | Cần | Lưu ý |
+   |---|---|---|
+   | YouTube | OAuth client loại *Desktop app* + bật YouTube Data API v3 | Dự án API chưa được Google kiểm duyệt thì video luôn ở chế độ riêng tư; mỗi lượt tải lên tốn 1600/10.000 đơn vị hạn mức ngày (khoảng 6 video/ngày) |
+   | TikTok | App có Login Kit + Content Posting API (Direct Post) | App chưa được TikTok duyệt chỉ đăng được ở chế độ riêng tư, và tài khoản phải là Target User |
+   | Facebook | App Meta + Trang Facebook bạn quản lý | Reels lên Trang; chọn «Riêng tư» thì lưu thành bản nháp |
+   | Instagram | Tài khoản Professional liên kết với Trang | Dùng chung kết nối Meta; không có chế độ riêng tư nên chỉ đăng «Công khai» |
+
+2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn nền tảng và chế độ hiển thị (nên thử ở «Riêng tư» trước).
+3. Bấm **Ghép + viết mô tả** để chuẩn bị và xem lại nội dung, hoặc **Đăng ngay** để làm trọn quy trình ghép → viết mô tả → đăng. Lịch sử và liên kết bài đã đăng nằm ở cuối trang.
+
+Hãy tuân thủ điều khoản của từng nền tảng (nhất là quy định gắn nhãn nội dung do AI tạo) khi đăng.
+
 ## Dữ liệu và bảo mật
 
 - **Dữ liệu nằm ngoài ứng dụng**, nên build lại hay cập nhật app **không làm mất** dự án, nhân vật, clip hay đăng nhập Flow.
@@ -242,6 +265,8 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
 ```text
 main.py            điểm vào ứng dụng
 app/               mã nguồn (giao diện PySide6, LLM, Flow, TTS, ghép video)
+app/publish/       đăng video qua API: OAuth, YouTube, TikTok, Meta (Facebook + Instagram), quy trình tự động
+tests/             kiểm thử (python -m unittest discover -s tests -t .), tự cô lập cấu hình và dữ liệu
 assets/            logo, biểu tượng
 docs/images/       ảnh dùng trong README
 tools/             đóng gói (build_app.py), tạo logo, tiện ích macOS

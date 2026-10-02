@@ -1,0 +1,155 @@
+"""Quy trình tự động: ghép video -> viết mô tả/hashtag -> đăng lên các nền tảng đã chọn. Mỗi bước tự bỏ qua nếu đã có kết quả còn mới."""
+from __future__ import annotations
+
+import re
+import subprocess
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import imageio_ffmpeg
+
+from .. import merger
+from ..models import Chapter, Project
+from . import PLATFORMS, describe
+from .base import Post, PublishError, Result
+
+PRIVACY_LABELS = {"private": "Riêng tư", "unlisted": "Không công khai", "public": "Công khai"}
+
+
+@dataclass
+class Target:
+    key: str                 # id chương, hoặc "project" cho video cả dự án
+    label: str
+    chapter: Chapter | None  # None = cả dự án
+
+
+def targets(p: Project) -> list[Target]:
+    if p.publish_scope == "project":
+        return [Target("project", f"{p.name} (cả dự án)", None)]
+    return [Target(c.id, c.name, c) for c in p.chapters]
+
+
+def clips_of(p: Project, t: Target) -> list[Path]:
+    chs = [t.chapter] if t.chapter else p.chapters
+    return [Path(s.clip) for c in chs for s in c.scenes if s.status == "done" and s.clip and Path(s.clip).exists()]
+
+
+def scene_count(p: Project, t: Target) -> int:
+    return sum(len(c.scenes) for c in ([t.chapter] if t.chapter else p.chapters))
+
+
+def is_ready(p: Project, t: Target) -> bool:
+    n = scene_count(p, t)
+    return n > 0 and len(clips_of(p, t)) == n
+
+
+def video_path(p: Project, t: Target) -> Path:
+    return p.merged_path(t.chapter) if t.chapter else p.full_path
+
+
+def is_stale(p: Project, t: Target) -> bool:
+    """Video ghép chưa có, hoặc cũ hơn một clip nào đó (đã gen lại / đổi giọng sau lần ghép)."""
+    out = video_path(p, t)
+    if not out.exists() or out.stat().st_size == 0:
+        return True
+    return any(c.stat().st_mtime > out.stat().st_mtime for c in clips_of(p, t))
+
+
+def meta_of(p: Project, t: Target) -> dict:
+    return (t.chapter.post_meta if t.chapter else p.post_meta) or {}
+
+
+def set_meta(p: Project, t: Target, meta: dict) -> None:
+    if t.chapter:
+        t.chapter.post_meta = meta
+    else:
+        p.post_meta = meta
+
+
+def probe(video: Path) -> tuple[bool, float]:
+    """(là video dọc?, thời lượng giây) đọc từ ffmpeg."""
+    out = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-i", str(video)], **merger.RUN).stderr
+    d = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", out)
+    secs = int(d[1]) * 3600 + int(d[2]) * 60 + float(d[3]) if d else 0.0
+    m = re.search(r"Video:.*?, (\d{2,5})x(\d{2,5})", out)
+    return (int(m[2]) > int(m[1]) if m else True), secs
+
+
+def ensure_video(p: Project, t: Target, log=print) -> Path:
+    if not is_ready(p, t):
+        raise PublishError(f"{t.label}: chưa gen xong tất cả scene nên chưa ghép được.")
+    out = video_path(p, t)
+    if is_stale(p, t):
+        log(f"[{t.label}] Đang ghép video…")
+        merger.merge(clips_of(p, t), out)
+    else:
+        log(f"[{t.label}] Dùng lại video đã ghép.")
+    return out
+
+
+def ensure_meta(p: Project, t: Target, log=print, regenerate: bool = False) -> dict:
+    meta = meta_of(p, t)
+    if meta.get("title") and not regenerate:
+        return meta
+    meta = describe.generate(p, t.chapter, log)
+    set_meta(p, t, meta)
+    p.save()
+    return meta
+
+
+def history_ok(p: Project, t: Target, platform: str) -> dict | None:
+    return next((h for h in reversed(p.publish_history) if h.get("chapter") == t.key and h.get("platform") == platform and h.get("ok")), None)
+
+
+def _record(p: Project, t: Target, r: Result) -> None:
+    p.publish_history.append(dict(chapter=t.key, platform=r.platform, ok=r.ok, url=r.url, post_id=r.post_id, privacy=r.privacy,
+                                  message=r.message, time=time.strftime("%Y-%m-%d %H:%M:%S")))
+    del p.publish_history[:-300]
+    p.save()
+
+
+def run(p: Project, tgts: list[Target], platforms: list[str], privacy: str | None = None, log=print, cancel=None,
+        force: bool = False, regenerate_meta: bool = False) -> list[Result]:
+    """Ghép + viết mô tả + đăng cho từng đích lên từng nền tảng. Lỗi ở một đích/nền tảng không làm dừng các phần còn lại."""
+    privacy = privacy or p.publish_privacy
+    results: list[Result] = []
+    if not platforms:
+        raise PublishError("Chưa chọn nền tảng nào để đăng.")
+    for t in tgts:
+        if cancel and cancel.is_set():
+            log("Đã dừng theo yêu cầu.")
+            break
+        todo = [k for k in platforms if force or not history_ok(p, t, k)]
+        for k in platforms:
+            if k not in todo:
+                h = history_ok(p, t, k)
+                log(f"[{t.label}] {PLATFORMS[k].label}: đã đăng ({h.get('time', '')}), bỏ qua. Chọn “Đăng lại” nếu muốn đăng lần nữa.")
+        if not todo:
+            continue
+        try:
+            video = ensure_video(p, t, log)
+            meta = ensure_meta(p, t, log, regenerate_meta)
+            vertical, secs = probe(video)
+        except Exception as e:  # noqa: BLE001 - lỗi chuẩn bị video áp cho mọi nền tảng của đích này
+            log(f"[{t.label}] LỖI: {e}")
+            results += [Result(k, False, message=str(e)) for k in todo]
+            continue
+        post = Post(meta.get("title", ""), meta.get("description", ""), list(meta.get("hashtags", [])), privacy, vertical, secs)
+        for k in todo:
+            if cancel and cancel.is_set():
+                log("Đã dừng theo yêu cầu.")
+                return results
+            plat = PLATFORMS[k]()
+            try:
+                if not plat.is_connected():
+                    raise PublishError(f"{plat.label}: chưa kết nối tài khoản (Cài đặt → Đăng video).")
+                log(f"[{t.label}] Đang đăng lên {plat.label}…")
+                r = plat.upload(video, post, log)
+                log(f"[{t.label}] Đã đăng lên {plat.label}" + (f": {r.url}" if r.url else "") + (f" — {r.message}" if r.message else ""))
+            except Exception as e:  # noqa: BLE001
+                r = Result(k, False, message=str(e)[:600])
+                log(f"[{t.label}] {plat.label} lỗi: {e}")
+            results.append(r)
+            _record(p, t, r)
+    return results

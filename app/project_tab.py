@@ -204,6 +204,7 @@ class PreviewPanel(QWidget):
 
 class ProjectTab(QWidget):
     opened = Signal(str)
+    generation_done = Signal()           # một đợt gen clip vừa chạy xong (tab Đăng video dùng để tự động đăng)
     account_changed = Signal(str)        # id tài khoản Flow đang dùng vừa đổi
     voices_ready = Signal()              # danh mục giọng Edge vừa tải xong ở luồng nền
     activity = Signal(str, str)          # (nội dung, mức: info/ok/warn/error) -> thanh trạng thái
@@ -2361,7 +2362,7 @@ class ProjectTab(QWidget):
             if "Không đủ credit" in msg:
                 QMessageBox.warning(self, "Không đủ credit", msg)
         self._prog = (0, len(todo))
-        self.run(job, lambda _: None, cancelable=True, on_fail=on_fail)
+        self.run(job, lambda _: self.generation_done.emit(), cancelable=True, on_fail=on_fail)
 
     def flow_sync(self):
         """Đối soát với Flow, không tốn credit: (1) scene đã có clip gốc nhưng chưa xong -> tạo giọng + ghép;

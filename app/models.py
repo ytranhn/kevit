@@ -158,6 +158,7 @@ class Chapter:
     story: str = ""                # nội dung chapter (nguyên văn)
     scenes: list[Scene] = field(default_factory=list)
     flow_project_url: str = ""     # project Google Flow RIÊNG của chương này (mỗi chương một project để Flow không phải lọc quá nhiều clip)
+    post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video chương: {title, description, hashtags}
 
     @property
     def name(self) -> str:
@@ -185,6 +186,12 @@ class Project:
     flow_stash: dict = field(default_factory=dict)   # địa chỉ project Flow của các tài khoản KHÁC (mỗi tài khoản có project riêng của nó)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
+    post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video ghép cả dự án
+    publish_platforms: list[str] = field(default_factory=list)   # nền tảng được chọn để đăng (youtube, tiktok, facebook, instagram)
+    publish_scope: str = "chapters"    # chapters: đăng video từng chương | project: đăng một video cả dự án
+    publish_privacy: str = "private"   # private | unlisted | public
+    publish_auto: bool = False         # tự ghép, viết mô tả và đăng ngay khi một chương gen xong
+    publish_history: list[dict] = field(default_factory=list)    # nhật ký các lần đăng: {chapter, platform, ok, url, post_id, time, privacy, message}
     chapters: list[Chapter] = field(default_factory=list)
 
     @property
