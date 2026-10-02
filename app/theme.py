@@ -58,14 +58,23 @@ QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus { border:
 QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QComboBox:disabled { color: $faint; background: $surface2; }
 QLineEdit { min-height: 20px; }
 QComboBox { min-height: 20px; padding-right: 26px; }
-QComboBox::drop-down { border: none; width: 26px; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
+QComboBox::down-arrow { image: url($chev_down_png); width: 14px; height: 14px; }
+QComboBox::down-arrow:disabled { image: url($chev_down_dis_png); }
 QComboBoxPrivateContainer { background: transparent; border: none; }
 QComboBox QAbstractItemView { background: $surface; color: $text; border: 1px solid $border; border-radius: 12px;
     padding: 6px; outline: 0; selection-background-color: $sel; selection-color: $text; }
 QComboBox QAbstractItemView::item { min-height: 32px; padding: 0 12px; border-radius: 8px; }
 QComboBox QAbstractItemView::item:hover { background: $surface2; }
 QComboBox QAbstractItemView::item:selected { background: $sel; color: $text; }
-QSpinBox { min-height: 20px; }
+QSpinBox { min-height: 20px; padding-right: 26px; }
+QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
+QSpinBox::up-button { subcontrol-position: top right; }
+QSpinBox::down-button { subcontrol-position: bottom right; }
+QSpinBox::up-arrow { image: url($chev_up_png); width: 10px; height: 10px; }
+QSpinBox::down-arrow { image: url($chev_down_png); width: 10px; height: 10px; }
+QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off { image: url($chev_up_dis_png); }
+QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off { image: url($chev_down_dis_png); }
 QListWidget { background: $surface; border: 1px solid $border; border-radius: 12px; padding: 4px; outline: 0;
     selection-background-color: $sel; selection-color: $text; }
 QListWidget::item { padding: 6px 8px; border-radius: 8px; }
@@ -252,19 +261,21 @@ def is_dark(app: QGuiApplication | None = None) -> bool:
     return app.styleHints().colorScheme() == Qt.ColorScheme.Dark
 
 
-def _check_png() -> str:
-    """Dấu ✓ trắng cho ô tích (QSS chỉ nhận ảnh từ file): vẽ một lần vào thư mục tạm của người dùng, trả về đường dẫn dùng trong url()."""
+def _glyph_png(name: str, color: str, size: int = 32) -> str:
+    """Ảnh icon nhỏ cho QSS (chỉ nhận ảnh từ file): vẽ một lần vào thư mục tạm, tên file gồm tên icon + màu nên đổi sáng/tối không lẫn nhau."""
     import tempfile
     from pathlib import Path
     from . import icons
-    f = Path(tempfile.gettempdir()) / "kevit-check.png"
+    f = Path(tempfile.gettempdir()) / f"kevit-{name}-{color.lstrip('#').replace('(', '').replace(')', '').replace(',', '')}.png"
     if not f.exists() or f.stat().st_size == 0:
-        icons.pixmap("check", 32, "#FFFFFF", dpr=1.0).save(str(f), "PNG")
+        icons.pixmap(name, size, color, dpr=1.0).save(str(f), "PNG")
     return f.as_posix()
 
 
 def stylesheet(tok: dict[str, str]) -> str:
-    return QSS.substitute(**tok, serif=SERIF, check_png=_check_png())
+    return QSS.substitute(**tok, serif=SERIF, check_png=_glyph_png("check", "#FFFFFF"),
+                          chev_down_png=_glyph_png("down", tok["muted"]), chev_down_dis_png=_glyph_png("down", tok["faint"]),
+                          chev_up_png=_glyph_png("up", tok["muted"]), chev_up_dis_png=_glyph_png("up", tok["faint"]))
 
 
 def palette(tok: dict[str, str]) -> QPalette:
