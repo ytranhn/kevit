@@ -617,6 +617,24 @@ class TestMetaConnect(Tmp):
         with self.assertRaisesRegex(PublishError, "không thấy Trang"):
             self._run(meta.FacebookReels, {"client_id": "a", "client_secret": "s"}, lambda r: httpx.Response(200, json={"data": []}))
 
+    def test_long_lived_exchange_failure_falls_back_to_received_token(self):
+        store.set_creds("meta", {"client_id": "a", "client_secret": "s", "config_id": "123"})
+        old = meta.oauth.wait_for_code
+        meta.oauth.wait_for_code = lambda *a, **k: "CODE"
+        self.addCleanup(setattr, meta.oauth, "wait_for_code", old)
+        used = []
+
+        def h(req: httpx.Request):
+            if req.url.path.endswith("/me/accounts"):
+                used.append(req.url.params["access_token"])
+                return httpx.Response(200, json={"data": [{"id": "P1", "name": "Trang", "access_token": "PT"}]})
+            if req.url.params.get("grant_type") == "fb_exchange_token":
+                return httpx.Response(400, json={"error": {"message": "not allowed", "code": 100}})
+            return httpx.Response(200, json={"access_token": "SHORT", "expires_in": 3600})
+        out = meta.FacebookReels("", client(h)).connect()
+        self.assertEqual(used, ["SHORT"])
+        self.assertEqual([a["id"] for a in out], ["facebook:P1"])
+
     def test_login_timeout_message_carries_troubleshooting_hint(self):
         with self.assertRaisesRegex(RuntimeError, "Valid OAuth Redirect URIs"):
             oauth.wait_for_code("http://127.0.0.1:53697/callback", "S", "x", opener=lambda u: None, timeout=1, hint="… Valid OAuth Redirect URIs …")

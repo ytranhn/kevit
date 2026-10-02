@@ -85,8 +85,12 @@ class Meta(Platform):
             "tài khoản bạn phải là Admin/Tester của app; app dùng Facebook Login for Business thì nhập Configuration ID."))
         short = graph(self.client, "GET", "oauth/access_token", params=dict(
             client_id=c["client_id"], client_secret=c["client_secret"], redirect_uri=c["redirect_uri"], code=code))
-        long = graph(self.client, "GET", "oauth/access_token", params=dict(
-            grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=short["access_token"]))
+        try:
+            long = graph(self.client, "GET", "oauth/access_token", params=dict(
+                grant_type="fb_exchange_token", client_id=c["client_id"], client_secret=c["client_secret"], fb_exchange_token=short["access_token"]))
+        except PublishError as e:      # token của Facebook Login for Business có thể đã là loại dài hạn và không đổi được nữa
+            log(f"Meta: không đổi được sang token dài hạn ({str(e)[:120]}), dùng token vừa nhận.")
+            long = short
         pages = self._pages(long["access_token"])
         if not pages:
             raise PublishError("Kết nối được nhưng không thấy Trang Facebook nào. Ở bước cấp quyền hãy chọn ít nhất một Trang "
