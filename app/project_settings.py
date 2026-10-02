@@ -5,15 +5,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
                                QWidget)
 
-from . import accounts, credits, flow_auto, icons, models, publish, theme
-from .publish import service
-from .publish_tab import PRIVACY, account_tile
-from .shell import AdaptiveRow, NavItem, section
+from . import accounts, credits, flow_auto, icons, publish, theme
+from .publish_tab import PRIVACY
+from .shell import AdaptiveRow, NavItem, platform_tile, section
 from .theme import SP
-from .widgets import Combo, rounded_pixmap
+from .widgets import Combo, repolish
 from .workers import Worker
 
 DEFAULT_STYLE = "cinematic, soft lighting, 35mm film look"
@@ -53,8 +52,8 @@ def _note(icon: str, text: str) -> QFrame:
     row = QHBoxLayout(f)
     row.setContentsMargins(SP.m, SP.s, SP.m, SP.s)
     row.setSpacing(SP.s)
-    row.addWidget(ic, 0, Qt.AlignTop)
-    row.addWidget(t, 1)
+    row.addWidget(ic, 0, Qt.AlignVCenter)
+    row.addWidget(t, 1, Qt.AlignVCenter)
     return f
 
 
@@ -114,6 +113,49 @@ class AspectCard(QPushButton):
             icons.attach(self.icon_lab, "sparkle", 22, role="accent")
         else:
             self.icon_lab.setPixmap(_aspect_icon(self.ratio, theme.T["text"]))
+
+
+class AccountPick(QFrame):
+    """Một tài khoản đăng được: logo nền tảng · tên · nền tảng · ô tích. Bấm vào cả dòng để tích/bỏ tích."""
+
+    def __init__(self, acc: dict, checked: bool):
+        super().__init__()
+        self.setProperty("provrow", True)
+        self.setFixedHeight(54)
+        self.setCursor(Qt.PointingHandCursor)
+        name = QLabel(acc.get("label", acc["id"]) + (f"  ·  {acc['page_name']}" if acc.get("page_name") else ""))
+        name.setStyleSheet("font-weight: 600; background: transparent;")
+        name.setAttribute(Qt.WA_TransparentForMouseEvents)
+        plat = QLabel(publish.PLATFORMS[acc["platform"]].label)
+        plat.setProperty("caption", True)
+        plat.setAttribute(Qt.WA_TransparentForMouseEvents)
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addStretch(1)
+        col.addWidget(name)
+        col.addWidget(plat)
+        col.addStretch(1)
+        self.check = QCheckBox()
+        self.check.setChecked(checked)
+        self.check.toggled.connect(self._mark)
+        logo = platform_tile(acc["platform"], 30)
+        logo.setAttribute(Qt.WA_TransparentForMouseEvents)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(SP.m, 0, SP.m, 0)
+        row.setSpacing(SP.m)
+        row.addWidget(logo)
+        row.addLayout(col, 1)
+        row.addWidget(self.check)
+        self._mark(checked)
+
+    def _mark(self, on: bool) -> None:
+        self.setProperty("selected", bool(on))
+        repolish(self)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.check.toggle()
+        super().mousePressEvent(e)
 
 
 class ProjectSettingsDialog(QDialog):
@@ -228,42 +270,35 @@ class ProjectSettingsDialog(QDialog):
     # ================= dựng các thẻ =================
     def _build_visual(self) -> QFrame:
         box, body = section("image", "Hình ảnh & video", "Áp dụng cho mọi prompt gửi Flow trong dự án này.")
-        left = QVBoxLayout()
-        left.setSpacing(SP.xs)
-        left.addLayout(_labeled("Phong cách hình ảnh", self.tab.style, "Được gắn vào cuối mọi prompt. Viết bằng tiếng Anh sẽ cho kết quả ổn định nhất."))
-        left.addStretch(1)
-        self.preview = QLabel()
-        self.preview.setFixedSize(176, 176)
-        self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setStyleSheet("background: transparent;")
+        body.addLayout(_labeled("Phong cách hình ảnh", self.tab.style, "Được gắn vào cuối mọi prompt. Viết bằng tiếng Anh sẽ cho kết quả ổn định nhất."))
         cards = QHBoxLayout()
-        cards.setSpacing(SP.s)
+        cards.setSpacing(SP.m)
         self.aspect_cards: list[AspectCard] = []
-        for ratio, big, name, where in (("9:16", "9:16", "Dọc", "(TikTok, Reels)"), ("16:9", "16:9", "Ngang", "(YouTube)"),
+        for ratio, big, name, where in (("9:16", "9:16", "Dọc", "TikTok, Reels"), ("16:9", "16:9", "Ngang", "YouTube"),
                                         ("flow", "Theo Flow", "Tự động", "Dùng tỉ lệ gợi ý của Flow")):
             c = AspectCard(ratio, big, name, where)
             c.clicked.connect(lambda _=False, r=ratio: self.pick_aspect(r))
             cards.addWidget(c, 1)
             self.aspect_cards.append(c)
-        right = QVBoxLayout()
-        right.setSpacing(SP.s)
-        right.addWidget(QLabel("Tỉ lệ khung hình"))
-        right.addLayout(cards)
-        right.addWidget(_note("info", "9:16 cho điện thoại, 16:9 cho màn ngang. “Theo Flow” giữ nguyên tỉ lệ mặc định của tool (không đổi)."))
-        row = AdaptiveRow(900)
-        row.addLayout(left, 5)
-        row.addWidget(self.preview, 0, Qt.AlignTop)
-        row.addLayout(right, 6)
-        body.addWidget(row)
+        body.addWidget(QLabel("Tỉ lệ khung hình"))
+        body.addLayout(cards)
+        body.addWidget(_note("info", "9:16 cho điện thoại, 16:9 cho màn ngang. “Theo Flow” giữ nguyên tỉ lệ mặc định của tool (không đổi)."))
         return box
 
     def _build_scenes(self) -> QFrame:
         box, body = section("layers", "Tách scene", "Cảnh báo khi chương vượt số scene để đảm bảo chất lượng.")
-        row = AdaptiveRow(640, SP.xl)
-        self.tab.max_scenes.setFixedWidth(180)
-        row.addLayout(_labeled("Số scene tối đa / chương", self.tab.max_scenes), 0)
-        row.addWidget(_note("info", "Chỉ để cảnh báo chi phí. Tool luôn tách đủ scene để thuyết minh giữ ≥70% nội dung truyện."), 1)
-        body.addWidget(row)
+        # một hàng cài đặt: nhãn + mô tả ở bên trái, ô số ở bên phải
+        self.tab.max_scenes.setFixedWidth(130)
+        title = QLabel("Số scene tối đa / chương")
+        left = QVBoxLayout()
+        left.setSpacing(SP.xs)
+        left.addWidget(title)
+        left.addWidget(_caption("Chỉ để cảnh báo chi phí. Tool luôn tách đủ scene để thuyết minh giữ ≥70% nội dung truyện."))
+        row = QHBoxLayout()
+        row.setSpacing(SP.l)
+        row.addLayout(left, 1)
+        row.addWidget(self.tab.max_scenes, 0, Qt.AlignVCenter)
+        body.addLayout(row)
         return box
 
     def _build_flow(self) -> QFrame:
@@ -355,32 +390,57 @@ class ProjectSettingsDialog(QDialog):
         box, body = section("volume", "Giọng đọc", "Một giọng duy nhất cho cả dự án để người nghe không thấy lệch giữa các scene.")
         self.tab.narr_lang.setMinimumWidth(0)
         self.tab.voice.setMinimumWidth(0)
-        row = AdaptiveRow(820)
-        row.addLayout(_labeled("Ngôn ngữ thuyết minh", self.tab.narr_lang, "Khác tiếng Việt thì thuyết minh được DỊCH từ truyện gốc."), 4)
-        row.addLayout(_labeled("Nguồn giọng", self.tab.provider, "Edge miễn phí (hơn 300 giọng, 75 ngôn ngữ), Gemini cần API key."), 4)
-        row.addLayout(_labeled("Giọng", self.tab.voice, "Giọng “Đa ngữ” đọc tốt nhiều ngôn ngữ, hợp khi đổi ngôn ngữ mà vẫn muốn giữ một chất giọng."), 4)
+        self.tab.provider.setToolTip("Edge miễn phí (hơn 300 giọng, 75 ngôn ngữ); Gemini cần API key")
+        self.tab.voice.setToolTip("Giọng “Đa ngữ” đọc tốt nhiều ngôn ngữ, hợp khi đổi ngôn ngữ mà vẫn muốn giữ một chất giọng")
+        row = AdaptiveRow(760)
+        row.addLayout(_labeled("Nguồn giọng", self.tab.provider), 0)
+        row.addLayout(_labeled("Ngôn ngữ thuyết minh", self.tab.narr_lang), 1)
+        row.addLayout(_labeled("Giọng", self.tab.voice), 1)
         body.addWidget(row)
-        body.addLayout(_labeled("Phong cách đọc", self.tab.voice_style, "Edge TTS không nhận chỉ dẫn phong cách."))
+        body.addWidget(_caption("Ngôn ngữ khác tiếng Việt thì thuyết minh được dịch từ truyện gốc."))
+        # chỉ Gemini TTS nhận chỉ dẫn phong cách: dùng Edge thì ẩn hẳn ô này thay vì để ô xám vô dụng
+        self.style_box = QWidget()
+        sv = QVBoxLayout(self.style_box)
+        sv.setContentsMargins(0, 0, 0, 0)
+        sv.addLayout(_labeled("Phong cách đọc (Gemini)", self.tab.voice_style))
+        body.addWidget(self.style_box)
         return box
 
     def _build_publish(self) -> QFrame:
-        box, body = section("open", "Đăng video", "Chọn tài khoản mà dự án này sẽ đăng lên (nhiều tài khoản, nhiều nền tảng). Thêm tài khoản ở Cài đặt → Đăng video.")
+        box, body = section("open", "Đăng video", "Chọn tài khoản mà dự án này sẽ đăng lên. Thêm tài khoản ở Cài đặt → Đăng video.")
         self.acc_checks: dict[str, QCheckBox] = {}
-        self.tiles_row = QGridLayout()
-        self.tiles_row.setSpacing(SP.m)
-        body.addLayout(self.tiles_row)
+        self.acc_list = QVBoxLayout()
+        self.acc_list.setSpacing(SP.s)
+        body.addLayout(self.acc_list)
+        self.not_connected = QLabel("")
+        self.not_connected.setProperty("caption", True)
+        self.not_connected.setWordWrap(True)
+        self.b_connect = QPushButton("Thêm tài khoản…")
+        icons.attach(self.b_connect, "plus", 16)
+        self.b_connect.setToolTip("Lưu cài đặt dự án rồi mở Cài đặt → Đăng video")
+        self.b_connect.clicked.connect(self.go_connect)
+        crow = QHBoxLayout()
+        crow.setSpacing(SP.m)
+        crow.addWidget(self.not_connected, 1)
+        crow.addWidget(self.b_connect)
+        body.addLayout(crow)
         self.pub_privacy = Combo()
         for k, label in PRIVACY:
             self.pub_privacy.addItem(label, k)
+        self.pub_privacy.setMinimumWidth(0)
         self.pub_auto = QCheckBox("Tự động đăng khi một chương gen xong")
-        bottom = AdaptiveRow(620, SP.xl)
-        bottom.addLayout(_labeled("Chế độ hiển thị", self.pub_privacy, "Nên thử ở “Riêng tư” trước."), 1)
-        auto = QVBoxLayout()
-        auto.addSpacing(SP.l)
-        auto.addWidget(self.pub_auto)
-        auto.addStretch(1)
-        bottom.addLayout(auto, 1)
-        body.addWidget(bottom)
+        mode = QHBoxLayout()
+        mode.setSpacing(SP.m)
+        mode.addWidget(QLabel("Chế độ hiển thị"))
+        mode.addWidget(self.pub_privacy, 1)
+        opts = AdaptiveRow(760, SP.m)
+        opts.addLayout(mode, 1)
+        opts.addWidget(self.pub_auto, 1)
+        sep = QFrame()
+        sep.setProperty("cardsep", True)
+        body.addWidget(sep)
+        body.addWidget(opts)
+        body.addWidget(_caption("Nên thử ở “Riêng tư” trước khi đăng công khai."))
         return box
 
     # ================= điều hướng =================
@@ -470,27 +530,29 @@ class ProjectSettingsDialog(QDialog):
         self.cost.setText(f"Ước tính: ≈ {per} credit / scene (8 giây)" + ("  ·  ngắn hơn nếu thuyết minh ngắn" if auto else ""))
 
     def refresh_voice(self) -> None:
-        self.tab.voice_style.setEnabled(self.tab.provider.currentData() == "gemini")
+        self.style_box.setVisible(self.tab.provider.currentData() == "gemini")
 
     # ================= đăng video =================
     def fill_accounts(self) -> None:
-        """Các thẻ nền tảng với tài khoản đã kết nối; tích sẵn những tài khoản dự án đã chọn."""
+        """Mỗi tài khoản đã kết nối là một dòng (logo · tên · nền tảng · ô tích); tích sẵn những tài khoản dự án đã chọn."""
         p = self.tab.project
         chosen = set(p.publish_accounts) if p else set()
-        while self.tiles_row.count():
-            w = self.tiles_row.takeAt(0).widget()
+        while self.acc_list.count():
+            w = self.acc_list.takeAt(0).widget()
             if w:
                 w.deleteLater()
         self.acc_checks = {}
-        by_plat: dict[str, list[dict]] = {}
-        for a in publish.accounts():
-            by_plat.setdefault(a["platform"], []).append(a)
-        for i, (key, cls) in enumerate(publish.PLATFORMS.items()):       # lưới 2 cột: mỗi thẻ đủ rộng để tên tài khoản không bị cắt
-            tile, boxes = account_tile(key, cls.label, by_plat.get(key, []), chosen, lambda: self.go_connect())
-            self.tiles_row.addWidget(tile, i // 2, i % 2)
-            self.acc_checks.update(boxes)
-        self.tiles_row.setColumnStretch(0, 1)
-        self.tiles_row.setColumnStretch(1, 1)
+        accs = publish.accounts()
+        for a in accs:
+            row = AccountPick(a, a["id"] in chosen)
+            self.acc_list.addWidget(row)
+            self.acc_checks[a["id"]] = row.check
+        if not accs:
+            empty = _caption("Chưa kết nối tài khoản nào.")
+            self.acc_list.addWidget(empty)
+        missing = [cls.label for key, cls in publish.PLATFORMS.items() if not any(a["platform"] == key for a in accs)]
+        self.not_connected.setText(("Chưa kết nối: " + ", ".join(missing) + ".") if missing and accs else "")
+        self.not_connected.setVisible(bool(self.not_connected.text()))
         self.pub_privacy.setCurrentIndex(max(0, self.pub_privacy.findData(p.publish_privacy if p else "private")))
         self.pub_auto.setChecked(bool(p and p.publish_auto))
 
@@ -505,49 +567,6 @@ class ProjectSettingsDialog(QDialog):
         p.publish_accounts = [k for k, cb in self.acc_checks.items() if cb.isChecked()] + [a for a in p.publish_accounts if a not in self.acc_checks]
         p.publish_privacy = self.pub_privacy.currentData() or "private"
         p.publish_auto = self.pub_auto.isChecked()
-
-    # ================= ảnh xem trước =================
-    def load_preview(self) -> None:
-        """Ảnh minh hoạ: khung hình đầu của video đầu tiên có clip; chưa có thì ảnh nhân vật đầu tiên; không có gì thì ẩn."""
-        p = self.tab.project
-        pm = None
-        if p:
-            try:
-                for t in service.targets(p) if p.publish_scope != "project" else [service.Target(c.id, c.name, c) for c in p.chapters]:
-                    img = service.thumbnail(p, t)
-                    if img:
-                        src = QPixmap(str(img))
-                        pm = src.scaled(176, 176, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                        x, y = (pm.width() - 176) // 2, (pm.height() - 176) // 2
-                        pm = pm.copy(x, y, 176, 176)
-                        break
-            except Exception:  # noqa: BLE001 - ảnh chỉ để minh hoạ
-                pm = None
-            if pm is None:
-                for c in models.load_characters(p.name):
-                    if c.image:
-                        pm = rounded_pixmap(c.image, 176, 12)
-                        if not pm.isNull():
-                            break
-                        pm = None
-        self.preview.setVisible(pm is not None)
-        if pm is not None:
-            self.preview.setPixmap(self._rounded(pm, 14))
-
-    @staticmethod
-    def _rounded(pm: QPixmap, radius: int) -> QPixmap:
-        from PySide6.QtGui import QPainterPath
-        out = QPixmap(pm.size())
-        out.setDevicePixelRatio(pm.devicePixelRatio())
-        out.fill(Qt.transparent)
-        p = QPainter(out)
-        p.setRenderHint(QPainter.Antialiasing)
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, pm.width() / pm.devicePixelRatio(), pm.height() / pm.devicePixelRatio(), radius, radius)
-        p.setClipPath(path)
-        p.drawPixmap(0, 0, pm)
-        p.end()
-        return out
 
     # ================= khôi phục / mở / đóng =================
     def reset_defaults(self) -> None:
@@ -588,7 +607,6 @@ class ProjectSettingsDialog(QDialog):
         self.refresh_voice()
         self.refresh_credit_card()
         self.sync_aspect()
-        self.load_preview()
         self.scroll.verticalScrollBar().setValue(0)
         self.set_nav("visual")
         self._snap = self.snapshot()
