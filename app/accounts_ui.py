@@ -107,6 +107,8 @@ class AccountCard(QFrame):
         icons.attach(more, "more", 20)
         menu = QMenu(more)
         for key, label in (("default", "Đặt mặc định cho dự án mới"), ("rename", "Đổi tên…"), ("chrome", "Mở Chrome để đăng nhập"), ("remove", "Gỡ khỏi danh sách")):
+            if key == "remove":
+                menu.addSeparator()
             act = menu.addAction(label, lambda k=key: self.menu_action.emit(k))
             if key == "remove":
                 act.setEnabled(a.id != accounts.DEFAULT_ID)
@@ -378,7 +380,7 @@ class AccountsPanel(QWidget):
     def act_on(self, acc_id: str, key: str) -> None:
         """Thao tác từ menu '···' của một thẻ: chọn tài khoản đó rồi chạy."""
         self.select_id(acc_id)
-        QTimer.singleShot(0, {"default": self.make_default, "rename": self.rename, "chrome": self.open_chrome, "remove": self.remove}[key])
+        QTimer.singleShot(0, self, {"default": self.make_default, "rename": self.rename, "chrome": self.open_chrome, "remove": self.remove}[key])
 
     # ---- chi tiết ----
     def _clear_dyn(self) -> None:
@@ -404,6 +406,8 @@ class AccountsPanel(QWidget):
             return
         dflt, act, up = accounts.default_new_id(), accounts.active().id, self._up.get(a.id)
         for key, label in (("default", "Đặt mặc định cho dự án mới"), ("rename", "Đổi tên…"), ("chrome", "Mở Chrome để đăng nhập"), ("remove", "Gỡ khỏi danh sách")):
+            if key == "remove":
+                self.detail_menu.addSeparator()
             act_ = self.detail_menu.addAction(label, lambda k=key: self.act_on(a.id, k))
             act_.setEnabled(not (key == "remove" and a.id == accounts.DEFAULT_ID) and not (key == "default" and a.id == dflt))
         # tiêu đề tài khoản
@@ -483,7 +487,7 @@ class AccountsPanel(QWidget):
             return
         self._up[acc_id] = up
         cur = self.current().id if self.current() else None
-        QTimer.singleShot(0, lambda: self.refresh(cur))
+        QTimer.singleShot(0, self, lambda: self.refresh(cur))
 
     def set_busy(self, busy: bool) -> None:
         """Đang có tác vụ Flow chạy nền: không mở/đọc credit (sẽ giành tab Flow của tác vụ đó)."""

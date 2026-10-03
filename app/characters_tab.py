@@ -314,7 +314,7 @@ class CharactersTab(QWidget):
     def row_action(self, r: int, key: str) -> None:
         self.list.clearSelection()
         self.list.setCurrentRow(r)
-        QTimer.singleShot(0, {"ai": self.make_image_ai, "image": self.pick_image, "delete": self.delete}[key])
+        QTimer.singleShot(0, self, {"ai": self.make_image_ai, "image": self.pick_image, "delete": self.delete}[key])
 
     def mark_rows(self) -> None:
         sel = {i.row() for i in self.list.selectedIndexes()}

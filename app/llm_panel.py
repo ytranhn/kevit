@@ -277,7 +277,7 @@ class LLMPanel(QWidget):
         self.mark_selected()
         self.load_form()
         if before != [(p.name, self._sub(p)) for p in self.profiles]:
-            QTimer.singleShot(0, self.refresh_rows)       # tên/model vừa đổi: dựng lại hàng SAU khi sự kiện bấm chuột kết thúc
+            QTimer.singleShot(0, self, self.refresh_rows)       # tên/model vừa đổi: dựng lại hàng SAU khi sự kiện bấm chuột kết thúc
 
     def refresh_rows(self) -> None:
         """Dựng lại các hàng để cập nhật tên/model/nhãn 'Đang dùng' (giữ hàng đang chọn)."""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QTabWidget, QVBoxLayout, QWidget
 
 from . import accounts, theme, flow_auto, llm, models, settings
@@ -58,6 +58,8 @@ class MainWindow(QMainWindow):
         self.scheduler.log.connect(self.logbox.appendPlainText)
         tabs.addTab(self.publish_tab, "Đăng video")
         tabs.addTab(self.settings_tab, "Cài đặt")
+        for i in range(tabs.count()):                      # Cmd/Ctrl+1..4: chuyển nhanh giữa các tab
+            QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, activated=lambda i=i: tabs.setCurrentIndex(i))
 
         # nhật ký: ngăn kéo nổi phía trên thanh trạng thái, ẩn mặc định (không chiếm chỗ của nội dung)
         self.strip = StatusStrip()
@@ -110,7 +112,7 @@ class MainWindow(QMainWindow):
         self.chip_timer.timeout.connect(self.refresh_chips)
         self.chip_timer.start()
         self.refresh_chips()
-        QTimer.singleShot(900, self.refresh_chips)     # lần đầu: kết quả kiểm tra Chrome ở luồng nền đã về, cập nhật chip ngay
+        QTimer.singleShot(900, self, self.refresh_chips)     # lần đầu: kết quả kiểm tra Chrome ở luồng nền đã về, cập nhật chip ngay
 
     LOG_HEIGHT = 230
 

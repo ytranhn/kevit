@@ -87,7 +87,7 @@ QCalendarWidget QMenu::item:selected { background: $sel; }
 QCalendarWidget QAbstractItemView { background: transparent; color: $text; font-size: 14px; outline: 0; border: none;
     selection-background-color: $accent; selection-color: $on_accent; padding: 4px 8px 8px 8px; }
 QCalendarWidget QAbstractItemView:disabled { color: $faint; }
-QSpinBox { min-height: 20px; padding-right: 26px; }
+QSpinBox { min-height: 20px; min-width: 56px; padding-right: 26px; }
 QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
 QSpinBox::up-button { subcontrol-position: top right; }
 QSpinBox::down-button { subcontrol-position: bottom right; }

@@ -161,6 +161,7 @@ class VideoRow(QFrame):
         menu = QMenu(more)
         menu.addAction("Hiện file video", lambda: self.action.emit("reveal"))
         menu.addAction("Ghép lại video", lambda: self.action.emit("remerge"))
+        menu.addSeparator()
         menu.addAction("Xoá nội dung đã soạn", lambda: self.action.emit("clear"))
         more.setMenu(menu)
         more.setFixedSize(30, 30)

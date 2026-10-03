@@ -33,7 +33,7 @@ class PopoverMixin:
         pend = sum(1 for s in sc if s.status != "done")
         pop.section("Gen video bằng Flow")
         pop.item(f"Scene đang xem  ·  #{cur.index}" if cur else "Scene đang xem",
-                 f"{cur.title[:34]}  ·  {self.gen_cost('current')}" if cur else "Chưa chọn scene",
+                 "  ·  ".join(x for x in (cur.title[:34], self.gen_cost("current")) if x) if cur else "Chưa chọn scene",
                  lambda: self.flow_auto_run("current"), enabled=cur is not None)
         pop.item(f"Các scene đang chọn  ·  {n}" if n >= 2 else "Các scene đang chọn",
                  self.gen_cost("selected") if n >= 2 else "Giữ ⇧ hoặc ⌘ rồi click để chọn nhiều dòng",
@@ -45,7 +45,7 @@ class PopoverMixin:
                  lambda: self.flow_auto_run("all"), enabled=bool(sc), danger=True)
         pop.separator()
         chap_pend = sum(1 for c in (self.project.chapters if self.project else []) if any(s.status != "done" for s in c.scenes))
-        pop.item(f"Gen nhiều chương…  ·  {chap_pend} chương chưa xong", "Chọn các chương, gen lần lượt, tự ghép video và tự đồng bộ khi lỗi",
+        pop.item(f"Gen nhiều chương…  ·  {chap_pend} chương chưa xong", "Gen lần lượt, tự ghép video, tự đồng bộ khi lỗi",
                  self.gen_chapters_dialog, enabled=chap_pend > 0)
         pop.separator()
         pop.section("Số scene gửi cùng lúc lên Flow")

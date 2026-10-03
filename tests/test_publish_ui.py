@@ -768,3 +768,100 @@ class TestRealFlowAutoRunChain(Tmp):
         self.tab.show_chapter(0)
         self.tab.flow_auto_run("pending", silent=True, then=lambda: called.append(1))
         self.assertTrue(wait(lambda: bool(called), 30))
+
+
+class TestEveryPopupOpens(Tmp):
+    """Mở mọi popover, menu, hộp thoại và phím tắt: không được ném lỗi, nội dung không rỗng, mô tả dài không cụt chữ."""
+
+    def setUp(self):
+        super().setUp()
+        from app import theme, ui
+        theme.install(app)
+        models.DATA_DIR, models.PROJ_DIR = self.tmp, self.tmp / "projects"
+        p = models.Project("Mở hết")
+        for i in range(2):
+            ch = p.new_chapter(f"Chương {i + 1}")
+            for k, st in enumerate(("pending", "done", "error", "raw"), 1):
+                ch.scenes.append(models.Scene(k, narration="Ngày xưa", visual="v", status=st))
+        p.save()
+        self.w = ui.MainWindow()
+        self.addCleanup(self.w.close)
+        self.w.resize(1280, 800)
+        self.w.show()
+        self.w.proj.combo.setCurrentText("Mở hết")
+        QCoreApplication.processEvents()
+        self.p = self.w.proj
+
+    def test_project_popovers(self):
+        p = self.p
+        for pop, anchor, side, align in ((p.pop_project, p.nav_project, "below", "left"), (p.pop_chapter, p.nav_chapter, "below", "left"),
+                                         (p.pop_more, p.more, "below", "right"), (p.pop_manage, p.manage_btn, "below", "right"),
+                                         (p.pop_gen, p.s2, "above", "left")):
+            pop.show_for(anchor, side, align)
+            QCoreApplication.processEvents()
+            self.assertTrue(pop.isVisible() and pop.height() > 80)
+            pop.hide()
+
+    def test_chip_popovers_and_context_popover(self):
+        self.w.on_chip("llm")
+        self.assertTrue(self.w.llm_pop.isVisible())
+        self.w.llm_pop.hide()
+        self.w.on_chip("flow")
+        self.assertTrue(self.w.flow_pop.isVisible())
+        self.w.flow_pop.hide()
+        self.p.table.setCurrentCell(1, 0)
+        self.p.table_context_menu(self.p.table.viewport().rect().center())
+        self.assertTrue(self.p._ctx_pop.isVisible())
+
+    def test_popover_descriptions_are_elided_not_cut(self):
+        from app.widgets import ElidedLabel
+        self.p.pop_gen.show_for(self.p.s2, "above", "left")
+        QCoreApplication.processEvents()
+        subs = [lab for lab in self.p.pop_gen.findChildren(ElidedLabel)]
+        self.assertTrue(subs)
+        for lab in subs:                                  # mô tả dài đã được cắt bằng … và có tooltip đọc đủ
+            self.assertTrue(lab.toolTip())
+        gen_sub = next(lab for lab in subs if "Scene đang xem" not in lab.text() and lab.toolTip().startswith("  ·") is False)
+        self.assertFalse(any(lab.toolTip().startswith(" ·") or lab.toolTip().startswith("·") for lab in subs))
+        self.assertTrue(gen_sub)
+        self.p.pop_gen.hide()
+
+    def test_every_menu_builds(self):
+        from PySide6.QtWidgets import QMenu
+        menus = self.w.findChildren(QMenu)
+        self.assertGreaterEqual(len(menus), 8)
+        for m in menus:
+            m.aboutToShow.emit()
+            self.assertTrue(m.actions())
+
+    def test_dialogs_open(self):
+        from app.char_gen_dialog import CharGenDialog
+        from app.char_image_dialog import CharImageDialog
+        from app.error_dialog import ErrorDialog
+        from app.pack_guide import PackGuideDialog
+        from app.trash_dialog import TrashedProjectsDialog
+        from app.widgets import CharPickDialog
+        c = models.Character(name="Thỏ")
+        for d in (ErrorDialog(self.w, "Lỗi", "Chương 1", "x" * 200, "x", lambda: None), TrashedProjectsDialog(self.w),
+                  CharGenDialog("Mở hết", self.w, "01"), CharImageDialog("Mở hết", c, self.w, "01"), PackGuideDialog(self.w),
+                  CharPickDialog(self.w, [c], [])):
+            d.show()
+            QCoreApplication.processEvents()
+            self.assertTrue(d.isVisible())
+            d.close()
+
+    def test_input_dialog_is_vietnamese(self):
+        from PySide6.QtWidgets import QInputDialog
+        d = QInputDialog(self.w)
+        d.setLabelText("Tên mới:")
+        d.show()
+        QCoreApplication.processEvents()
+        self.assertEqual(d.okButtonText(), "Đồng ý")
+        self.assertEqual(d.cancelButtonText(), "Huỷ")
+        d.close()
+
+    def test_shortcuts_switch_tabs_and_focus_search(self):
+        from PySide6.QtGui import QShortcut
+        keys = {s.key().toString() for s in self.w.findChildren(QShortcut)}
+        self.assertTrue({"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4"} <= keys)
+        self.assertTrue(any(s.key().matches(__import__("PySide6.QtGui", fromlist=["QKeySequence"]).QKeySequence.Find) for s in self.p.findChildren(QShortcut)))

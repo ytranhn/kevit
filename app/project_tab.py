@@ -198,6 +198,9 @@ class ProjectTab(ChaptersMixin, SceneTableMixin, SceneMergeMixin, SceneDetailMix
         self.table.itemSelectionChanged.connect(self.update_sel_label)
         for key in (Qt.Key_Delete, Qt.Key_Backspace):
             QShortcut(QKeySequence(key), self.table, activated=self.delete_selected, context=Qt.WidgetShortcut)
+        QShortcut(QKeySequence.Find, self, activated=lambda: (self.scene_search.setFocus(), self.scene_search.selectAll()),
+                  context=Qt.WidgetWithChildrenShortcut)           # Cmd/Ctrl+F: tìm scene
+        QShortcut(QKeySequence.Save, self, activated=self.save_edits, context=Qt.WidgetWithChildrenShortcut)   # Cmd/Ctrl+S: lưu chỉnh sửa
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.table_context_menu)
 

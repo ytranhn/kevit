@@ -483,7 +483,7 @@ class ProjectSettingsDialog(QDialog):
 
     def manage_accounts(self) -> None:
         self.accept()                              # lưu cài đặt rồi mở Cài đặt → Google Flow
-        QTimer.singleShot(0, lambda: self.tab.open_settings_section.emit("flow"))
+        QTimer.singleShot(0, self.tab, lambda: self.tab.open_settings_section.emit("flow"))
 
     def refresh_flow(self) -> None:
         omni = self.tab.flow_model.currentText() == credits.OMNI
@@ -523,7 +523,7 @@ class ProjectSettingsDialog(QDialog):
 
     def go_connect(self) -> None:
         self.accept()
-        QTimer.singleShot(0, lambda: self.tab.open_settings_section.emit("publish"))
+        QTimer.singleShot(0, self.tab, lambda: self.tab.open_settings_section.emit("publish"))
 
     def apply_publish(self) -> None:
         p = self.tab.project

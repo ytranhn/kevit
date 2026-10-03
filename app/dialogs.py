@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGridLayout, QMessageBox
+from PySide6.QtWidgets import QDialogButtonBox, QGridLayout, QInputDialog, QMessageBox
 
 from . import icons, theme
 from .theme import SP
@@ -48,10 +48,33 @@ def style_box(box: QMessageBox) -> None:
         lay.setVerticalSpacing(SP.m)
 
 
+def style_input(dlg: QInputDialog) -> None:
+    """QInputDialog (đổi tên, nhập token...): nút tiếng Việt, nút chính nổi bật, đủ rộng để thấy hết nội dung đang nhập."""
+    if dlg.property("kevit_styled"):
+        return
+    dlg.setProperty("kevit_styled", True)
+    dlg.setOkButtonText("Đồng ý")
+    dlg.setCancelButtonText("Huỷ")
+    dlg.setMinimumWidth(420)
+    for b in dlg.findChildren(QDialogButtonBox):
+        ok = b.button(QDialogButtonBox.Ok)
+        if ok is not None:
+            ok.setProperty("primary", True)
+            ok.style().unpolish(ok)
+            ok.style().polish(ok)
+    lay = dlg.layout()
+    if lay is not None:
+        lay.setContentsMargins(SP.xl, SP.xl, SP.xl, SP.l)
+        lay.setSpacing(SP.m)
+
+
 class _Styler(QObject):
     def eventFilter(self, obj, ev):
-        if ev.type() == QEvent.Show and isinstance(obj, QMessageBox):
-            style_box(obj)
+        if ev.type() == QEvent.Show:
+            if isinstance(obj, QMessageBox):
+                style_box(obj)
+            elif isinstance(obj, QInputDialog):
+                style_input(obj)
         return False
 
 

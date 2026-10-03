@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QWidget)
 
 from ..theme import SP
+from .basic import ElidedLabel
 
 
 # ---------------------------------------------------------------- popover kiểu thẻ
@@ -32,7 +33,9 @@ class PopItem(QPushButton):
             t.setProperty("level", "error")
         col.addWidget(t)
         if sub:
-            s = QLabel(sub)
+            s = ElidedLabel()                    # mô tả dài thì cắt "…" thay vì cụt giữa chữ; đưa chuột vào để đọc đủ
+            s.set_full(sub)
+            s.setToolTip(sub)
             s.setProperty("caption", True)
             s.setAttribute(Qt.WA_TransparentForMouseEvents)
             col.addWidget(s)

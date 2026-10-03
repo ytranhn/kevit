@@ -302,6 +302,7 @@ class ProviderRow(QFrame):
         icons.attach(self.btn_more, "more", 20)
         menu = QMenu(self.btn_more)
         menu.addAction("Nhân bản", self.duplicate.emit)
+        menu.addSeparator()
         act = menu.addAction("Xoá", self.delete.emit)
         act.setEnabled(can_delete)
         self.btn_more.setMenu(menu)

@@ -143,6 +143,7 @@ class PublishTab(ListingMixin, EditorMixin, ScheduleMixin, RunMixin, QWidget):
         mm = QMenu(self.b_more)
         mm.addAction("Hiện file video", lambda: self.row_action(self.shown_key(), "reveal"))
         mm.addAction("Ghép lại video", lambda: self.row_action(self.shown_key(), "remerge"))
+        mm.addSeparator()
         mm.addAction("Xoá nội dung đã soạn", lambda: self.row_action(self.shown_key(), "clear"))
         self.b_more.setMenu(mm)
         content, cb = section("doc", "Nội dung đăng", "Tiêu đề, mô tả và hashtag của video đang chọn.", self.b_ai, self.b_save_meta, self.b_more)
