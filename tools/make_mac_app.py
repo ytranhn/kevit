@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "Kevit"
 APP = ROOT / f"{NAME}.app"
+VERSION = next(line.split('"')[1] for line in (ROOT / "app/version.py").read_text().splitlines() if line.startswith("__version__"))
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
     plistlib.dump({
         "CFBundleName": NAME, "CFBundleDisplayName": NAME, "CFBundleIdentifier": "local.kevit",
         "CFBundleExecutable": "launcher", "CFBundleIconFile": "icon", "CFBundlePackageType": "APPL",
-        "CFBundleVersion": "1.0", "CFBundleShortVersionString": "1.0", "NSHighResolutionCapable": True,
+        "CFBundleVersion": VERSION, "CFBundleShortVersionString": VERSION, "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "11.0",
     }, (APP / "Contents/Info.plist").open("wb"))
     exe = APP / "Contents/MacOS/launcher"

@@ -15,13 +15,15 @@
   <a href="LICENSE"><img alt="Giấy phép MIT" src="https://img.shields.io/badge/license-MIT-4F46E5"></a>
   <img alt="Nền tảng" src="https://img.shields.io/badge/n%E1%BB%81n%20t%E1%BA%A3ng-macOS%20%C2%B7%20Windows-4F46E5">
   <img alt="Python" src="https://img.shields.io/badge/python-3.10%2B-4F46E5">
+  <a href="CHANGELOG.md"><img alt="Phiên bản" src="https://img.shields.io/badge/phi%C3%AAn%20b%E1%BA%A3n-1.6.0-4F46E5"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/ytranhn/kevit/releases/latest"><b>Tải bản mới nhất</b></a> ·
   <a href="#bắt-đầu-nhanh">Bắt đầu nhanh</a> ·
   <a href="#quy-trình-làm-việc">Quy trình</a> ·
-  <a href="#xử-lý-sự-cố">Xử lý sự cố</a>
+  <a href="#xử-lý-sự-cố">Xử lý sự cố</a> ·
+  <a href="CHANGELOG.md">Lịch sử thay đổi</a>
 </p>
 
 <p align="center">
@@ -31,6 +33,7 @@
 ## Mục lục
 
 - [Vì sao dùng Kevit](#vì-sao-dùng-kevit)
+- [Có gì mới ở 1.6](#có-gì-mới-ở-16)
 - [Tính năng](#tính-năng)
 - [Giao diện](#giao-diện)
 - [Bắt đầu nhanh](#bắt-đầu-nhanh)
@@ -52,6 +55,16 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 | Giọng đọc mỗi clip một kiểu | Một giọng duy nhất xuyên suốt dự án, lồng sau khi clip render xong |
 | Truyện dài làm Flow chậm | Mỗi chương một project Flow riêng, danh sách dự án/chương có tìm kiếm |
 | Tốn credit vì thao tác nhầm | Ước tính credit trước khi tạo, đồng bộ lại clip đã render mà không tốn thêm |
+
+## Có gì mới ở 1.6
+
+Bản cập nhật lớn (chi tiết ở [CHANGELOG](CHANGELOG.md)):
+
+- **Đăng video tự động qua API** lên YouTube, TikTok, Facebook Reels, Instagram Reels, nhiều tài khoản mỗi nền tảng, AI viết mô tả/hashtag.
+- **Hẹn giờ đăng** theo từng video hoặc theo giờ cố định (mỗi lần 1 video).
+- **Gen nhiều chương một lượt**, tự ghép khi chương xong, tự đồng bộ Flow khi có scene lỗi.
+- **Giao diện làm lại và thống nhất**: tab Đăng video, Cài đặt đăng video, Cài đặt dự án, hộp thoại, lịch chọn ngày; phím tắt `Cmd/Ctrl+F`, `+S`, `+1…4`.
+- Mã nguồn được chia nhỏ theo chức năng, bộ test nhanh hơn ~8 lần.
 
 ## Tính năng
 
@@ -91,6 +104,7 @@ Làm video từ một bộ truyện dài thường vỡ ở ba chỗ: nhân vậ
 - Giao diện sáng và tối, tự theo hệ điều hành; chạy trên macOS và Windows.
 - Danh sách dự án/chương có ô tìm kiếm (gõ không dấu cũng được), mở tức thì dù có hàng trăm mục.
 - Mở app nhanh, không bị đứng khi mất mạng hay khi Chrome Flow bận.
+- **Phím tắt:** `Cmd/Ctrl+F` tìm scene, `Cmd/Ctrl+S` lưu chỉnh sửa scene đang xem, `Cmd/Ctrl+1…4` chuyển giữa Dự án · Nhân vật · Đăng video · Cài đặt, `Delete` xoá scene đang chọn, `Space` phát/dừng video xem trước.
 
 ## Giao diện
 
@@ -232,11 +246,12 @@ Cài đặt dự án → chọn *Ngôn ngữ thuyết minh*. Tiếng Việt gi�
    |---|---|---|
    | YouTube | OAuth client loại *Desktop app* + bật YouTube Data API v3 | Dự án API chưa được Google kiểm duyệt thì video luôn ở chế độ riêng tư; mỗi lượt tải lên tốn 1600/10.000 đơn vị hạn mức ngày (khoảng 6 video/ngày) |
    | TikTok | App có Login Kit + Content Posting API (Direct Post) | App chưa được TikTok duyệt chỉ đăng được ở chế độ riêng tư, và tài khoản phải là Target User |
-   | Facebook | App Meta + Trang Facebook bạn quản lý | Reels lên Trang; chọn «Riêng tư» thì lưu thành bản nháp |
+   | Facebook | App Meta + Trang Facebook bạn quản lý | Reels lên Trang; chọn «Riêng tư» thì lưu thành bản nháp. App Meta kiểu mới không cho đăng nhập chuyển hướng về máy: bấm **Kết nối bằng token**, dán user token lấy từ *Graph API Explorer* (cần quyền `pages_show_list`, `pages_manage_posts`, `pages_read_engagement`), Kevit tự đổi sang token dài hạn và liệt kê các Trang |
    | Instagram | Tài khoản Professional liên kết với Trang | Dùng chung kết nối Meta; không có chế độ riêng tư nên chỉ đăng «Công khai» |
 
 2. Vào tab **Đăng video**, tích các chương muốn đăng, chọn **tài khoản mà dự án này đăng lên** (mỗi dự án nhớ lựa chọn riêng; chọn được ở tab này hoặc trong **Cài đặt dự án → Đăng video**) và chế độ hiển thị (nên thử ở «Riêng tư» trước).
-3. Bấm **Ghép + viết mô tả** để chuẩn bị và xem lại nội dung, hoặc **Đăng ngay** để làm trọn quy trình ghép → viết mô tả → đăng. Lịch sử và liên kết bài đã đăng nằm ở cuối trang.
+3. Muốn đăng sau: bấm **Hẹn giờ…** (giờ riêng từng video hoặc giờ cố định mỗi lần 1 video), theo dõi ở thẻ **Lịch đăng**. Kevit phải đang mở đúng giờ hẹn.
+4. Bấm **Ghép + viết mô tả** để chuẩn bị và xem lại nội dung, hoặc **Đăng ngay** để làm trọn quy trình ghép → viết mô tả → đăng. Lịch sử và liên kết bài đã đăng nằm ở cuối trang.
 
 Hãy tuân thủ điều khoản của từng nền tảng (nhất là quy định gắn nhãn nội dung do AI tạo) khi đăng.
 
@@ -268,7 +283,13 @@ Hãy tuân thủ điều khoản của từng nền tảng (nhất là quy đị
 ```text
 main.py            điểm vào ứng dụng
 app/               mã nguồn (giao diện PySide6, LLM, Flow, TTS, ghép video)
-app/publish/       đăng video qua API: OAuth, YouTube, TikTok, Meta (Facebook + Instagram), quy trình tự động
+app/project_parts/ các mixin của tab Dự án (bảng scene, chi tiết, popover, gen Flow, gen nhiều chương…)
+app/publish/       đăng video qua API: OAuth, YouTube, TikTok, Meta (Facebook + Instagram), quy trình tự động, lịch đăng
+app/publish_parts/ các mixin của tab Đăng video (danh sách, soạn nội dung, lịch, chạy nền)
+app/flow_parts/    điều khiển Google Flow: phiên/credit, gen clip, gen ảnh, đồng bộ clip
+app/widgets/       thành phần giao diện dùng chung (popover, thẻ, bộ chọn, nhãn cắt chữ…)
+app/version.py     số phiên bản (một nơi duy nhất)
+CHANGELOG.md       lịch sử thay đổi
 tests/             kiểm thử (python -m unittest discover -s tests -t .), tự cô lập cấu hình và dữ liệu
 assets/            logo, biểu tượng
 docs/images/       ảnh dùng trong README
@@ -284,7 +305,7 @@ tools/             đóng gói (build_app.py), tạo logo, tiện ích macOS
 
 Kết quả ở `dist/` (`.app` + `.dmg` trên macOS, thư mục + `.zip` trên Windows); bản trước được giữ ở `dist/.previous`. Trên macOS, `tools/make_mac_app.py` tạo gói `.app` nhỏ để Dock hiện đúng tên và biểu tượng khi chạy từ mã nguồn; `tools/make_icon.py` vẽ lại logo.
 
-**Quy trình đóng góp:** mỗi tính năng hoặc bản sửa một nhánh riêng (`feature/…`, `fix/…`) từ `main`; khi đưa vào `main` thì gắn tag phiên bản (`v1.x`) để workflow tự build và tạo release.
+**Quy trình đóng góp:** mỗi tính năng hoặc bản sửa một nhánh riêng (`feature/…`, `fix/…`) từ `main`; khi đưa vào `main`: cập nhật `app/version.py` và `CHANGELOG.md`, rồi gắn tag `v<phiên bản>` (vd. `v1.6.0`) để workflow tự build và tạo release.
 
 ## Giấy phép
 

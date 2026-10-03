@@ -4,6 +4,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QPlainTextEdit, QTabWidget, QVBoxLayout, QWidget
 
+from .version import __version__
 from . import accounts, theme, flow_auto, llm, models, settings
 from .publish_scheduler import Scheduler
 from .publish_tab import PublishTab
@@ -19,7 +20,7 @@ from .characters_tab import CharactersTab
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Kevit")
+        self.setWindowTitle(f"Kevit {__version__}")
         scr = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1360, int(scr.width() * 0.94)), min(900, int(scr.height() * 0.88)))
         self.setMinimumSize(1216, 640)

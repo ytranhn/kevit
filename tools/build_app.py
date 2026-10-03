@@ -34,6 +34,19 @@ def publish(stage: Path, dist: Path) -> None:
         shutil.move(str(item), str(target))
 
 
+def stamp_version(app: Path) -> None:
+    """Ghi số phiên bản (app/version.py) vào Info.plist của gói .app rồi ký lại (ad-hoc) vì sửa plist làm hỏng chữ ký cũ."""
+    import plistlib
+    version = next(l.split('"')[1] for l in (ROOT / "app" / "version.py").read_text().splitlines() if l.startswith("__version__"))
+    plist = app / "Contents" / "Info.plist"
+    data = plistlib.loads(plist.read_bytes())
+    data["CFBundleShortVersionString"] = data["CFBundleVersion"] = version
+    plist.write_bytes(plistlib.dumps(data))
+    if shutil.which("codesign"):
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True, capture_output=True)
+    print("Phiên bản:", version)
+
+
 def main() -> None:
     icon = ROOT / "assets" / ("icon.ico" if sys.platform == "win32" else "icon.icns")
     if not icon.exists():
@@ -50,6 +63,8 @@ def main() -> None:
            "--collect-all", "google.genai", "--collect-all", "anthropic", "--collect-data", "certifi",
            "--exclude-module", "tkinter", str(ROOT / "main.py")]
     subprocess.run(cmd, check=True, cwd=ROOT)
+    if sys.platform == "darwin":
+        stamp_version(stage / f"{NAME}.app")
     if sys.platform == "darwin" and shutil.which("hdiutil"):
         dmg = stage / f"{NAME}.dmg"
         subprocess.run(["hdiutil", "create", "-volname", NAME, "-srcfolder", str(stage / f"{NAME}.app"),
