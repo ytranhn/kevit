@@ -171,6 +171,43 @@ def _more(p: QPainter, fill: QColor):
         p.drawEllipse(QPointF(x, 12), 1.7, 1.7)
 
 
+def _send(p: QPainter, fill: QColor):
+    _poly(p, [(3.5, 11.2), (20.5, 3.8), (14.2, 20.5), (11, 13.2), (3.5, 11.2)])
+    p.drawLine(QPointF(11, 13.2), QPointF(20.5, 3.8))
+
+
+def _link(p: QPainter, fill: QColor):
+    p.save()
+    p.translate(12, 12)
+    p.rotate(-45)
+    p.drawRoundedRect(QRectF(-9, -3.3, 9.5, 6.6), 3.3, 3.3)
+    p.drawRoundedRect(QRectF(-0.5, -3.3, 9.5, 6.6), 3.3, 3.3)
+    p.restore()
+
+
+def _question(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 9, 9)
+    path = QPainterPath(QPointF(9.4, 9.7))
+    path.cubicTo(9.4, 6.6, 14.6, 6.6, 14.6, 9.7)
+    path.cubicTo(14.6, 11.8, 12, 11.9, 12, 14)
+    p.drawPath(path)
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 16.9), 0.9, 0.9)
+
+
+def _warn(p: QPainter, fill: QColor):
+    _poly(p, [(12, 4), (21, 19.5), (3, 19.5), (12, 4)])
+    p.drawLine(QPointF(12, 9.5), QPointF(12, 13.2))
+    p.setBrush(fill)
+    p.drawEllipse(QPointF(12, 16.6), 0.8, 0.8)
+
+
+def _clock(p: QPainter, fill: QColor):
+    p.drawEllipse(QPointF(12, 12), 9, 9)
+    p.drawLine(QPointF(12, 7), QPointF(12, 12))
+    p.drawLine(QPointF(12, 12), QPointF(15.5, 14))
+
+
 def _eye(p: QPainter, fill: QColor):
     path = QPainterPath(QPointF(2.8, 12))
     path.quadTo(12, 3.2, 21.2, 12)
@@ -297,7 +334,7 @@ _DRAW = {
     "step1": _step(1), "step2": _step(2), "step3": _step(3),
     "users": _users, "layers": _layers, "lock": _lock, "more": _more, "eye": _eye, "ring": _ring,
     "search": _search, "filter": _filter, "volume": _volume, "volume_off": _volume_off, "expand": _expand, "doc": _doc, "edit": _edit,
-    "image": _image, "save": _save, "info": _info, "sort": _sort,
+    "image": _image, "save": _save, "info": _info, "sort": _sort, "send": _send, "link": _link, "question": _question, "warn": _warn, "clock": _clock,
 }
 _FILLED = {"play", "pause", "more", "volume", "volume_off"}
 _DOWN_CARET_NAMES = ("down", "up")
@@ -352,23 +389,48 @@ def _apply(w: QWidget, name: str, size: int, role: str | None) -> None:
         w.setPixmap(pixmap(name, size, normal))
         return
     ic = QIcon()
-    ic.addPixmap(_padded(pixmap(name, size, normal), name), QIcon.Normal)
+    if not w.text():                        # nút chỉ có icon: không đệm, để icon nằm chính giữa nút
+        ic.addPixmap(pixmap(name, size, normal), QIcon.Normal)
+        ic.addPixmap(pixmap(name, size, dis), QIcon.Disabled)
+        w.setIcon(ic)
+        w.setIconSize(QSize(size, size))
+        return
+    normal_pm = _padded(pixmap(name, size, normal), name)
+    ic.addPixmap(normal_pm, QIcon.Normal)
     ic.addPixmap(_padded(pixmap(name, size, dis), name), QIcon.Disabled)
     w.setIcon(ic)
-    w.setIconSize(QSize(size + GAP, size))
+    w.setIconSize(QSize(round(normal_pm.width() / normal_pm.devicePixelRatio()), size))
 
 
 GAP = 5                    # px đệm giữa icon và chữ (Qt để icon sát chữ)
 
 
+def _tight_x(pm: QPixmap) -> QPixmap:
+    """Cắt bỏ phần trống hai bên của hình (giữ nguyên chiều cao): mũi tên xổ vẽ trên lưới 24px nên có lề trống bên trong,
+    nếu không cắt thì nội dung nút (chữ + mũi tên) trông lệch khỏi tâm."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QBitmap, QRegion
+    r = QRegion(QBitmap.fromImage(pm.toImage().createAlphaMask())).boundingRect()
+    return pm.copy(QRect(r.x(), 0, max(r.width(), 1), pm.height())) if not r.isEmpty() else pm
+
+
+CARET_IN, CARET_OUT = 4, 8     # px đệm quanh mũi tên xổ: bên trong (giữa chữ và mũi tên) và bên ngoài (phía mép nút).
+                               # Qt xếp nội dung nút có icon lệch ~4px về phía icon, nên phần đệm ngoài phải lớn hơn phần trong 4px thì chữ + mũi tên mới cân giữa nút.
+
+
 def _padded(pm: QPixmap, name: str) -> QPixmap:
-    """Thêm GAP px trống vào phía đối diện với chữ: mũi tên xổ (đứng bên phải chữ) đệm bên trái, icon khác đệm bên phải."""
+    """Thêm khoảng trống quanh icon. Mũi tên xổ (đứng bên phải chữ): cắt sát hình rồi đệm CARET_IN bên trái, CARET_OUT bên phải.
+    Icon khác: đệm GAP bên phải (phía chữ)."""
+    caret = name in _DOWN_CARET_NAMES
+    if caret:
+        pm = _tight_x(pm)
     dpr = pm.devicePixelRatio()
-    out = QPixmap(pm.width() + int(GAP * dpr), pm.height())
+    left, right = (CARET_IN, CARET_OUT) if caret else (0, GAP)
+    out = QPixmap(pm.width() + int((left + right) * dpr), pm.height())
     out.setDevicePixelRatio(dpr)
     out.fill(Qt.transparent)
     p = QPainter(out)
-    p.drawPixmap(int(GAP * dpr) if name in _DOWN_CARET_NAMES else 0, 0, pm)
+    p.drawPixmap(int(left * dpr), 0, pm)
     p.end()
     return out
 

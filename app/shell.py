@@ -1,7 +1,7 @@
 """Khối giao diện dùng chung cho khung ứng dụng mới: thanh điều hướng bên, tiêu đề trang, ô logo, banner thông tin, hàng nhà cung cấp."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import icons
@@ -19,6 +19,105 @@ def logo_tile(letter: str, kind: str = "default", size: int = 40) -> QLabel:
     t.setFixedSize(size, size)
     t.setStyleSheet(f"background: {LOGO_COLORS.get(kind, LOGO_COLORS['default'])};")
     return t
+
+
+# logo nền tảng đăng video: ô bo góc màu thương hiệu + ký hiệu (không dùng logo thật)
+PLATFORM_BRAND = {"youtube": ("▶", "#E62117"), "tiktok": ("♪", "#111111"), "facebook": ("f", "#1877F2"), "instagram": ("◎", "#C13584")}
+
+
+def platform_pixmap(key: str, size: int = 32):
+    from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+    glyph, color = PLATFORM_BRAND.get(key, ("?", "#6B6FF2"))
+    dpr = 2.0
+    pm = QPixmap(int(size * dpr), int(size * dpr))
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    p.drawRoundedRect(0, 0, size, size, size * 0.28, size * 0.28)
+    f = QFont(p.font())
+    f.setBold(True)
+    f.setPixelSize(int(size * 0.52))
+    p.setFont(f)
+    p.setPen(QColor("#FFFFFF"))
+    p.drawText(QRect(0, 0, size, size), Qt.AlignCenter, glyph)
+    p.end()
+    return pm
+
+
+def platform_tile(key: str, size: int = 32) -> QLabel:
+    t = QLabel()
+    t.setFixedSize(size, size)
+    t.setPixmap(platform_pixmap(key, size))
+    t.setStyleSheet("background: transparent;")
+    return t
+
+
+def section(icon: str, title: str, subtitle: str, *actions: QWidget) -> tuple[QFrame, QVBoxLayout]:
+    """Thẻ có đầu thẻ (ô icon · tiêu đề · mô tả · nút hành động) và thân thẻ; trả về (thẻ, layout thân)."""
+    box = QFrame()
+    box.setProperty("card", True)
+    tile = QLabel()
+    tile.setProperty("navtile", True)
+    tile.setFixedSize(36, 36)
+    tile.setAlignment(Qt.AlignCenter)
+    icons.attach(tile, icon, 20)
+    t = QLabel(title)
+    t.setProperty("subheading", True)
+    s = QLabel(subtitle)
+    s.setProperty("caption", True)
+    s.setWordWrap(True)                              # mô tả dài tự xuống dòng, không đẩy rộng cả thẻ
+    col = QVBoxLayout()
+    col.setSpacing(0)
+    col.addWidget(t)
+    col.addWidget(s)
+    head = QHBoxLayout()
+    head.setSpacing(SP.m)
+    head.addWidget(tile, 0, Qt.AlignTop)
+    head.addLayout(col, 1)
+    for a in actions:
+        head.addWidget(a, 0, Qt.AlignVCenter)
+    body = QVBoxLayout()
+    body.setSpacing(SP.m)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(SP.l, SP.l, SP.l, SP.l)
+    v.setSpacing(SP.m)
+    v.addLayout(head)
+    v.addLayout(body)
+    return box, body
+
+
+class AdaptiveRow(QWidget):
+    """Hàng nhiều cột tự thích ứng: đủ rộng (>= `threshold` px) thì xếp ngang, hẹp hơn thì xếp dọc, để nội dung không bị ép chồng lấn
+    hay tràn mép khi cửa sổ nhỏ."""
+
+    def __init__(self, threshold: int, spacing: int = SP.l):
+        super().__init__()
+        from PySide6.QtWidgets import QBoxLayout
+        self._dir = QBoxLayout
+        self.threshold = threshold
+        self.box = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.box.setContentsMargins(0, 0, 0, 0)
+        self.box.setSpacing(spacing)
+        self._stretch: list[int] = []
+
+    def addLayout(self, layout, stretch: int = 0) -> None:
+        self.box.addLayout(layout, stretch)
+        self._stretch.append(stretch)
+
+    def addWidget(self, w, stretch: int = 0, alignment=Qt.Alignment()) -> None:
+        self.box.addWidget(w, stretch, alignment)
+        self._stretch.append(stretch)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        want = self._dir.LeftToRight if self.width() >= self.threshold else self._dir.TopToBottom
+        if self.box.direction() != want:
+            self.box.setDirection(want)
+            for i, st in enumerate(self._stretch):
+                self.box.setStretch(i, st if want == self._dir.LeftToRight else 0)
 
 
 class NavItem(QPushButton):
@@ -203,6 +302,7 @@ class ProviderRow(QFrame):
         icons.attach(self.btn_more, "more", 20)
         menu = QMenu(self.btn_more)
         menu.addAction("Nhân bản", self.duplicate.emit)
+        menu.addSeparator()
         act = menu.addAction("Xoá", self.delete.emit)
         act.setEnabled(can_delete)
         self.btn_more.setMenu(menu)

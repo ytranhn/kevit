@@ -51,21 +51,50 @@ QSS = Template("""
 QToolTip { background: $surface; color: $text; border: 1px solid $border; border-radius: 8px; padding: 5px 8px; }
 
 /* ---- ô nhập ---- */
-QLineEdit, QPlainTextEdit, QSpinBox, QComboBox {
+QLineEdit, QPlainTextEdit, QSpinBox, QComboBox, QDateTimeEdit {
     background: $surface; color: $text; border: 1px solid $border; border-radius: 10px; padding: 7px 10px;
     selection-background-color: $accent; selection-color: $on_accent; }
-QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid $accent; }
-QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QComboBox:disabled { color: $faint; background: $surface2; }
+QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus, QDateTimeEdit:focus { border: 1px solid $accent; }
+QLineEdit:disabled, QPlainTextEdit:disabled, QSpinBox:disabled, QComboBox:disabled, QDateTimeEdit:disabled { color: $faint; background: $surface2; }
 QLineEdit { min-height: 20px; }
 QComboBox { min-height: 20px; padding-right: 26px; }
-QComboBox::drop-down { border: none; width: 26px; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
+QComboBox::down-arrow { image: url($chev_down_png); width: 14px; height: 14px; }
+QComboBox::down-arrow:disabled { image: url($chev_down_dis_png); }
 QComboBoxPrivateContainer { background: transparent; border: none; }
 QComboBox QAbstractItemView { background: $surface; color: $text; border: 1px solid $border; border-radius: 12px;
     padding: 6px; outline: 0; selection-background-color: $sel; selection-color: $text; }
 QComboBox QAbstractItemView::item { min-height: 32px; padding: 0 12px; border-radius: 8px; }
 QComboBox QAbstractItemView::item:hover { background: $surface2; }
 QComboBox QAbstractItemView::item:selected { background: $sel; color: $text; }
-QSpinBox { min-height: 20px; }
+QDateTimeEdit { min-height: 20px; padding-right: 30px; }
+QDateTimeEdit::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
+QDateTimeEdit::down-arrow { image: url($chev_down_png); width: 14px; height: 14px; }
+QDateTimeEdit::up-button, QDateTimeEdit::down-button { width: 0; border: none; }
+QCalendarWidget { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QCalendarWidget QWidget#qt_calendar_navigationbar { background: transparent; border: none; padding: 6px 6px 2px 6px; min-height: 40px; }
+QCalendarWidget QToolButton { background: transparent; color: $text; border: none; border-radius: 8px; padding: 6px 12px;
+    font-size: 15px; font-weight: 600; icon-size: 18px; min-height: 28px; }
+QCalendarWidget QToolButton:hover { background: $surface2; }
+QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { min-width: 32px; padding: 6px; }
+QCalendarWidget QToolButton#qt_calendar_prevmonth { qproperty-icon: url($chev_left_png); }
+QCalendarWidget QToolButton#qt_calendar_nextmonth { qproperty-icon: url($chev_right_png); }
+QCalendarWidget QToolButton::menu-indicator { image: none; width: 0; }
+QCalendarWidget QSpinBox { background: $surface2; color: $text; border: 1px solid $border; border-radius: 8px; padding: 2px 8px; min-height: 24px; }
+QCalendarWidget QMenu { background: $surface; color: $text; border: 1px solid $border; border-radius: 10px; padding: 6px; }
+QCalendarWidget QMenu::item { padding: 6px 18px; border-radius: 6px; }
+QCalendarWidget QMenu::item:selected { background: $sel; }
+QCalendarWidget QAbstractItemView { background: transparent; color: $text; font-size: 14px; outline: 0; border: none;
+    selection-background-color: $accent; selection-color: $on_accent; padding: 4px 8px 8px 8px; }
+QCalendarWidget QAbstractItemView:disabled { color: $faint; }
+QSpinBox { min-height: 20px; min-width: 56px; padding-right: 26px; }
+QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
+QSpinBox::up-button { subcontrol-position: top right; }
+QSpinBox::down-button { subcontrol-position: bottom right; }
+QSpinBox::up-arrow { image: url($chev_up_png); width: 10px; height: 10px; }
+QSpinBox::down-arrow { image: url($chev_down_png); width: 10px; height: 10px; }
+QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off { image: url($chev_up_dis_png); }
+QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off { image: url($chev_down_dis_png); }
 QListWidget { background: $surface; border: 1px solid $border; border-radius: 12px; padding: 4px; outline: 0;
     selection-background-color: $sel; selection-color: $text; }
 QListWidget::item { padding: 6px 8px; border-radius: 8px; }
@@ -113,6 +142,45 @@ QPushButton[sidenav="true"][active="true"] { background: $accent_tint; border: 1
 QLabel[navtile="true"] { background: $surface2; border-radius: 10px; }
 QPushButton[sidenav="true"][active="true"] QLabel[navtile="true"] { background: transparent; }
 QLabel[pagetitle="true"] { font-family: $serif; font-size: 26px; font-weight: 700; color: $text; }
+QPushButton[platab="true"] { border: 1px solid transparent; border-radius: 10px; background: transparent; color: $muted; padding: 8px 14px; font-weight: 600; min-height: 22px; }
+QPushButton[platab="true"]:hover { background: $surface2; color: $text; }
+QPushButton[platab="true"]:checked { background: $accent_tint; border: 1px solid $accent; color: $text; }
+QFrame[guide="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[secure="true"] { background: $accent_tint; border: 1px solid $border; border-radius: 12px; }
+QPushButton[aspcard="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; padding: 0; text-align: center; }
+QPushButton[aspcard="true"]:hover { border-color: $border_strong; }
+QPushButton[aspcard="true"]:checked { border: 1px solid $accent; background: $accent_tint; }
+QFrame[creditcard="true"] { background: $ok_tint; border: 1px solid $ok; border-radius: 12px; }
+QFrame[estimate="true"] { background: $warn_tint; border: 1px solid $border; border-radius: 10px; }
+QLabel[statusline="true"] { background: $surface2; color: $muted; border-radius: 10px; padding: 10px 14px; }
+QLabel[statusline="true"][kind="ok"] { background: $ok_tint; color: $ok; }
+QLabel[statusline="true"][kind="warn"] { background: $warn_tint; color: $warn; }
+QLabel[statusline="true"][kind="err"] { background: $err_tint; color: $err; }
+QTimeEdit { padding-right: 26px; }
+QTimeEdit::up-button, QTimeEdit::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
+QTimeEdit::up-button { subcontrol-position: top right; }
+QTimeEdit::down-button { subcontrol-position: bottom right; }
+QTimeEdit::up-arrow { image: url($chev_up_png); width: 10px; height: 10px; }
+QTimeEdit::down-arrow { image: url($chev_down_png); width: 10px; height: 10px; }
+QFrame[vidrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[vidrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
+QFrame[platile="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QFrame[platile="true"][on="true"] { border: 1px solid $accent; background: $accent_tint; }
+QFrame[tagbox="true"] { background: $surface; border: 1px solid $border; border-radius: 10px; }
+QLineEdit[taginput="true"] { border: none; background: transparent; padding: 4px 2px; min-height: 22px; }
+QLineEdit[taginput="true"]:focus { border: none; }
+QFrame[hashtag="true"] { background: $surface2; border: 1px solid $border; border-radius: 8px; }
+QFrame[hashtag="true"] QLabel { background: transparent; }
+QPushButton[tagx="true"] { border: none; background: transparent; color: $muted; padding: 0; min-height: 18px; min-width: 18px; max-width: 18px; border-radius: 9px; }
+QPushButton[tagx="true"]:hover { background: $err_tint; color: $err; }
+QLabel[stepdot="true"] { border: 1px solid $border_strong; border-radius: 17px; color: $muted; background: $surface; font-weight: 600; }
+QLabel[stepdot="true"][state="active"] { background: $accent; border-color: $accent; color: $on_accent; }
+QLabel[stepdot="true"][state="done"] { background: $ok_tint; border-color: $ok; color: $ok; }
+QFrame[stepline="true"] { background: $border; border: none; min-height: 1px; max-height: 1px; }
+QLabel[thumb="true"] { background: $video; border-radius: 10px; color: #FFFFFF; }
+QLabel[badge="true"] { background: rgba(0,0,0,170); color: #FFFFFF; border-radius: 6px; padding: 1px 6px; font-size: 11px; }
+QLabel[counter="true"] { color: $faint; font-size: 12px; }
+QLabel[counter="true"][over="true"] { color: $err; }
 QFrame[provrow="true"] { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame[provrow="true"][selected="true"] { border: 1px solid $accent; background: $accent_tint; }
 QLabel[logotile="true"] { border-radius: 10px; color: #FFFFFF; font-weight: 700; font-size: 16px; }
@@ -214,7 +282,17 @@ QSlider::groove:horizontal { height: 4px; background: $border_strong; border-rad
 QSlider::sub-page:horizontal { background: $accent; border-radius: 2px; }
 QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; border-radius: 6px; background: $accent; }
 QCheckBox { spacing: 8px; }
+QCheckBox::indicator, QTableView::indicator, QListView::indicator { width: 16px; height: 16px; border: 1.5px solid $border_strong; border-radius: 5px; background: $surface; }
+QCheckBox::indicator:hover, QTableView::indicator:hover, QListView::indicator:hover { border-color: $accent; }
+QCheckBox::indicator:checked, QTableView::indicator:checked, QListView::indicator:checked { background: $accent; border-color: $accent; image: url($check_png); }
+QCheckBox::indicator:disabled, QTableView::indicator:disabled, QListView::indicator:disabled { background: $surface2; border-color: $border; }
+QCheckBox::indicator:checked:disabled, QTableView::indicator:checked:disabled, QListView::indicator:checked:disabled { background: $accent_dis; border-color: transparent; image: url($check_png); }
 QMessageBox, QDialog { background: $bg; }
+QMessageBox { background: $surface; }
+QMessageBox QLabel { color: $text; background: transparent; font-weight: 400; font-size: 13px; }
+QMessageBox QLabel#qt_msgbox_label, QMessageBox QLabel#qt_msgbox_informativelabel { min-width: 340px; }
+QMessageBox QLabel#qt_msgbox_label { font-size: 14px; }
+QMessageBox QPushButton { min-width: 96px; min-height: 34px; }
 QPlainTextEdit#logOverlay { background: $surface; border: 1px solid $border_strong; border-radius: 14px; padding: 10px; }
 """)
 
@@ -228,8 +306,21 @@ def is_dark(app: QGuiApplication | None = None) -> bool:
     return app.styleHints().colorScheme() == Qt.ColorScheme.Dark
 
 
+def _glyph_png(name: str, color: str, size: int = 32) -> str:
+    """Ảnh icon nhỏ cho QSS (chỉ nhận ảnh từ file): vẽ một lần vào thư mục tạm, tên file gồm tên icon + màu nên đổi sáng/tối không lẫn nhau."""
+    import tempfile
+    from pathlib import Path
+    from . import icons
+    f = Path(tempfile.gettempdir()) / f"kevit-{name}-{color.lstrip('#').replace('(', '').replace(')', '').replace(',', '')}.png"
+    if not f.exists() or f.stat().st_size == 0:
+        icons.pixmap(name, size, color, dpr=1.0).save(str(f), "PNG")
+    return f.as_posix()
+
+
 def stylesheet(tok: dict[str, str]) -> str:
-    return QSS.substitute(**tok, serif=SERIF)
+    return QSS.substitute(**tok, serif=SERIF, check_png=_glyph_png("check", "#FFFFFF"),
+                          chev_down_png=_glyph_png("down", tok["muted"]), chev_down_dis_png=_glyph_png("down", tok["faint"]),
+                          chev_up_png=_glyph_png("up", tok["muted"]), chev_left_png=_glyph_png("left", tok["text"]), chev_right_png=_glyph_png("right", tok["text"]), chev_up_dis_png=_glyph_png("up", tok["faint"]))
 
 
 def palette(tok: dict[str, str]) -> QPalette:
@@ -283,21 +374,36 @@ def apply(app, force_dark: bool | None = None) -> None:
     T.update(tokens(dark))
     style = AppStyle()
     _style_keepalive.append(style)
+    del _style_keepalive[:-2]          # chỉ cần giữ kiểu hiện tại (và kiểu trước đó cho tới khi Qt thay xong)
     app.setStyle(style)
     app.setPalette(palette(T))
     app.setStyleSheet(stylesheet(T))
-    for cb in _listeners:
-        cb()
+    for ref in list(_listeners):
+        cb = ref()
+        if cb is None:
+            _listeners.remove(ref)
+            continue
+        try:
+            cb()
+        except RuntimeError:              # widget C++ đã bị huỷ: bỏ khỏi danh sách
+            _listeners.remove(ref)
 
 
 _listeners: list = []
+_connected_apps: set = set()
 
 
 def on_change(cb) -> None:
-    """Đăng ký hàm được gọi sau khi đổi giao diện (để làm mới các màu tính bằng code)."""
-    _listeners.append(cb)
+    """Đăng ký hàm được gọi sau khi đổi giao diện (để làm mới các màu tính bằng code).
+    Method gắn với đối tượng chỉ được giữ yếu, nên đối tượng bị huỷ thì tự rời danh sách."""
+    import weakref
+    _listeners.append(weakref.WeakMethod(cb) if hasattr(cb, "__self__") else (lambda: cb))
 
 
 def install(app) -> None:
     apply(app)
-    app.styleHints().colorSchemeChanged.connect(lambda *_: apply(app))
+    if id(app) not in _connected_apps:    # gọi install nhiều lần không được nối tín hiệu nhiều lần
+        _connected_apps.add(id(app))
+        app.styleHints().colorSchemeChanged.connect(lambda *_: apply(app))
+    from . import dialogs                 # nhập muộn: dialogs cần icons/theme đã sẵn sàng
+    dialogs.install(app)

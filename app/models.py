@@ -95,7 +95,7 @@ def set_data_dir(path: Path) -> None:
     qsettings().setValue("data_dir", str(path))
     DATA_DIR = Path(path)
     PROJ_DIR = DATA_DIR / "projects"
-    fa = sys.modules.get("app.flow_auto")
+    fa = sys.modules.get("app.flow_common")
     if fa is not None:
         fa.PROFILE_DIR = DATA_DIR / "flow_profile"
         fa.DOWNLOAD_DIR = DATA_DIR / "flow_downloads"
@@ -158,6 +158,7 @@ class Chapter:
     story: str = ""                # nội dung chapter (nguyên văn)
     scenes: list[Scene] = field(default_factory=list)
     flow_project_url: str = ""     # project Google Flow RIÊNG của chương này (mỗi chương một project để Flow không phải lọc quá nhiều clip)
+    post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video chương: {title, description, hashtags}
 
     @property
     def name(self) -> str:
@@ -185,6 +186,15 @@ class Project:
     flow_stash: dict = field(default_factory=dict)   # địa chỉ project Flow của các tài khoản KHÁC (mỗi tài khoản có project riêng của nó)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
+    post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video ghép cả dự án
+    publish_accounts: list[str] = field(default_factory=list)    # tài khoản (id trong cài đặt Đăng video) mà dự án này đăng lên
+    publish_scope: str = "chapters"    # chapters: đăng video từng chương | project: đăng một video cả dự án
+    publish_privacy: str = "private"   # private | unlisted | public
+    publish_auto: bool = False         # tự ghép, viết mô tả và đăng ngay khi một chương gen xong
+    publish_history: list[dict] = field(default_factory=list)    # nhật ký các lần đăng: {chapter, platform, account, ok, url, post_id, time, privacy, message}
+    gen_auto_merge: bool = True        # tự ghép video chương khi mọi scene của chương gen xong
+    gen_auto_sync: bool = True         # tự đồng bộ với Flow (không tốn credit) khi sau lượt gen còn scene lỗi
+    publish_queue: list[dict] = field(default_factory=list)      # lịch đăng: {id, key, at, accounts, privacy, status, message, ran_at}
     chapters: list[Chapter] = field(default_factory=list)
 
     @property
@@ -242,6 +252,7 @@ class Project:
     @classmethod
     def load(cls, name: str) -> "Project":
         d = json.loads((PROJ_DIR / name / "project.json").read_text(encoding="utf-8"))
+        d.pop("publish_platforms", None)        # bản thử cũ chọn theo nền tảng; nay chọn theo tài khoản
         old_scenes, old_story = d.pop("scenes", None), d.pop("story", None)   # định dạng cũ: 1 dự án = 1 chapter
         chapters = []
         for c in d.pop("chapters", []):
