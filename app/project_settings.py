@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, 
                                QWidget)
 
 from . import accounts, credits, flow_auto, icons, publish, theme
-from .publish_tab import PRIVACY, AccountPick
+from .publish_parts.widgets import PRIVACY, AccountPick
 from .shell import AdaptiveRow, NavItem, section
 from .theme import SP
 from .widgets import Combo
