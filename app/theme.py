@@ -374,23 +374,36 @@ def apply(app, force_dark: bool | None = None) -> None:
     T.update(tokens(dark))
     style = AppStyle()
     _style_keepalive.append(style)
+    del _style_keepalive[:-2]          # chỉ cần giữ kiểu hiện tại (và kiểu trước đó cho tới khi Qt thay xong)
     app.setStyle(style)
     app.setPalette(palette(T))
     app.setStyleSheet(stylesheet(T))
-    for cb in _listeners:
-        cb()
+    for ref in list(_listeners):
+        cb = ref()
+        if cb is None:
+            _listeners.remove(ref)
+            continue
+        try:
+            cb()
+        except RuntimeError:              # widget C++ đã bị huỷ: bỏ khỏi danh sách
+            _listeners.remove(ref)
 
 
 _listeners: list = []
+_connected_apps: set = set()
 
 
 def on_change(cb) -> None:
-    """Đăng ký hàm được gọi sau khi đổi giao diện (để làm mới các màu tính bằng code)."""
-    _listeners.append(cb)
+    """Đăng ký hàm được gọi sau khi đổi giao diện (để làm mới các màu tính bằng code).
+    Method gắn với đối tượng chỉ được giữ yếu, nên đối tượng bị huỷ thì tự rời danh sách."""
+    import weakref
+    _listeners.append(weakref.WeakMethod(cb) if hasattr(cb, "__self__") else (lambda: cb))
 
 
 def install(app) -> None:
     apply(app)
-    app.styleHints().colorSchemeChanged.connect(lambda *_: apply(app))
+    if id(app) not in _connected_apps:    # gọi install nhiều lần không được nối tín hiệu nhiều lần
+        _connected_apps.add(id(app))
+        app.styleHints().colorSchemeChanged.connect(lambda *_: apply(app))
     from . import dialogs                 # nhập muộn: dialogs cần icons/theme đã sẵn sàng
     dialogs.install(app)

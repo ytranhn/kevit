@@ -30,6 +30,18 @@ def fake_video(tmp: Path, name="v.mp4", size=2500) -> Path:
     return f
 
 
+def _drop_widgets():
+    """Dọn cửa sổ còn sót sau mỗi test: cửa sổ tồn đọng khiến theme.install() và processEvents của các test sau chậm dần."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+    if QApplication.instance() is None:
+        return
+    for w in QApplication.topLevelWidgets():
+        w.close()
+        w.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 class Tmp(unittest.TestCase):
     def setUp(self):
         import tempfile
@@ -38,6 +50,7 @@ class Tmp(unittest.TestCase):
         for k in ("publish_creds", "publish_accounts"):
             models.qsettings().remove(k)
         self.addCleanup(self._d.cleanup)
+        self.addCleanup(_drop_widgets)
 
 
 class TestBase(Tmp):
