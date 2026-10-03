@@ -46,12 +46,12 @@
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Trang Nhân vật"><br><sub><b>Nhân vật</b></sub></td>
-    <td width="50%"><img src="docs/images/google-flow.png" alt="Cài đặt Google Flow"><br><sub><b>Google Flow:</b> credit từng tài khoản, tự chuyển tài khoản.</sub></td>
+    <td width="50%"><img src="docs/images/dang-video.png" alt="Tab Đăng video"><br><sub><b>Đăng video:</b> chọn video, AI viết mô tả, chọn tài khoản, hẹn giờ.</sub></td>
+    <td width="50%"><img src="docs/images/nhan-vat.png" alt="Trang Nhân vật"><br><sub><b>Nhân vật:</b> ảnh và mô tả dùng chung cho mọi scene.</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/mo-hinh-ai.png" alt="Cài đặt mô hình AI"><br><sub><b>Mô hình AI</b></sub></td>
-    <td width="50%"><img src="docs/images/tong-quan-toi.png" alt="Chế độ tối"><br><sub><b>Chế độ tối</b></sub></td>
+    <td width="50%"><img src="docs/images/google-flow.png" alt="Cài đặt Google Flow"><br><sub><b>Google Flow:</b> credit từng tài khoản, tự chuyển tài khoản.</sub></td>
+    <td width="50%"><img src="docs/images/cai-dat-du-an.png" alt="Cài đặt dự án"><br><sub><b>Cài đặt dự án:</b> khổ video, Flow, giọng đọc, đăng video.</sub></td>
   </tr>
 </table>
 
@@ -160,7 +160,8 @@ app/project_parts/     các mixin của tab Dự án       app/publish_parts/  c
 app/flow_parts/        điều khiển Google Flow        app/widgets/        thành phần giao diện dùng chung
 app/publish/           đăng video qua API: OAuth, YouTube, TikTok, Meta, lịch đăng
 app/version.py         số phiên bản duy nhất         tests/              114 test, tự cô lập cấu hình và dữ liệu
-tools/                 đóng gói, tạo logo            .github/workflows/  build macOS + Windows khi gắn tag v*
+tools/                 đóng gói, tạo logo, chụp ảnh README (make_docs_images.py)
+.github/workflows/     build macOS + Windows khi gắn tag v*
 ```
 
 ```bash
