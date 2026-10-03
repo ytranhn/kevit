@@ -49,12 +49,16 @@ class Scheduler(QObject):
         if self.busy:
             return
         for name in schedule.projects_with_pending():
-            p = self._load(name)
-            if p is None:
+            try:
+                p = self._load(name)
+                if p is None:
+                    continue
+                if schedule.recover_interrupted(p):
+                    self.changed.emit(name)
+                due, changed = schedule.take_due(p, self.now())
+            except Exception as e:  # noqa: BLE001 - một dự án hỏng lịch không được chặn các dự án khác
+                self.log.emit(f"[Lịch] Bỏ qua dự án «{name}»: {e}")
                 continue
-            if schedule.recover_interrupted(p):
-                self.changed.emit(name)
-            due, changed = schedule.take_due(p, self.now())
             if changed:
                 self.changed.emit(name)
                 self.activity.emit(f"Có lượt đăng đã lỡ giờ ở dự án «{name}». Mở tab Đăng video để xử lý.", "warn")

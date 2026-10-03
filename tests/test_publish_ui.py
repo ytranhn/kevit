@@ -1,16 +1,14 @@
 from . import _env  # noqa: F401
 
-import os
 import time
 import unittest
-from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from app import models
-from app.publish import PLATFORMS, service
+from app.publish import PLATFORMS
 from app.publish_tab import PublishTab
 from .test_publish import FakePlatform, Tmp, make_clip
 

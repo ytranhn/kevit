@@ -2,9 +2,9 @@
 nút tiếng Việt, nút mặc định nổi bật. Cài một lần ở mức ứng dụng nên áp cho cả các chỗ gọi QMessageBox.question/warning/... sẵn có."""
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QAbstractButton, QGridLayout, QMessageBox
+from PySide6.QtWidgets import QGridLayout, QMessageBox
 
 from . import icons, theme
 from .theme import SP
