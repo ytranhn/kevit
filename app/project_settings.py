@@ -145,8 +145,10 @@ class ProjectSettingsDialog(QDialog):
         self.sub.setProperty("caption", True)
         hcol = QVBoxLayout()
         hcol.setSpacing(0)
+        hcol.addStretch(1)                  # tiêu đề căn giữa theo chiều dọc so với ô icon, có hay không có dòng phụ
         hcol.addWidget(head)
         hcol.addWidget(self.sub)
+        hcol.addStretch(1)
         top = QHBoxLayout()
         top.setSpacing(SP.m)
         top.addWidget(tile)

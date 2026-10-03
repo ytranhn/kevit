@@ -107,7 +107,9 @@ class ListingMixin:
         counts = dict(all=len(infos), ready=sum(1 for i in infos.values() if i["ready"] and not i["posted_all"]),
                       posted=sum(1 for i in infos.values() if i["posted_any"]))
         for k, label in FILTERS:
-            self.tab_btns[k].setText(f"{label}  {counts[k]}")
+            b = self.tab_btns[k]
+            b.setText(f"{label}  {counts[k]}")
+            b.setMinimumWidth(b.sizeHint().width())      # không để nhóm lọc bị ép hẹp làm cụt chữ
 
         def show(k: str) -> bool:
             i = infos[k]

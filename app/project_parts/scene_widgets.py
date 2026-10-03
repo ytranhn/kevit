@@ -54,6 +54,8 @@ class SceneDelegate(QStyledItemDelegate):
             self._background(painter, option, index)
             color = index.data(Qt.ForegroundRole)
             c = color.color() if color is not None else QColor(theme.T["muted"])
+            if selected and c == QColor(theme.T["faint"]):          # chữ xám mờ chìm vào nền dòng đang chọn
+                c = QColor(theme.T["text"])
             text = index.data(Qt.DisplayRole) or ""
             painter.save()
             painter.setRenderHint(QPainter.Antialiasing, True)
