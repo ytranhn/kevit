@@ -327,7 +327,7 @@ class PublishTab(QWidget):
         self._thumbs: dict[str, tuple[QPixmap | None, float]] = {}
         self._tags: list[str] = []
         self._loading = False
-        self._filter = "all"
+        self._filter = "ready"
         self.acc_checks: dict[str, QCheckBox] = {}
 
         # ---------- đầu trang ----------
@@ -367,7 +367,7 @@ class PublishTab(QWidget):
             b.clicked.connect(lambda _=False, key=k: self.set_filter(key))
             sr.addWidget(b)
             self.tab_btns[k] = b
-        self.tab_btns["all"].setChecked(True)
+        self.tab_btns["ready"].setChecked(True)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Tìm video…")
         self.search.setClearButtonEnabled(True)
@@ -763,7 +763,8 @@ class PublishTab(QWidget):
         for t in self._targets:
             info = self.row_info(p, t)
             row = VideoRow(info)
-            row.check.setChecked(t.key in keep_checked or (first and info["ready"] and not info["posted_all"]))
+            row.check.setChecked(not info["posted_all"] and (t.key in keep_checked or (first and info["ready"])))
+            row.check.setEnabled(not info["posted_all"])
             row.clicked.connect(lambda k=t.key: self.select_key(k))
             row.checked.connect(self.on_checks_changed)
             row.action.connect(lambda a, k=t.key: self.row_action(k, a))
@@ -818,17 +819,17 @@ class PublishTab(QWidget):
         vis = [r for r in self._rows.values() if not r.isHidden()]
         self.lbl_count.setText(f"Video sẽ đăng ({len(self.checked_targets())})")
         self.all_check.blockSignals(True)
-        self.all_check.setChecked(bool(vis) and all(r.check.isChecked() for r in vis))
+        self.all_check.setChecked(bool(vis) and all(r.check.isChecked() for r in vis if not r.info["posted_all"]))
         self.all_check.blockSignals(False)
         self.update_buttons()
 
     def check_all(self, on: bool) -> None:
         for r in self._rows.values():
-            if not r.isHidden():
+            if not r.isHidden() and not r.info["posted_all"]:
                 r.check.setChecked(on)
 
     def checked_targets(self) -> list[service.Target]:
-        return [t for t in self._targets if (r := self._rows.get(t.key)) and r.check.isChecked() and not r.isHidden()]
+        return [t for t in self._targets if (r := self._rows.get(t.key)) and r.check.isChecked() and not r.isHidden() and not r.info["posted_all"]]
 
     def select_key(self, key: str | None) -> None:
         if key is not None and key not in self._rows:

@@ -71,6 +71,22 @@ QDateTimeEdit { min-height: 20px; padding-right: 30px; }
 QDateTimeEdit::drop-down { subcontrol-origin: padding; subcontrol-position: center right; border: none; width: 28px; }
 QDateTimeEdit::down-arrow { image: url($chev_down_png); width: 14px; height: 14px; }
 QDateTimeEdit::up-button, QDateTimeEdit::down-button { width: 0; border: none; }
+QCalendarWidget { background: $surface; border: 1px solid $border; border-radius: 12px; }
+QCalendarWidget QWidget#qt_calendar_navigationbar { background: transparent; border: none; padding: 6px 6px 2px 6px; min-height: 40px; }
+QCalendarWidget QToolButton { background: transparent; color: $text; border: none; border-radius: 8px; padding: 6px 12px;
+    font-size: 15px; font-weight: 600; icon-size: 18px; min-height: 28px; }
+QCalendarWidget QToolButton:hover { background: $surface2; }
+QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth { min-width: 32px; padding: 6px; }
+QCalendarWidget QToolButton#qt_calendar_prevmonth { qproperty-icon: url($chev_left_png); }
+QCalendarWidget QToolButton#qt_calendar_nextmonth { qproperty-icon: url($chev_right_png); }
+QCalendarWidget QToolButton::menu-indicator { image: none; width: 0; }
+QCalendarWidget QSpinBox { background: $surface2; color: $text; border: 1px solid $border; border-radius: 8px; padding: 2px 8px; min-height: 24px; }
+QCalendarWidget QMenu { background: $surface; color: $text; border: 1px solid $border; border-radius: 10px; padding: 6px; }
+QCalendarWidget QMenu::item { padding: 6px 18px; border-radius: 6px; }
+QCalendarWidget QMenu::item:selected { background: $sel; }
+QCalendarWidget QAbstractItemView { background: transparent; color: $text; font-size: 14px; outline: 0; border: none;
+    selection-background-color: $accent; selection-color: $on_accent; padding: 4px 8px 8px 8px; }
+QCalendarWidget QAbstractItemView:disabled { color: $faint; }
 QSpinBox { min-height: 20px; padding-right: 26px; }
 QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: none; background: transparent; }
 QSpinBox::up-button { subcontrol-position: top right; }
@@ -304,7 +320,7 @@ def _glyph_png(name: str, color: str, size: int = 32) -> str:
 def stylesheet(tok: dict[str, str]) -> str:
     return QSS.substitute(**tok, serif=SERIF, check_png=_glyph_png("check", "#FFFFFF"),
                           chev_down_png=_glyph_png("down", tok["muted"]), chev_down_dis_png=_glyph_png("down", tok["faint"]),
-                          chev_up_png=_glyph_png("up", tok["muted"]), chev_up_dis_png=_glyph_png("up", tok["faint"]))
+                          chev_up_png=_glyph_png("up", tok["muted"]), chev_left_png=_glyph_png("left", tok["text"]), chev_right_png=_glyph_png("right", tok["text"]), chev_up_dis_png=_glyph_png("up", tok["faint"]))
 
 
 def palette(tok: dict[str, str]) -> QPalette:

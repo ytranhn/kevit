@@ -4,10 +4,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from PySide6.QtCore import QDate, QDateTime, QLocale, QTime, Qt
-from PySide6.QtWidgets import (QAbstractItemView, QDateEdit, QDateTimeEdit, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton,
+from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtWidgets import (QAbstractItemView, QCalendarWidget, QDateEdit, QDateTimeEdit, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton,
                                QSpinBox, QTableWidget, QTableWidgetItem, QTimeEdit, QVBoxLayout, QWidget)
 
-from . import icons
+from . import icons, theme
 from .publish import schedule
 from .shell import AdaptiveRow
 from .theme import SP
@@ -17,6 +18,34 @@ DISPLAY = "ddd dd/MM/yyyy  HH:mm"
 VI = QLocale(QLocale.Vietnamese, QLocale.Vietnam)          # tên thứ trong tuần bằng tiếng Việt
 DEFAULT_TIME = QTime(20, 0)
 MIN_LEAD_MIN = 1          # giờ hẹn phải cách hiện tại ít nhất 1 phút
+
+
+def style_calendar(ed) -> None:
+    """Lịch chọn ngày dễ nhìn: ô lớn, cuối tuần màu dịu, ngày hôm nay có viền, bỏ cột số tuần."""
+    cal = ed.calendarWidget()
+    if cal is None:
+        return
+    cal.setLocale(VI)
+    cal.setFirstDayOfWeek(Qt.Monday)
+    cal.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+    cal.setHorizontalHeaderFormat(QCalendarWidget.ShortDayNames)
+    cal.setGridVisible(False)
+    cal.setNavigationBarVisible(True)
+    cal.setMinimumSize(340, 300)
+    weekend = QTextCharFormat()
+    weekend.setForeground(QColor(theme.T["warn"]))
+    weekend.setBackground(QColor(theme.T["surface"]))
+    head = QTextCharFormat()
+    head.setForeground(QColor(theme.T["muted"]))
+    head.setBackground(QColor(theme.T["surface"]))
+    for d in (Qt.Monday, Qt.Tuesday, Qt.Wednesday, Qt.Thursday, Qt.Friday):
+        cal.setWeekdayTextFormat(d, head)
+    for d in (Qt.Saturday, Qt.Sunday):
+        cal.setWeekdayTextFormat(d, weekend)
+    today = QTextCharFormat()
+    today.setFontWeight(700)
+    today.setForeground(QColor(theme.T["accent"]))
+    cal.setDateTextFormat(QDate.currentDate(), today)
 
 
 def _qdt(dt: datetime) -> QDateTime:
@@ -35,6 +64,7 @@ def ask_datetime(parent, title: str, current: datetime, now=datetime.now) -> dat
     ed = QDateTimeEdit(_qdt(max(current, now() + timedelta(minutes=5))))
     ed.setCalendarPopup(True)
     ed.setLocale(VI)
+    style_calendar(ed)
     ed.setDisplayFormat(DISPLAY)
     ok, cancel = QPushButton("Lưu giờ mới"), QPushButton("Huỷ")
     ok.setProperty("primary", True)
@@ -90,6 +120,7 @@ class ScheduleDialog(QDialog):
         self.start_date = QDateEdit(QDate(start.year, start.month, start.day))
         self.start_date.setCalendarPopup(True)
         self.start_date.setLocale(VI)
+        style_calendar(self.start_date)
         self.start_date.setDisplayFormat("dd/MM/yyyy")
         self.start_time = QTimeEdit(DEFAULT_TIME)
         self.start_time.setDisplayFormat("HH:mm")
@@ -161,6 +192,7 @@ class ScheduleDialog(QDialog):
             ed = QDateTimeEdit()
             ed.setCalendarPopup(True)
             ed.setLocale(VI)
+            style_calendar(ed)
             ed.setDisplayFormat(DISPLAY)
             ed.dateTimeChanged.connect(self.validate)
             self.table.setCellWidget(r, 2, ed)
