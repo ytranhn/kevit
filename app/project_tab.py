@@ -19,14 +19,18 @@ from .widgets import FOOTER_H, HEADER_H
 from .project_parts.scene_widgets import SceneDelegate, PreviewPanel, PROVIDER_LABELS
 from .project_parts.chapters import ChaptersMixin
 from .project_parts.scene_table import SceneTableMixin
+from .project_parts.scene_merge import SceneMergeMixin
+from .project_parts.scene_detail import SceneDetailMixin
 from .project_parts.popovers import PopoverMixin
 from .project_parts.runtime import RuntimeMixin
 from .project_parts.planning import PlanningMixin
 from .project_parts.flow_gen import FlowGenMixin
+from .project_parts.clip_tools import ClipToolsMixin
 from .project_parts.batch import BatchMixin
 
 
-class ProjectTab(ChaptersMixin, SceneTableMixin, PopoverMixin, RuntimeMixin, PlanningMixin, FlowGenMixin, BatchMixin, QWidget):
+class ProjectTab(ChaptersMixin, SceneTableMixin, SceneMergeMixin, SceneDetailMixin, PopoverMixin, RuntimeMixin, PlanningMixin, FlowGenMixin,
+                 ClipToolsMixin, BatchMixin, QWidget):
     opened = Signal(str)
     open_settings_section = Signal(str)  # yêu cầu mở tab Cài đặt ở một mục (vd. 'flow', 'publish')
     publish_settings_changed = Signal()  # cài đặt đăng video của dự án vừa được lưu trong Cài đặt dự án

@@ -95,7 +95,7 @@ def set_data_dir(path: Path) -> None:
     qsettings().setValue("data_dir", str(path))
     DATA_DIR = Path(path)
     PROJ_DIR = DATA_DIR / "projects"
-    fa = sys.modules.get("app.flow_auto")
+    fa = sys.modules.get("app.flow_common")
     if fa is not None:
         fa.PROFILE_DIR = DATA_DIR / "flow_profile"
         fa.DOWNLOAD_DIR = DATA_DIR / "flow_downloads"
