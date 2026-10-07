@@ -43,6 +43,37 @@ class PlanningMixin:
             self.left_tabs.setCurrentWidget(self.scene_page)
         self.run(lambda log: scene_planner.plan_scenes(ch.story, chars, n, p.synopsis, log, p.narration_lang), done)
 
+    def plan_chapters_dialog(self) -> None:
+        """Tạo scene hàng loạt: chọn nhiều chương, AI tách scene lần lượt từng chương."""
+        if not self.need_project(need_key=True):
+            return
+        self.save_edits()
+        from ..scene_batch_dialog import SceneBatchDialog
+        dlg = SceneBatchDialog(self, self.project)
+        if dlg.exec() != SceneBatchDialog.Accepted or not dlg.chosen():
+            return
+        if not self.chars_tab.chars and not self.ask_characters_first():
+            return
+        rep = dlg.replaced()
+        if rep and QMessageBox.question(
+                self, "Tạo lại scene", f"{len(rep)} chương đã có scene ({', '.join(c.name for c in rep[:4])}{'…' if len(rep) > 4 else ''}) "
+                "sẽ bị xoá danh sách scene hiện tại. Tiếp tục?") != QMessageBox.Yes:
+            return
+        p, chars, n, chosen = self.project, self.chars_tab.chars, self.max_scenes.value(), dlg.chosen()
+        self.log(f"Tạo scene cho {len(chosen)} chương bằng {llm.describe()}...")
+
+        def done(res):
+            ok, failed = res
+            self._row = -1
+            self.refresh_chapter_labels()
+            self.show_chapter(self._chap_idx)
+            msg = f"Đã tạo scene cho {len(ok)}/{len(chosen)} chương."
+            if failed:
+                msg += " Lỗi: " + "; ".join(f"{c.name} ({why[:60]})" for c, why in failed)
+            self.log(msg)
+        self.run(lambda log: scene_planner.plan_many(chosen, chars, n, p.synopsis, log, p.narration_lang, self._cancel.is_set, p.save),
+                 done, cancelable=True)
+
     def ask_characters_first(self) -> bool:
         """Dự án chưa có nhân vật nào: scene tạo ra sẽ không gắn được nhân vật (clip mỗi cảnh một diện mạo). Cho chọn tạo nhân vật
         từ truyện NGAY (không cần scene), tạo scene luôn, hoặc huỷ. Trả về True nếu nên tiếp tục tạo scene."""

@@ -229,6 +229,8 @@ class PopoverMixin:
         pop.separator()
         pop.section("Nội dung chương")
         pop.item("Viết truyện từ bối cảnh…", "AI lập dàn ý và viết các chương, không tốn credit Flow", self.write_story_dialog)
+        pop.item("Tạo scene cho nhiều chương…", "AI tách scene lần lượt các chương đã chọn, không tốn credit Flow", self.plan_chapters_dialog,
+                 enabled=bool(self.project and len(self.project.chapters) > 1))
         pop.item("Gắn nhân vật vào scene đã có", "Nhân vật tạo sau khi tách scene; theo văn bản, không tốn credit",
                  lambda: self.attach_characters_to_scenes(None, ask=True), enabled=bool(self.scenes))
         pop.item("Nhận diện lại nhân vật cho scene", "Theo văn bản, không dùng LLM", self.reassign_characters)
