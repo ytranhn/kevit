@@ -1,2 +1,2 @@
 """Phiên bản ứng dụng (một nơi duy nhất): README, CHANGELOG, tên cửa sổ và gói .app đều lấy từ đây."""
-__version__ = "1.7.0"
+__version__ = "1.8.0"

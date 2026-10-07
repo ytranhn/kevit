@@ -159,7 +159,7 @@ app/                   giao diện PySide6, LLM, TTS, ghép video
 app/project_parts/     các mixin của tab Dự án       app/publish_parts/  các mixin của tab Đăng video
 app/flow_parts/        điều khiển Google Flow        app/widgets/        thành phần giao diện dùng chung
 app/publish/           đăng video qua API: OAuth, YouTube, TikTok, Meta, lịch đăng
-app/version.py         số phiên bản duy nhất         tests/              117 test, tự cô lập cấu hình và dữ liệu
+app/version.py         số phiên bản duy nhất         tests/              122 test, tự cô lập cấu hình và dữ liệu
 tools/                 đóng gói, tạo logo, chụp ảnh README (make_docs_images.py)
 .github/workflows/     build macOS + Windows khi gắn tag v*
 ```

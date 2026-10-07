@@ -2,6 +2,11 @@
 
 Phiên bản theo dạng `chính.phụ.sửa`. Số hiện tại nằm ở [app/version.py](app/version.py); khi phát hành, gắn tag `v<số phiên bản>`.
 
+## 1.8.0
+
+### Mới
+- **Viết truyện từ bối cảnh** (nút ⋯ → Nội dung chương → *Viết truyện từ bối cảnh…*): nhập bối cảnh, thể loại, số chương và số từ mỗi chương; AI lập dàn ý rồi viết lần lượt từng chương nối liền mạch, thêm vào sau các chương hiện có (chương đầu dùng lại chương trống). Mỗi chương xong được lưu ngay; chỉ tốn lượt gọi LLM, không tốn credit Flow.
+
 ## 1.7.0
 
 ### Mới
