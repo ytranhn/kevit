@@ -186,6 +186,10 @@ class Project:
     flow_stash: dict = field(default_factory=dict)   # địa chỉ project Flow của các tài khoản KHÁC (mỗi tài khoản có project riêng của nó)
     flow_auto_duration: bool = True    # Omni: chọn thời lượng clip ngắn nhất đủ đọc thuyết minh
     voice_style: str = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tốc độ vừa phải"
+    narration_enabled: bool = True     # False: không lồng giọng đọc, giữ nguyên âm thanh Veo gốc
+    bgm_enabled: bool = False          # nhạc nền do Veo tự sinh theo từng scene (đưa vào prompt gen clip)
+    bgm_style: str = ""                # gợi ý thể loại/không khí nhạc, vd. "soft piano, melancholic"; rỗng = để Veo tự chọn theo cảnh
+    bgm_volume: int = 35               # âm lượng nhạc/âm thanh Veo khi lồng giọng đọc, 0-100 (%)
     post_meta: dict = field(default_factory=dict)    # tiêu đề/mô tả/hashtag để đăng video ghép cả dự án
     publish_accounts: list[str] = field(default_factory=list)    # tài khoản (id trong cài đặt Đăng video) mà dự án này đăng lên
     publish_scope: str = "chapters"    # chapters: đăng video từng chương | project: đăng một video cả dự án
@@ -210,6 +214,7 @@ class Project:
     @property
     def full_path(self) -> Path:
         return self.dir / "full.mp4"
+
 
     def new_chapter(self, title: str = "") -> Chapter:
         nid = max((int(c.id) for c in self.chapters), default=0) + 1

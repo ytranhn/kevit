@@ -2,6 +2,11 @@
 
 Phiên bản theo dạng `chính.phụ.sửa`. Số hiện tại nằm ở [app/version.py](app/version.py); khi phát hành, gắn tag `v<số phiên bản>`.
 
+## 1.7.0
+
+### Mới
+- **Tuỳ chọn âm thanh theo dự án** (Cài đặt dự án → Âm thanh): bật/tắt **thuyết minh** (tắt thì giữ nguyên âm thanh Veo gốc, không tốn TTS) và bật/tắt **nhạc nền do Veo tự tạo theo từng scene** (gợi ý thể loại, chỉnh âm lượng; không tốn thêm credit, chỉ áp dụng cho scene gen sau khi bật).
+
 ## 1.6.0
 
 Bản cập nhật lớn: đăng video tự động, hẹn giờ, gen nhiều chương và rà soát toàn bộ giao diện.

@@ -1,12 +1,12 @@
-"""Hộp thoại 'Cài đặt dự án': thanh điều hướng bên trái + các thẻ cuộn được bên phải (Hình ảnh & video · Tách scene · Google Flow · Giọng đọc · Đăng video).
+"""Hộp thoại 'Cài đặt dự án': thanh điều hướng bên trái + các thẻ cuộn được bên phải (Hình ảnh & video · Tách scene · Google Flow · Âm thanh · Đăng video).
 Dùng lại các ô nhập đang nằm trên ProjectTab (tab.style, tab.aspect...) — hộp thoại chỉ sắp xếp lại giao diện.
 Huỷ thì khôi phục giá trị cũ; Lưu thì gọi tab.save_edits()."""
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
+                               QSlider, QVBoxLayout, QWidget)
 
 from . import accounts, credits, flow_auto, icons, publish, theme
 from .publish_parts.widgets import PRIVACY, AccountPick
@@ -20,7 +20,7 @@ DEFAULT_VOICE_STYLE = "Đọc bằng giọng kể chuyện ấm, rõ ràng, tố
 SECTIONS = (("visual", "Hình ảnh & video", "Phong cách, tỉ lệ, chất lượng", "image"),
             ("scenes", "Tách scene", "Cảnh báo và chia cảnh", "layers"),
             ("flow", "Google Flow", "Tài khoản, model, credit", "sparkle"),
-            ("voice", "Giọng đọc", "Ngôn ngữ, giọng và phong cách", "volume"),
+            ("voice", "Âm thanh", "Thuyết minh, giọng đọc, nhạc nền", "volume"),
             ("publish", "Đăng video", "Chọn tài khoản và chế độ đăng", "open"))
 
 
@@ -352,7 +352,16 @@ class ProjectSettingsDialog(QDialog):
         return box
 
     def _build_voice(self) -> QFrame:
-        box, body = section("volume", "Giọng đọc", "Một giọng duy nhất cho cả dự án để người nghe không thấy lệch giữa các scene.")
+        box, body = section("volume", "Âm thanh", "Chọn video có thuyết minh hay không, và có nhạc nền hay không.")
+        # ---- thuyết minh ----
+        self.narr_on = QCheckBox("Có thuyết minh (lồng giọng đọc)")
+        self.narr_on.setToolTip("Tắt: không tạo giọng đọc, giữ nguyên âm thanh Veo gốc của từng clip")
+        self.narr_on.toggled.connect(lambda *_: self.refresh_voice())
+        body.addWidget(self.narr_on)
+        self.voice_box = QWidget()
+        vb = QVBoxLayout(self.voice_box)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(SP.m)
         self.tab.narr_lang.setMinimumWidth(0)
         self.tab.voice.setMinimumWidth(0)
         self.tab.provider.setToolTip("Edge miễn phí (hơn 300 giọng, 75 ngôn ngữ); Gemini cần API key")
@@ -361,15 +370,53 @@ class ProjectSettingsDialog(QDialog):
         row.addLayout(_labeled("Nguồn giọng", self.tab.provider), 0)
         row.addLayout(_labeled("Ngôn ngữ thuyết minh", self.tab.narr_lang), 1)
         row.addLayout(_labeled("Giọng", self.tab.voice), 1)
-        body.addWidget(row)
-        body.addWidget(_caption("Ngôn ngữ khác tiếng Việt thì thuyết minh được dịch từ truyện gốc."))
+        vb.addWidget(row)
+        vb.addWidget(_caption("Một giọng duy nhất cho cả dự án. Ngôn ngữ khác tiếng Việt thì thuyết minh được dịch từ truyện gốc."))
         # chỉ Gemini TTS nhận chỉ dẫn phong cách: dùng Edge thì ẩn hẳn ô này thay vì để ô xám vô dụng
         self.style_box = QWidget()
         sv = QVBoxLayout(self.style_box)
         sv.setContentsMargins(0, 0, 0, 0)
         sv.addLayout(_labeled("Phong cách đọc (Gemini)", self.tab.voice_style))
-        body.addWidget(self.style_box)
+        vb.addWidget(self.style_box)
+        body.addWidget(self.voice_box)
+        self.narr_off_note = _caption("Đang tắt thuyết minh: video giữ âm thanh Veo gốc. Sau khi lưu, bấm “Lồng lại giọng” để áp dụng cho các scene đã gen.")
+        body.addWidget(self.narr_off_note)
+
+        # ---- nhạc nền ----
+        self.bgm_on = QCheckBox("Có nhạc nền (Veo tự tạo theo từng scene)")
+        self.bgm_on.setToolTip("Nhạc được sinh cùng clip nên không tốn thêm credit; chỉ áp dụng cho scene gen sau khi bật")
+        self.bgm_on.toggled.connect(lambda *_: self.refresh_voice())
+        body.addWidget(self.bgm_on)
+        self.bgm_box = QWidget()
+        bb = QVBoxLayout(self.bgm_box)
+        bb.setContentsMargins(0, 0, 0, 0)
+        bb.setSpacing(SP.s)
+        self.bgm_style = QLineEdit()
+        self.bgm_style.setPlaceholderText("Ví dụ: soft piano, melancholic (để trống = Veo tự chọn theo cảnh)")
+        bb.addLayout(_labeled("Thể loại / không khí nhạc", self.bgm_style, "Viết bằng tiếng Anh thì Veo hiểu tốt hơn."))
+        self.bgm_vol = QSlider(Qt.Horizontal)
+        self.bgm_vol.setRange(0, 100)
+        self.bgm_vol_label = QLabel("")
+        self.bgm_vol.valueChanged.connect(lambda v: self.bgm_vol_label.setText(f"{v}%"))
+        vrow = QHBoxLayout()
+        vrow.setSpacing(SP.m)
+        vrow.addWidget(QLabel("Âm lượng nhạc"))
+        vrow.addWidget(self.bgm_vol, 1)
+        vrow.addWidget(self.bgm_vol_label)
+        bb.addLayout(vrow)
+        bb.addWidget(_caption("Nhạc nằm trong clip Veo nên chỉ có hiệu lực với scene gen sau khi bật (scene đã gen giữ nguyên). "
+                              "Mỗi scene có thể có nhạc hơi khác nhau; đổi thể loại nhạc cần gen lại scene. Âm lượng áp dụng khi lồng giọng đọc."))
+        body.addWidget(self.bgm_box)
         return box
+
+    def apply_audio(self) -> None:
+        p = self.tab.project
+        if not p:
+            return
+        p.narration_enabled = self.narr_on.isChecked()
+        p.bgm_enabled = self.bgm_on.isChecked()
+        p.bgm_style = self.bgm_style.text().strip()
+        p.bgm_volume = self.bgm_vol.value()
 
     def _build_publish(self) -> QFrame:
         box, body = section("open", "Đăng video", "Chọn tài khoản mà dự án này sẽ đăng lên. Thêm tài khoản ở Cài đặt → Đăng video.")
@@ -495,7 +542,11 @@ class ProjectSettingsDialog(QDialog):
         self.cost.setText(f"Ước tính: ≈ {per} credit / scene (8 giây)" + ("  ·  ngắn hơn nếu thuyết minh ngắn" if auto else ""))
 
     def refresh_voice(self) -> None:
+        narr = self.narr_on.isChecked()
+        self.voice_box.setVisible(narr)
+        self.narr_off_note.setVisible(not narr)
         self.style_box.setVisible(self.tab.provider.currentData() == "gemini")
+        self.bgm_box.setVisible(self.bgm_on.isChecked())
 
     # ================= đăng video =================
     def fill_accounts(self) -> None:
@@ -574,6 +625,11 @@ class ProjectSettingsDialog(QDialog):
         p = self.tab.project
         self.auto_merge.setChecked(bool(p and p.gen_auto_merge))
         self.auto_sync.setChecked(bool(p and p.gen_auto_sync))
+        self.narr_on.setChecked(bool(p.narration_enabled) if p else True)
+        self.bgm_on.setChecked(bool(p and p.bgm_enabled))
+        self.bgm_style.setText(p.bgm_style if p else "")
+        self.bgm_vol.setValue(p.bgm_volume if p else 35)
+        self.bgm_vol_label.setText(f"{self.bgm_vol.value()}%")
         self.refresh_flow()
         self.refresh_voice()
         self.refresh_credit_card()
@@ -583,6 +639,7 @@ class ProjectSettingsDialog(QDialog):
         self._snap = self.snapshot()
         if self.exec() == QDialog.Accepted:
             self.apply_publish()
+            self.apply_audio()
             self.tab.save_edits()
             return True
         self.restore(self._snap)
