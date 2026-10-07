@@ -21,8 +21,13 @@ def build_prompt(project: Project, scene: Scene, chars: dict[str, Character]) ->
         parts.append("Horizontal 16:9 widescreen framing.")
     if cast:
         parts.append("Characters (keep their appearance identical to the reference images):\n" + cast)
-    parts.append("Audio: NO speech, NO dialogue, NO narration, NO music, characters do not speak. "
-                 "Only subtle ambient sound effects.")
+    if project.bgm_enabled:
+        mood = f" Mood: {project.bgm_style.strip()}." if project.bgm_style.strip() else " Match the mood of the scene."
+        parts.append("Audio: NO speech, NO dialogue, NO narration, characters do not speak. "
+                     f"Soft instrumental background music with ambient sound effects, no vocals.{mood}")
+    else:
+        parts.append("Audio: NO speech, NO dialogue, NO narration, NO music, characters do not speak. "
+                     "Only subtle ambient sound effects.")
     return "\n\n".join(parts)
 
 

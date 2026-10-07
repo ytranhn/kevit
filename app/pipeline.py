@@ -11,8 +11,8 @@ def apply_voice(p: Project, ch: Chapter, s: Scene, log=print) -> None:
     raw = Path(s.raw_clip)
     if not raw.exists():
         raise RuntimeError("Chưa có clip Veo gốc")
-    if not s.narration.strip():
-        s.clip = str(raw)
+    if not p.narration_enabled or not s.narration.strip():   # tắt thuyết minh: giữ nguyên âm thanh Veo gốc
+        s.clip, s.audio = str(raw), ""
         return
     key = hashlib.sha1(f"{p.tts_provider}|{p.voice}|{p.voice_style}|{s.narration}".encode()).hexdigest()[:10]
     wav = p.chapter_dir(ch) / "audio" / f"scene_{s.index:02d}_{key}.{'mp3' if p.tts_provider == 'edge' else 'wav'}"
@@ -21,4 +21,6 @@ def apply_voice(p: Project, ch: Chapter, s: Scene, log=print) -> None:
         wav.unlink(missing_ok=True)
         tts.synthesize(s.narration, p.tts_provider, p.voice, p.voice_style, wav)
     s.audio = str(wav)
-    s.clip = str(mux_voice(raw, wav, p.chapter_dir(ch) / "clips" / f"scene_{s.index:02d}.mp4"))
+    s.clip = str(mux_voice(raw, wav, p.chapter_dir(ch) / "clips" / f"scene_{s.index:02d}.mp4",
+                           ambient_vol=p.bgm_volume / 100 if p.bgm_enabled else 0.25))
+
