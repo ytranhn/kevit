@@ -173,6 +173,32 @@ def _claude(prompt: str, schema: dict, log=print, profile=None) -> str:
 OPENAI_TIMEOUT = 180.0
 
 
+def parse_sse(text: str) -> tuple[str, str | None, dict]:
+    """Một số proxy luôn trả luồng SSE (`data: {chunk}`) dù yêu cầu không stream: ghép các `delta.content` (bỏ `reasoning_content`),
+    lấy finish_reason cuối cùng và usage nếu có. Ném ValueError khi không có chunk hợp lệ nào."""
+    parts: list[str] = []
+    stop, usage, seen = None, {}, False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        seen = True
+        usage = chunk.get("usage") or usage
+        for ch in chunk.get("choices") or []:
+            parts.append((ch.get("delta") or ch.get("message") or {}).get("content") or "")
+            stop = ch.get("finish_reason") or stop
+    if not seen:
+        raise ValueError("không có chunk SSE hợp lệ")
+    return "".join(parts), stop, usage
+
+
 def _openai(prompt: str, schema: dict, log=print, profile=None) -> str:
     """Mọi dịch vụ theo chuẩn OpenAI Chat Completions (OpenAI, OpenRouter, DeepSeek, Ollama...). Dùng httpx, không cần thêm thư viện.
     Máy chủ khác nhau chê tham số khác nhau (response_format, max_tokens/max_completion_tokens): gặp lỗi 400 thì bỏ/đổi tham số rồi thử lại."""
@@ -184,7 +210,7 @@ def _openai(prompt: str, schema: dict, log=print, profile=None) -> str:
         headers["Authorization"] = f"Bearer {p.effective_key}"
     body = {"model": p.effective_model, "temperature": 0.2,
             "messages": [{"role": "system", "content": _system_prompt(schema)}, {"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"}, "max_tokens": 16000}
+            "response_format": {"type": "json_object"}, "max_tokens": 16000, "stream": False}
     log(f"Đang gửi yêu cầu tới {url} (model {body['model']})...")
     t0 = time.time()
     kw: dict = dict(timeout=OPENAI_TIMEOUT)
@@ -212,11 +238,14 @@ def _openai(prompt: str, schema: dict, log=print, profile=None) -> str:
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
     try:
-        data = r.json()
-        choice = data["choices"][0]
-        got = (choice.get("message") or {}).get("content") or ""
-        stop = choice.get("finish_reason")
-        u = data.get("usage") or {}
+        if r.text.lstrip().startswith("data:"):
+            got, stop, u = parse_sse(r.text)
+        else:
+            data = r.json()
+            choice = data["choices"][0]
+            got = (choice.get("message") or {}).get("content") or ""
+            stop = choice.get("finish_reason")
+            u = data.get("usage") or {}
     except Exception as e:  # noqa: BLE001
         raise ValueError(f"Phản hồi không đúng chuẩn OpenAI: {r.text[:200]!r}") from e
     if u:

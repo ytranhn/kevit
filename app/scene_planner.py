@@ -499,3 +499,31 @@ Quy tắc cho "narration" của mỗi scene:
             if str(x.get("narration", "")).strip():
                 out[int(x["k"])] = x["narration"].strip()
     return out
+
+
+def plan_many(chapters: list, chars: list[Character], max_scenes: int = 16, synopsis: str = "", log=print, lang: str = "vi",
+              cancelled=lambda: False, save=lambda: None) -> tuple[list, list[tuple[object, str]]]:
+    """Tách scene lần lượt cho nhiều chương (mỗi chương một lượt gọi LLM). Chương nào xong thì gán scene và gọi `save()` ngay;
+    lỗi một chương không chặn các chương sau. Trả về (các chương đã xong, [(chương lỗi, lý do)])."""
+    done, failed = [], []
+    for k, ch in enumerate(chapters, 1):
+        if cancelled():
+            log("Đã dừng tạo scene.")
+            break
+        if not ch.story.strip():
+            failed.append((ch, "chương chưa có truyện"))
+            continue
+        log(f"[{ch.name}] ({k}/{len(chapters)}) Đang tách scene...")
+        try:
+            scenes, notes = plan_scenes(ch.story, chars, max_scenes, synopsis, log, lang)
+        except Exception as e:  # noqa: BLE001
+            failed.append((ch, str(e)[:300]))
+            log(f"[{ch.name}] LỖI tách scene: {e}")
+            continue
+        ch.scenes = scenes
+        save()
+        done.append(ch)
+        for line in notes:
+            log(f"[{ch.name}] {line}")
+        log(f"[{ch.name}] Đã tạo {len(scenes)} scene.")
+    return done, failed

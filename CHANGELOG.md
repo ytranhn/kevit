@@ -2,6 +2,14 @@
 
 Phiên bản theo dạng `chính.phụ.sửa`. Số hiện tại nằm ở [app/version.py](app/version.py); khi phát hành, gắn tag `v<số phiên bản>`.
 
+## 1.9.0
+
+### Mới
+- **Tạo scene cho nhiều chương** (nút ⋯ → Nội dung chương → *Tạo scene cho nhiều chương…*): chọn các chương, AI tách scene lần lượt từng chương, lưu ngay khi xong; lỗi một chương không chặn chương sau, bấm Dừng thì giữ phần đã làm. Mặc định chỉ chọn chương có truyện mà chưa có scene. Không tốn credit Flow.
+
+### Sửa
+- Proxy kiểu OpenAI luôn trả luồng SSE (`data: {...}`, có `reasoning_content`) không còn báo "Phản hồi không đúng chuẩn OpenAI": Kevit tự ghép các đoạn `content`.
+
 ## 1.8.0
 
 ### Mới
