@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from .. import scene_ops, tts
+from .. import scene_ops, story_writer, tts
 from ..models import Project, safe_dirname
 from .. import accounts
 
@@ -135,6 +135,33 @@ class ChaptersMixin:
         self.story.setPlainText(ch.story if ch else "")
         self.fill_table()
         self.left_tabs.setCurrentWidget(self.scene_page if self.scenes else self.story)
+
+    def write_story_dialog(self) -> None:
+        """AI viết truyện từ bối cảnh: lập dàn ý rồi viết lần lượt từng chương, thêm vào sau các chương hiện có."""
+        if not self.need_project(need_key=True):
+            return
+        self.save_edits()
+        from ..story_dialog import StoryDialog
+        dlg = StoryDialog(self, self.project)
+        if dlg.exec() != StoryDialog.Accepted:
+            return
+        p, brief, genre = self.project, dlg.brief.toPlainText().strip(), dlg.genre.text().strip()
+        if brief != p.synopsis.strip() and not p.synopsis.strip():
+            p.synopsis = brief                      # dự án chưa có bối cảnh: dùng luôn làm bối cảnh chung
+            self.synopsis.setPlainText(brief)
+        n, words = dlg.n.value(), dlg.words.value()
+
+        def refresh(*_):
+            last = max(0, len(p.chapters) - 1)
+            self.fill_chapter_combo(last)
+            self.show_chapter(last)
+            self.left_tabs.setCurrentWidget(self.story)
+
+        def done(made):
+            self.log(f"Đã viết xong {len(made)} chương. Xem lại rồi bấm ① Tạo scene cho từng chương.")
+            refresh()
+        self.run(lambda log: story_writer.generate(p, brief, n, words, genre, log, self._cancel.is_set), done,
+                 cancelable=True, on_fail=lambda *_: refresh())
 
     def new_chapter(self):
         if not self.project:
