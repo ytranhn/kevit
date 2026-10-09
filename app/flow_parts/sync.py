@@ -34,8 +34,9 @@ class FlowSyncMixin:
                 btn.wait_for(state="visible", timeout=20000)
                 btn.click()
                 pg.wait_for_timeout(1200)
+                item = self._pick_download_item()
                 with pg.expect_download(timeout=90000) as d:
-                    pg.locator("[role=menuitem]").filter(has_text=S.MENU_ORIGINAL).first.click()
+                    item.click()
                 d.value.save_as(str(dst))
                 return dst
             except Exception as e:  # noqa: BLE001
@@ -43,6 +44,22 @@ class FlowSyncMixin:
                 self.log(f"{label}: tải clip lần {attempt} chưa được ({type(e).__name__}), thử lại...")
                 pg.wait_for_timeout(8000)
         raise FlowError(f"Không tải được clip {label} sau 8 lần: {str(last)[:300]}")
+
+    def _pick_download_item(self):
+        """Mục trong menu tải: ưu tiên 720p (bản gốc); không có thì bản cao nhất thấp hơn 720p (vd. 360p). Bản upscale 1080p/4K không lấy."""
+        items = self.page.locator("[role=menuitem]")
+        best, best_h = None, 0
+        for i in range(items.count()):
+            m = re.search(r"(?<!\d)(\d{3,4})p\b", items.nth(i).inner_text())
+            h = int(m.group(1)) if m else 0
+            if h == S.ORIGINAL_HEIGHT:
+                return items.nth(i)
+            if best_h < h < S.ORIGINAL_HEIGHT:
+                best, best_h = items.nth(i), h
+        if best is None:
+            raise FlowError("Menu tải của Flow không có bản 720p hoặc thấp hơn.")
+        self.log(f"Menu tải không có {S.MENU_ORIGINAL}: lấy bản {best_h}p.")
+        return best
 
     def _download_first(self, s: Scene, out_dir: Path) -> Path:
         self.page.wait_for_timeout(2000)

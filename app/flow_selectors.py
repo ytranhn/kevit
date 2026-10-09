@@ -63,6 +63,7 @@ ONE_ACTIVITY_URL = ("https://one.google.com/ai/activity?utm_source=flow&utm_medi
 # Màn hình clip
 BTN_DOWNLOAD = T("Tải nội dung nghe nhìn xuống", "Download")
 MENU_IMAGE_ORIGINAL = T("Kích thước gốc", "Original size", "Original")   # ảnh: 1K gốc; 2K/4K là bản nâng độ phân giải
+ORIGINAL_HEIGHT = 720
 MENU_ORIGINAL = "720p"       # bản gốc, không tốn credit; 1080p/4K là bản upscale
 
 MODELS = ["Omni 1.1 Flash", "Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"]
