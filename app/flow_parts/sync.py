@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import flow_selectors as S
+from .. import credits, flow_selectors as S
 from ..models import Chapter, Project, Scene
 from ..flow_common import _ranges, FlowError
 
@@ -21,6 +21,7 @@ class FlowSyncMixin:
     def _download_current(self, dst: Path, label: str) -> Path:
         """Đang ở màn hình clip (/edit/): tải bản gốc. Chỉ nhấn Escape khi có menu mở (Escape ở màn clip sẽ thoát)."""
         pg = self.page
+        res = getattr(self, "download_res", None)     # độ phân giải theo cấu hình dự án (chỉ Omni); None = bản gốc 720p
         dst.parent.mkdir(parents=True, exist_ok=True)
         last = None
         for attempt in range(1, 9):  # clip vừa xong đôi khi chưa cho tải
@@ -34,8 +35,12 @@ class FlowSyncMixin:
                 btn.wait_for(state="visible", timeout=20000)
                 btn.click()
                 pg.wait_for_timeout(1200)
+                items = pg.locator("[role=menuitem]")
+                item = items.filter(has_text=re.compile(rf"(?<!\d){re.escape(res)}")) if res else items.filter(has_text="")
+                if not res or not item.count():       # không có đúng độ phân giải đã cấu hình (vd. Veo): lấy bản gốc
+                    item = items.filter(has_text=S.MENU_ORIGINAL)
                 with pg.expect_download(timeout=90000) as d:
-                    pg.locator("[role=menuitem]").filter(has_text=S.MENU_ORIGINAL).first.click()
+                    item.first.click()
                 d.value.save_as(str(dst))
                 return dst
             except Exception as e:  # noqa: BLE001
@@ -99,6 +104,7 @@ class FlowSyncMixin:
         """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
         tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
         url = self.ensure_project(p, ch)
+        self.download_res = p.flow_resolution if p.flow_model == credits.OMNI else None
         remaining = list(scenes)
         got: list[Scene] = []
         self._scan_tiles(url, remaining, got, out_dir_for, limit, skip_rendering)
