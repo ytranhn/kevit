@@ -231,7 +231,7 @@ class PlanningMixin:
         box.exec()
         clicked = box.clickedButton()
         if clicked is b_re:
-            self.refresh_credits([accounts.active()], retry)
+            self.refresh_credits([accounts.active()], retry, deep=True)
         elif b_auto is not None and clicked is b_auto:
             accounts.set_auto_switch(True)
             self.account_changed.emit(self.project.account_id)

@@ -219,11 +219,18 @@ def save_credits(acc_id: str, credits: int | None, daily: int | None = None, ren
     _write(d["accounts"], d["default_new"])
 
 
+def available(a: Account) -> int | None:
+    """Tổng credit dùng được = credit gói + credit tặng hằng ngày còn lại (hai khoản riêng trên Flow). Chưa đọc credit thì None."""
+    if a.credits is None:
+        return None
+    return a.credits + (a.daily or 0)
+
+
 def known_credits(a: Account, max_age: float = CREDIT_STALE) -> int | None:
-    """Credit đã biết và còn mới; quá cũ hoặc chưa đọc thì None (không đủ tin cậy để chặn việc chạy)."""
+    """Credit dùng được (gói + ngày) đã biết và còn mới; quá cũ hoặc chưa đọc thì None (không đủ tin cậy để chặn việc chạy)."""
     if a.credits is None or time.time() - a.checked_at > max_age:
         return None
-    return a.credits
+    return available(a)
 
 
 def fmt_credits(n: int | None) -> str:
