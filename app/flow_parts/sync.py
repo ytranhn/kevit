@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import credits, flow_selectors as S
+from .. import flow_selectors as S
 from ..models import Chapter, Project, Scene
 from ..flow_common import _ranges, FlowError
 
@@ -21,7 +21,6 @@ class FlowSyncMixin:
     def _download_current(self, dst: Path, label: str) -> Path:
         """Đang ở màn hình clip (/edit/): tải bản gốc. Chỉ nhấn Escape khi có menu mở (Escape ở màn clip sẽ thoát)."""
         pg = self.page
-        res = getattr(self, "download_res", None)     # độ phân giải theo cấu hình dự án (chỉ Omni); None = bản gốc 720p
         dst.parent.mkdir(parents=True, exist_ok=True)
         last = None
         for attempt in range(1, 9):  # clip vừa xong đôi khi chưa cho tải
@@ -35,12 +34,9 @@ class FlowSyncMixin:
                 btn.wait_for(state="visible", timeout=20000)
                 btn.click()
                 pg.wait_for_timeout(1200)
-                items = pg.locator("[role=menuitem]")
-                item = items.filter(has_text=re.compile(rf"(?<!\d){re.escape(res)}")) if res else items.filter(has_text="")
-                if not res or not item.count():       # không có đúng độ phân giải đã cấu hình (vd. Veo): lấy bản gốc
-                    item = items.filter(has_text=S.MENU_ORIGINAL)
+                item = self._pick_download_item()
                 with pg.expect_download(timeout=90000) as d:
-                    item.first.click()
+                    item.click()
                 d.value.save_as(str(dst))
                 return dst
             except Exception as e:  # noqa: BLE001
@@ -48,6 +44,22 @@ class FlowSyncMixin:
                 self.log(f"{label}: tải clip lần {attempt} chưa được ({type(e).__name__}), thử lại...")
                 pg.wait_for_timeout(8000)
         raise FlowError(f"Không tải được clip {label} sau 8 lần: {str(last)[:300]}")
+
+    def _pick_download_item(self):
+        """Mục trong menu tải: ưu tiên 720p (bản gốc); không có thì bản cao nhất thấp hơn 720p (vd. 360p). Bản upscale 1080p/4K không lấy."""
+        items = self.page.locator("[role=menuitem]")
+        best, best_h = None, 0
+        for i in range(items.count()):
+            m = re.search(r"(?<!\d)(\d{3,4})p\b", items.nth(i).inner_text())
+            h = int(m.group(1)) if m else 0
+            if h == S.ORIGINAL_HEIGHT:
+                return items.nth(i)
+            if best_h < h < S.ORIGINAL_HEIGHT:
+                best, best_h = items.nth(i), h
+        if best is None:
+            raise FlowError("Menu tải của Flow không có bản 720p hoặc thấp hơn.")
+        self.log(f"Menu tải không có {S.MENU_ORIGINAL}: lấy bản {best_h}p.")
+        return best
 
     def _download_first(self, s: Scene, out_dir: Path) -> Path:
         self.page.wait_for_timeout(2000)
@@ -104,7 +116,6 @@ class FlowSyncMixin:
         """Duyệt các clip trong project Flow (mới -> cũ), khớp với scene theo nội dung prompt (đầu prompt = visual),
         tải về scene nào chưa có clip. Không tạo clip mới nên không tốn credit."""
         url = self.ensure_project(p, ch)
-        self.download_res = p.flow_resolution if p.flow_model == credits.OMNI else None
         remaining = list(scenes)
         got: list[Scene] = []
         self._scan_tiles(url, remaining, got, out_dir_for, limit, skip_rendering)

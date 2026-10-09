@@ -54,7 +54,6 @@ class FlowClipMixin:
         dur = credits.pick_duration(s.narration, p.narration_lang) if (p.flow_auto_duration and p.flow_model == credits.OMNI) else 8
         s.duration = dur
         self.configure(p.flow_model, p.aspect_ratio, p.flow_resolution, dur)
-        self.download_res = p.flow_resolution if p.flow_model == credits.OMNI else None
         if budget is not None and not budget.can_afford(self.last_cost):
             raise NoCreditError(f"Không đủ credit cho scene {s.index}: cần {self.last_cost}, tài khoản còn {budget.left}.")
         for n in s.characters[:3]:

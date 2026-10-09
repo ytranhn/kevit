@@ -6,7 +6,7 @@ Phiên bản theo dạng `chính.phụ.sửa`. Số hiện tại nằm ở [app/
 
 ### Sửa
 - **Kiểm tra credit cộng dồn credit ngày**: cổng chặn gen, ngân sách mỗi lượt gen và cảnh báo ở hộp thoại gen nhiều chương giờ tính credit gói + credit tặng hằng ngày, không còn chặn nhầm tài khoản vẫn đủ credit. Mỗi lượt gen đọc thêm trang Google One (~5 giây) để lấy credit ngày.
-- **Tải clip theo độ phân giải đã cấu hình** (Omni): trước đây luôn bấm mục 720p; nay chọn đúng độ phân giải của dự án nếu menu tải của Flow có, không có thì lấy bản gốc 720p.
+- **Tải clip ưu tiên 720p**: nếu menu tải của Flow không có 720p thì lấy bản cao nhất thấp hơn (vd. 360p) thay vì báo lỗi; không bao giờ lấy bản upscale 1080p/4K.
 
 ## 1.9.0
 
