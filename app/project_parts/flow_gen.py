@@ -160,16 +160,18 @@ class FlowGenMixin:
                     try:
                         left = None
                         try:
-                            info = f.read_credits(deep=False)
+                            info = f.read_credits(deep=True)       # deep: lấy cả credit ngày để cộng dồn
                         except flow_auto.FlowError as e:
                             if first:
                                 raise
                             log(f"Tài khoản «{acc.name}» chưa đăng nhập Flow: {str(e)[:100]}")
                             info = False
                         if info:
-                            left = info["credits"]
-                            accounts.save_credits(acc.id, left, email=info.get("email", ""))
-                            log(f"Tài khoản «{acc.name}»: còn {accounts.fmt_credits(left)} credit.")
+                            accounts.save_credits(acc.id, info["credits"], info.get("daily"), info.get("renew", ""), info.get("email", ""),
+                                                  info.get("plan_total"), info.get("daily_grant"))
+                            left = info["credits"] + (info.get("daily") or 0)
+                            log(f"Tài khoản «{acc.name}»: còn {accounts.fmt_credits(left)} credit"
+                                + (f" ({accounts.fmt_credits(info['credits'])} gói + {info['daily']} ngày)." if info.get("daily") else "."))
                         elif info is None:
                             log(f"Không đọc được credit của «{acc.name}»: cứ chạy, Flow sẽ báo nếu thiếu.")
                         usable = info is not False
@@ -215,9 +217,9 @@ class FlowGenMixin:
                                 unsent = []
                             remaining = unsent + later
                             try:                                    # cập nhật credit còn lại sau lượt gen (không bắt buộc)
-                                info2 = f.read_credits(deep=False)
+                                info2 = f.read_credits(deep=True)
                                 if info2:
-                                    accounts.save_credits(acc.id, info2["credits"], email=info2.get("email", ""))
+                                    accounts.save_credits(acc.id, info2["credits"], info2.get("daily"), email=info2.get("email", ""))
                             except Exception:  # noqa: BLE001
                                 pass
                     finally:

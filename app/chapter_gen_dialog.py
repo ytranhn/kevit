@@ -139,9 +139,9 @@ class ChapterGenDialog(QDialog):
         n = len(self.chosen())
         text = f"Sẽ gen {len(scenes)} scene của {n} chương  ·  ước tính ≈ {est} credit" if scenes else "Chưa chọn chương nào."
         acc = accounts.get(self.p.account_id)
-        over = bool(scenes) and acc.credits is not None and est > acc.credits
+        over = bool(scenes) and accounts.available(acc) is not None and est > accounts.available(acc)
         if over:
-            text += (f"\n⚠ Vượt credit hiện có của «{acc.name}» ({accounts.fmt_credits(acc.credits)}). "
+            text += (f"\n⚠ Vượt credit hiện có của «{acc.name}» ({accounts.fmt_credits(accounts.available(acc))}). "
                      + ("Kevit sẽ tự chuyển tài khoản khi hết credit." if accounts.auto_switch() and len(accounts.all_accounts()) > 1
                         else "Nạp thêm credit, bật tự chuyển tài khoản, hoặc chọn ít chương hơn."))
         self.summary.setText(text)
